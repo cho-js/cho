@@ -1,0 +1,13 @@
+.idea
+/tmp
+.env
+/demo
+/docs/.vitepress/dist
+/docs/.vitepress/cache
+/node_modules
+/docs/node_modules
+node_modules
+/**/*.js
+/**/*.d.ts
+/**/*.js.map
+/**/*.d.ts.map
