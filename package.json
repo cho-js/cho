@@ -1,0 +1,12 @@
+{
+  "name": "chojs",
+  "version": "0.0.0",
+  "sideEffects": false,
+  "author": "Ziv Perry",
+  "license": "MIT",
+  "devDependencies": {
+    "@semantic-release/exec": "^7.1.0",
+    "jsr": "^0.13.5",
+    "semantic-release": "^24.2.7"
+  }
+}
