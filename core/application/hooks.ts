@@ -19,8 +19,10 @@ export type OnModuleShutdown = {
  */
 export function onModuleInit(mdl: CompiledModule): Promise<void> {
   async function visit(m: CompiledModule) {
-    if (m.handle && typeof m.handle.onModuleInit === "function") {
-      await (m.handl as OnModuleInit)(mdl);
+    const handle = m.handle as OnModuleInit;
+
+    if (handle && typeof handle.onModuleInit === "function") {
+      await handle.onModuleInit(mdl);
     }
 
     for (const im of m.imports) {
@@ -41,8 +43,10 @@ export function onModuleActivate(
   target: unknown,
 ): Promise<void> {
   async function visit(m: CompiledModule) {
-    if (m.handle && typeof m.handle.onModuleActivate === "function") {
-      await (m.handle as OnModuleActivate).onModuleActivate(mdl, target);
+    const handle = m.handle as OnModuleActivate;
+
+    if (handle && typeof handle.onModuleActivate === "function") {
+      await handle.onModuleActivate(mdl, target);
     }
 
     for (const im of m.imports) {
@@ -62,8 +66,10 @@ export function onModuleShutdown(
   target: unknown,
 ): Promise<void> {
   async function visit(m: CompiledModule) {
-    if (m.handle && typeof m.handle.onModuleShutdown === "function") {
-      await (m.handle as OnModuleShutdown).onModuleShutdown(mdl, target);
+    const handle = m.handle as OnModuleShutdown;
+
+    if (handle && typeof handle.onModuleShutdown === "function") {
+      await handle.onModuleShutdown(mdl, target);
     }
 
     for (const im of m.imports) {
