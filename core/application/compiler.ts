@@ -139,7 +139,6 @@ export class Compiler {
    * @param mw
    * @param injector
    * @protected
-   * // todo add cache...
    */
   protected async middleware(
     mw: ChoMiddleware | ChoMiddlewareFn,
@@ -160,7 +159,7 @@ export class Compiler {
     }
 
     // is implement ChoMiddlewareFn interface
-    if (typeof mw.prototype.handle === "function") {
+    if (isClassImplement<ChoMiddleware>(mw, "handle")) {
       const instance = await injector
         .register(mw as Ctr)
         .resolve<ChoMiddleware>(mw as Ctr);
