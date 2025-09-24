@@ -11,21 +11,34 @@ import {
   Provider,
 } from "../di/types.ts";
 
+/**
+ * A node in the module graph, representing a module, controller, or method.
+ * Each node contains its metadata, associated middlewares, and an optional error handler.
+ */
 export type Node<M = Any, T = Any> = T & {
   meta: M;
   middlewares: (ChoMiddleware | ChoMiddlewareFn)[];
   errorHandler?: ChoErrorHandler | ChoErrorHandlerFn;
 };
 
+/**
+ * A node representing a method within a controller, including its metadata and middlewares.
+ */
 export type MethodNode = Node<MethodDescriptor, {
   name: string;
 }>;
 
+/**
+ * A node representing a controller, including its metadata, middlewares, and methods.
+ */
 export type ControllerNode = Node<ControllerDescriptor, {
   ctr: Ctr;
   methods: MethodNode[];
 }>;
 
+/**
+ * A node representing a module, including its metadata, middlewares, imports, providers, and controllers.
+ */
 export type ModuleNode = Node<ModuleDescriptor, {
   ctr: Ctr;
   imports: ModuleNode[];

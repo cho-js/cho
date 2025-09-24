@@ -1,5 +1,10 @@
 import { expect } from "@std/expect";
-import { read, readMetadataObject, write, writeMetadataObject } from "../meta/mod.ts";
+import {
+  read,
+  readMetadataObject,
+  write,
+  writeMetadataObject,
+} from "../meta/mod.ts";
 
 const key = Symbol("key");
 

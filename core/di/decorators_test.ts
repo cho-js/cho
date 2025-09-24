@@ -43,13 +43,19 @@ Deno.test("sanity - Controller decorator should add metadata", () => {
 Deno.test("sanity - Dependencies decorator should set deps metadata", () => {
   @Dependencies("dep1", "dep2")
   class TestClass {}
-  expect(readMetadataObject(TestClass)).toEqual({ deps: ["dep1", "dep2"], isInjectable: true });
+  expect(readMetadataObject(TestClass)).toEqual({
+    deps: ["dep1", "dep2"],
+    isInjectable: true,
+  });
 });
 
 Deno.test("sanity - Deps decorator should set deps metadata", () => {
   @Deps("dep1", "dep2")
   class TestClass {}
-  expect(readMetadataObject(TestClass)).toEqual({ deps: ["dep1", "dep2"], isInjectable: true  });
+  expect(readMetadataObject(TestClass)).toEqual({
+    deps: ["dep1", "dep2"],
+    isInjectable: true,
+  });
 });
 
 Deno.test("sanity - Middlewares decorator should set middlewares metadata", () => {

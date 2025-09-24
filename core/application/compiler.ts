@@ -25,6 +25,10 @@ export type Meta = {
   [key: string]: unknown;
 };
 
+/**
+ * A compiled representation of a module, controller, or method.
+ * It includes the associated middlewares, metadata, handler, and optional error handler.
+ */
 export type Compiled<M, T> = T & {
   /**
    * Middlewares associated with the module, controller or method.
@@ -47,6 +51,9 @@ export type Compiled<M, T> = T & {
   errorHandler?: ChoErrorHandlerFn;
 };
 
+/**
+ * A compiled method within a controller.
+ */
 export type CompiledMethod = Compiled<MethodDescriptor, {
   /**
    * The name of the method.
@@ -54,6 +61,9 @@ export type CompiledMethod = Compiled<MethodDescriptor, {
   name: string;
 }>;
 
+/**
+ * A compiled gateway (controller) within a module.
+ */
 export type CompiledGateway = Compiled<ControllerDescriptor, {
   /**
    * List of compiled methods within the gateway.
@@ -61,6 +71,9 @@ export type CompiledGateway = Compiled<ControllerDescriptor, {
   methods: CompiledMethod[];
 }>;
 
+/**
+ * A compiled module, including its controllers and imported modules.
+ */
 export type CompiledModule = Compiled<ModuleDescriptor, {
   /**
    * List of compiled gateways (controllers) within the module.

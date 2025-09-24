@@ -14,7 +14,7 @@ jobs:
       id-token: write
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,10 +25,10 @@ jobs:
         with:
           node-version: "24"
 
-      - name: 🌼 Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      #      - name: 🌼 Setup Deno
+      #        uses: denoland/setup-deno@v2
+      #        with:
+      #          deno-version: v2.x
 
       #      - name: 🧪 testing
       #        run: deno test --allow-env
