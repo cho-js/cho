@@ -1,5 +1,4 @@
 import type { CompiledModule } from "./compiler.ts";
-import type { Target } from "../meta/mod.ts";
 
 export type OnModuleInit = {
   onModuleInit(mdl: CompiledModule): void | Promise<void>;
