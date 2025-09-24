@@ -1,4 +1,5 @@
-import { Any, Ctr, readMetadataObject } from "../di/meta.ts";
+import { Ctr } from "@chojs/core/meta";
+import { Any, readMetadataObject } from "../meta/mod.ts";
 import {
   ChoErrorHandler,
   ChoErrorHandlerFn,

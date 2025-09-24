@@ -6,8 +6,8 @@ import type {
   ModuleDescriptor,
   Token,
 } from "./types.ts";
-import type { ClassMethodDecorator, Ctr, Target } from "./meta.ts"
-import { addToMetadataObject } from "./meta.ts";
+import type { ClassMethodDecorator, Ctr, Target } from "../meta/mod.ts";
+import { addToMetadataObject } from "../meta/mod.ts";
 
 /**
  * Mark a class as injectable and create its provider.

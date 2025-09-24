@@ -1,4 +1,4 @@
-import type { Any, Ctr, Target } from "../di/meta.ts";
+import type { Any, Ctr, Target } from "../meta/mod.ts";
 import type {
   ChoErrorHandler,
   ChoErrorHandlerFn,
@@ -79,6 +79,8 @@ export type CompiledModule = Compiled<ModuleDescriptor, {
  */
 export class Compiler {
   protected readonly resolved: WeakMap<Ctr, CompiledModule> = new WeakMap();
+  protected readonly middlewares: WeakMap<Ctr | Target, ChoMiddlewareFn> =
+    new WeakMap();
 
   /**
    * Compile the given class constructor
@@ -134,6 +136,11 @@ export class Compiler {
       throw new Error(`Middleware is not a class or function: ${mw}`);
     }
 
+    // no need to re-instantiate, return from cache
+    if (this.middlewares.has(mw)) {
+      return this.middlewares.get(mw) as ChoMiddlewareFn;
+    }
+
     if (!isClass(mw)) {
       // function middleware, return as is
       return mw as ChoMiddlewareFn;
@@ -144,7 +151,9 @@ export class Compiler {
       const instance = await injector
         .register(mw as Ctr)
         .resolve<ChoMiddleware>(mw as Ctr);
-      return instance.handle.bind(instance) as ChoMiddlewareFn;
+      const mwFn = instance.handle.bind(instance) as ChoMiddlewareFn;
+      this.middlewares.set(mw, mwFn);
+      return mwFn;
     }
 
     // if (typeof mw.prototype.canActivate === "function") {

@@ -4,8 +4,9 @@
   "license": "MIT",
   "exports": {
     ".": "./mod.ts",
-    "./application": "./application/mod.ts",
     "./di": "./di/mod.ts",
+    "./meta": "./meta/mod.ts",
+    "./application": "./application/mod.ts",
     "./utils": "./utils/mod.ts"
   },
   "imports": {

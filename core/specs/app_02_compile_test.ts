@@ -1,7 +1,7 @@
 import { expect } from "@std/expect";
 import { Injectable, Module } from "../di/decorators.ts";
-import { graphBuilder } from "../compiler/graph-builder.ts";
-import { Compiler } from "../compiler/compiler.v2.ts";
+import { graphBuilder } from "../application/graph-builder.ts";
+import { Compiler } from "../application/compiler.ts";
 
 Deno.test("creating compiled module", async () => {
   @Injectable()

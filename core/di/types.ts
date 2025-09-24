@@ -1,4 +1,4 @@
-import type { Any, Ctr, Target } from "./meta.ts"
+import type { Any, Ctr, Target } from "../meta/mod.ts";
 
 /**
  * Token type for dependency injection.
