@@ -1,12 +1,36 @@
 # @chojs/core
 
-Core modules for `cho` framework.
+Core modules for `CHO` framework.
 
-| Sub-Modules                         |
-| ----------------------------------- |
-| [Dependency Injection](./di/mod.ts) |
-| [Compiler](./compiler/mod.ts)       |
-| [Utilities](./utils/mod.ts)         |
-| [Metadata](./meta/mod.ts)           |
+The CHO core module provides the fundamental building blocks for the CHO framework,
+including dependency injection, metadata handling, and application lifecycle management.
 
-[See documentation at https://ziv.github.io/cho/](https://ziv.github.io/cho/)
+## Dependency Injection
+
+Create injectable services and organize them into modules:
+
+```ts
+
+@Injectable({deps: [DatabaseService]})
+class UserService {
+    constructor(private db: DatabaseService) {
+    }
+}
+
+@Module({
+    imports: [DatabaseModule],
+    providers: [
+        {
+            provide: UserService,
+            factory: (injector) => {
+                const db = injector.resolve(DatabaseService);
+                return new UserService(db);
+            }
+        }
+    ]
+})
+class UserModule {
+}
+```
+
+TBC...
