@@ -1,8 +1,9 @@
 import { expect } from "@std/expect";
 import { Module } from "./decorators.ts";
 import { Injector } from "./injector.ts";
+import { test } from "../testing/runner.ts";
 
-Deno.test("injector ctr should throw for module already have injector", () => {
+test("injector ctr should throw for module already have injector", () => {
   @Module({})
   class Mdl {}
 
@@ -10,12 +11,12 @@ Deno.test("injector ctr should throw for module already have injector", () => {
   expect(() => new Injector(Mdl)).toThrow();
 });
 
-Deno.test("injector ctr should throw for not a module", () => {
+test("injector ctr should throw for not a module", () => {
   class Mdl {}
   expect(() => new Injector(Mdl)).toThrow();
 });
 
-Deno.test("injector resolve should throw for missing provider", async () => {
+test("injector resolve should throw for missing provider", async () => {
   @Module({})
   class Mdl {}
   const inj = new Injector(Mdl);
@@ -23,7 +24,7 @@ Deno.test("injector resolve should throw for missing provider", async () => {
   await expect(inj.resolve("test")).rejects.toThrow();
 });
 
-Deno.test("injector resolve should return cached value", async () => {
+test("injector resolve should return cached value", async () => {
   @Module({})
   class Mdl {}
   const inj = new Injector(Mdl);
@@ -32,7 +33,7 @@ Deno.test("injector resolve should return cached value", async () => {
   expect(await inj.resolve("test")).toEqual("test");
 });
 
-Deno.test("injector resolve should return provided value", async () => {
+test("injector resolve should return provided value", async () => {
   @Module({
     providers: [
       {
@@ -47,7 +48,7 @@ Deno.test("injector resolve should return provided value", async () => {
   expect(await inj.resolve("test")).toEqual("test");
 });
 
-Deno.test("injector resolve should return imported value", async () => {
+test("injector resolve should return imported value", async () => {
   @Module({
     providers: [
       {
@@ -70,7 +71,7 @@ Deno.test("injector resolve should return imported value", async () => {
 // those next specs are to demonstrate that the order of module resolution matters
 // the eager of the importing modules will cause generation of different instances (by design).
 
-Deno.test("injector resolve should return 1 instance for 2 modules because AAA resolved before BBB", async () => {
+test("injector resolve should return 1 instance for 2 modules because AAA resolved before BBB", async () => {
   class Foo {
   }
   @Module({
@@ -99,7 +100,7 @@ Deno.test("injector resolve should return 1 instance for 2 modules because AAA r
   expect(fa).toBe(fb);
 });
 
-Deno.test("injector resolve should return 1 instance for 2 modules because AAA created, and its generate its deps", async () => {
+test("injector resolve should return 1 instance for 2 modules because AAA created, and its generate its deps", async () => {
   class Foo {
   }
   @Module({

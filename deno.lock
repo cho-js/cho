@@ -2769,6 +2769,9 @@
     ],
     "packageJson": {
       "dependencies": [
+        "npm:@jsr/chojs__core@^1.3.0",
+        "npm:@jsr/std__expect@^1.0.17",
+        "npm:@jsr/std__fmt@^1.0.8",
         "npm:@semantic-release/exec@^7.1.0",
         "npm:jsr@~0.13.5",
         "npm:semantic-release@^24.2.7"

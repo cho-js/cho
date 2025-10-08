@@ -1,8 +1,9 @@
-import { expect } from "@std/expect";
-import { Injectable, Module } from "../di/decorators.ts";
-import { graphBuilder } from "../application/graph-builder.ts";
+import {expect} from "@std/expect";
+import {graphBuilder, Injectable, Module} from "@chojs/core";
 
-Deno.test("creating module graph", () => {
+const test = Deno.test;
+
+test("creating module graph", () => {
   @Injectable()
   class TestService {
   }

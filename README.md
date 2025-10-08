@@ -1,8 +1,6 @@
 # CHO
 
-    Under development - not production ready!
-
-[![Release](https://github.com/ziv/cho/actions/workflows/release.yml/badge.svg)](https://github.com/ziv/cho/actions/workflows/release.yml)
+[![Release](https://github.com/cho-js/cho/actions/workflows/release.yml/badge.svg)](https://github.com/cho-js/cho/actions/workflows/release.yml)
 
 | Package              | Version                                                                               |
 |----------------------|---------------------------------------------------------------------------------------|
@@ -46,6 +44,7 @@ Minimalistic and optimized for performance!
 
 ---
 
+
 ## About JavaScript Decorators
 
 This project uses the TC39 stage 3 decorators proposal (JavaScript decorators).
@@ -53,7 +52,5 @@ This project uses the TC39 stage 3 decorators proposal (JavaScript decorators).
 - [TC39 stage 3 proposal](https://github.com/tc39/proposal-decorators)
 - [TypeScript Decorators](https://www.typescriptlang.org/docs/handbook/decorators.html)
 - [decorators.deno.dev](https://decorators.deno.dev/)
-
-<img src="./assets/cho.svg"  alt="CHO" width="200"/>
 
 # 蝶

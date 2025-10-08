@@ -77,7 +77,7 @@ const getMethods = (ctr: Ctr): { name: string; meta: MethodDescriptor }[] =>
 export function graphBuilder(ctr: Ctr): ModuleNode {
   const modules = new WeakMap<Ctr, ModuleNode>();
 
-  function visitMethod(
+  function constructMethod(
     { name, meta }: { name: string; meta: MethodDescriptor },
   ): MethodNode {
     return {
@@ -88,7 +88,7 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
     };
   }
 
-  function visitController(ctr: Ctr): ControllerNode {
+  function constructController(ctr: Ctr): ControllerNode {
     const meta = readMetadataObject<ControllerDescriptor>(ctr);
     if (!meta || !meta.isGateway) {
       throw new Error(
@@ -98,13 +98,13 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
     return {
       ctr,
       meta,
-      methods: getMethods(ctr).map(visitMethod),
+      methods: getMethods(ctr).map(constructMethod),
       middlewares: meta.middlewares ?? [],
       errorHandler: meta.errorHandler,
     };
   }
 
-  function visitModule(ctr: Ctr): ModuleNode {
+  function constructModule(ctr: Ctr): ModuleNode {
     if (modules.has(ctr)) {
       return modules.get(ctr) as ModuleNode;
     }
@@ -119,8 +119,8 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
     const node: ModuleNode = {
       ctr,
       meta,
-      imports: (meta.imports ?? []).map(visitModule),
-      controllers: (meta.controllers ?? []).map(visitController),
+      imports: (meta.imports ?? []).map(constructModule),
+      controllers: (meta.controllers ?? []).map(constructController),
       providers: meta.providers ?? [],
       middlewares: meta.middlewares ?? [],
       errorHandler: meta.errorHandler,
@@ -129,5 +129,5 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
     return node;
   }
 
-  return visitModule(ctr);
+  return constructModule(ctr);
 }
