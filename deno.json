@@ -1,6 +1,8 @@
 {
   "tasks": {
-    "test": "deno test --allow-env"
+    "test": "deno test --allow-env",
+    "test-node": "tsx --test",
+    "test-bun": "bun test"
   },
   "workspace": [
     "./core"

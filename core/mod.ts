@@ -166,7 +166,8 @@
  * if (isDev) log("Development mode enabled");
  * ```
  */
+export * from "./meta/mod.ts";
 export * from "./di/mod.ts";
 export * from "./utils/mod.ts";
-export * from "./meta/mod.ts";
+export * from "./testing/mod.ts";
 export * from "./application/mod.ts";

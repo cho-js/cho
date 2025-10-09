@@ -10,7 +10,7 @@ import {
   Providers,
 } from "./decorators.ts";
 import { readMetadataObject } from "../meta/mod.ts";
-import { test } from "../testing/runner.ts";
+import { test } from "../testing/mod.ts";
 // sanity check only
 // the DI tests are under "core/di/specs" directory
 

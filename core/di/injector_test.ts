@@ -1,7 +1,7 @@
 import { expect } from "@std/expect";
 import { Module } from "./decorators.ts";
 import { Injector } from "./injector.ts";
-import { test } from "../testing/runner.ts";
+import { test } from "../testing/mod.ts";
 
 test("injector ctr should throw for module already have injector", () => {
   @Module({})

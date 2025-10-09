@@ -5,7 +5,7 @@ import {
   write,
   writeMetadataObject,
 } from "../meta/mod.ts";
-import { test } from "../testing/runner.ts";
+import { test } from "../testing/mod.ts";
 
 const key = Symbol("key");
 
