@@ -19,11 +19,11 @@ import { isClass, isClassImplement } from "../utils/is.ts";
 
 const log = debuglog("core:compiler");
 
-export type Meta = {
-  middlewares?: (ChoMiddlewareFn | ChoMiddleware | Target)[];
-  errorHandler?: ChoErrorHandlerFn | ChoErrorHandler;
-  [key: string]: unknown;
-};
+// export type Meta = {
+//   middlewares?: (ChoMiddlewareFn | ChoMiddleware | Target)[];
+//   errorHandler?: ChoErrorHandlerFn | ChoErrorHandler;
+//   [key: string]: unknown;
+// };
 
 /**
  * A compiled representation of a module, controller, or method.
@@ -100,7 +100,9 @@ export class Compiler {
    * Return a tree of compiled modules ready for execution
    * @param node
    */
-  async compile(node: ModuleNode): Promise<CompiledModule> {
+  async compile(
+    node: ModuleNode,
+  ): Promise<CompiledModule> {
     const end = log.start();
     const compiled = await this.module(node);
     end(`module "${node.ctr.name}" compiled`);
@@ -131,7 +133,9 @@ export class Compiler {
     const instance = await injector
       .register(handler)
       .resolve<ChoErrorHandler>(handler);
-    return instance.catch.bind(instance) as ChoErrorHandlerFn;
+    return instance
+      .catch
+      .bind(instance) as ChoErrorHandlerFn;
   }
 
   /**

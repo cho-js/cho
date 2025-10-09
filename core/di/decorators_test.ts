@@ -4,6 +4,7 @@ import {
   Controller,
   Dependencies,
   Deps,
+  Imports,
   Injectable,
   Middlewares,
   Module,
@@ -72,4 +73,109 @@ test("sanity - Catch decorator should set middlewares metadata", () => {
   @Catch(fn1)
   class TestClass {}
   expect(readMetadataObject(TestClass)).toEqual({ errorHandler: fn1 });
+});
+
+test("Providers decorator should set providers metadata", () => {
+  class Service1 {}
+  class Service2 {}
+  @Providers(Service1, Service2)
+  class TestClass {}
+  expect(readMetadataObject(TestClass)).toEqual({
+    providers: [Service1, Service2],
+    isModule: true,
+  });
+});
+
+test("Imports decorator should set imports metadata", () => {
+  @Module({})
+  class Module1 {}
+  @Module({})
+  class Module2 {}
+  @Imports(Module1, Module2)
+  class TestClass {}
+  expect(readMetadataObject(TestClass)).toEqual({
+    imports: [Module1, Module2],
+    isModule: true,
+  });
+});
+
+test("Controller decorator with object parameter should set all properties", () => {
+  const middleware = () => {};
+  const errorHandler = () => {};
+  @Controller({
+    route: "api",
+    deps: ["dep1"],
+    middlewares: [middleware],
+    errorHandler,
+  })
+  class TestClass {}
+  expect(readMetadataObject(TestClass)).toEqual({
+    route: "api",
+    deps: ["dep1"],
+    middlewares: [middleware],
+    errorHandler,
+    isGateway: true,
+  });
+});
+
+test("Controller decorator without arguments should only set isGateway", () => {
+  @Controller()
+  class TestClass {}
+  expect(readMetadataObject(TestClass)).toEqual({ isGateway: true });
+});
+
+test("Module decorator with all options should set metadata", () => {
+  @Module({})
+  class ImportedModule {}
+  class Service {}
+  @Module({
+    deps: ["config"],
+    imports: [ImportedModule],
+    providers: [Service],
+  })
+  class TestClass {}
+  expect(readMetadataObject(TestClass)).toEqual({
+    deps: ["config"],
+    imports: [ImportedModule],
+    providers: [Service],
+    isModule: true,
+  });
+});
+
+test("Injectable decorator without options should only set isInjectable", () => {
+  @Injectable()
+  class TestClass {}
+  expect(readMetadataObject(TestClass)).toEqual({ isInjectable: true });
+});
+
+test("Multiple decorators should merge metadata", () => {
+  const middleware1 = () => {};
+  const middleware2 = () => {};
+  @Injectable()
+  @Dependencies("dep1")
+  @Middlewares(middleware1)
+  @Middlewares(middleware2)
+  class TestClass {}
+  // Decorators apply bottom-up, so middleware2 is applied first, then middleware1
+  expect(readMetadataObject(TestClass)).toEqual({
+    isInjectable: true,
+    deps: ["dep1"],
+    middlewares: [middleware2, middleware1],
+  });
+});
+
+test("Module with Providers and Imports decorators should merge", () => {
+  @Module({})
+  class ImportModule {}
+  class Service1 {}
+  class Service2 {}
+  @Module({})
+  @Imports(ImportModule)
+  @Providers(Service1, Service2)
+  class TestClass {}
+  expect(readMetadataObject(TestClass)).toEqual({
+    isModule: true,
+    imports: [ImportModule],
+    providers: [Service1, Service2],
+  });
 });
