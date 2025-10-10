@@ -82,7 +82,7 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
   ): MethodNode {
     return {
       name,
-      middlewares: meta.middlewares || [],
+      middlewares: (meta.middlewares as ChoMiddleware[]) || [],
       errorHandler: meta.errorHandler || undefined,
       meta,
     };

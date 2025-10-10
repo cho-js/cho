@@ -67,6 +67,9 @@ export type ControllerDescriptor = InjectableDescriptor & {
   isGateway: true;
 };
 
+/**
+ * Descriptor for a method within a controller, including routing and middleware information.
+ */
 export type MethodDescriptor = {
   route: string;
   middlewares: (ChoMiddleware | Target)[];
@@ -79,40 +82,71 @@ export type MethodDescriptor = {
 
 // middlewares types
 
+/**
+ * A generic context type for middleware and handlers.
+ */
 export type Context<T = Any> = T;
+
+/**
+ * A factory function that produces an input value based on the given context.
+ */
 export type InputFactory = (c: Context) => Promise<unknown>;
 
+/**
+ * A function type representing an endpoint handler.
+ */
 export type ChoEndpointFn = {
   (ctx: Context): void | Response | Promise<void | Response>;
   (...aegs: unknown[]): void | Response | Promise<void | Response>;
 };
 
+/**
+ * A function type representing the next middleware in the chain.
+ */
 export type Next = () => void | Promise<void>;
 
+/**
+ * A function type representing a middleware function.
+ */
 export type ChoMiddlewareFn = (
   ctx: Context,
   next: Next,
 ) => void | Response | Promise<void | Response>;
 
+/**
+ * An interface representing a middleware class.
+ */
 export interface ChoMiddleware {
   handle(ctx: Context, next: Next): Promise<void>;
 }
 
 // guards types
 
+/**
+ * A function type representing a guard function.
+ */
 export type ChoGuardFn = (ctx: Context) => boolean | Promise<boolean>;
 
+/**
+ * An interface representing a guard class.
+ */
 export interface ChoGuard {
   canActivate(ctx: Context): boolean | Promise<boolean>;
 }
 
 // error handlers types
 
+/**
+ * A function type representing an error handler function.
+ */
 export type ChoErrorHandlerFn = (
   err: Error,
   ctx: Context,
 ) => void | Response | Promise<void | Response>;
 
+/**
+ * An interface representing an error handler class.
+ */
 export interface ChoErrorHandler {
   catch(err: Error, ctx: Context): void | Response | Promise<void | Response>;
 }
