@@ -319,7 +319,11 @@ test("Compiler should handle multiple middlewares in order", async () => {
 
   @Controller({
     route: "api",
-    middlewares: [middleware1, middleware2, Middleware3 as unknown as ChoMiddleware],
+    middlewares: [
+      middleware1,
+      middleware2,
+      Middleware3 as unknown as ChoMiddleware,
+    ],
   })
   class TestController {}
 

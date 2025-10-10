@@ -4,12 +4,12 @@ import { Module } from "../di/decorators.ts";
 import { graphBuilder } from "./graph-builder.ts";
 import { Compiler } from "./compiler.ts";
 import {
-  onModuleActivate,
-  onModuleInit,
-  onModuleShutdown,
   type OnModuleActivate,
+  onModuleActivate,
   type OnModuleInit,
+  onModuleInit,
   type OnModuleShutdown,
+  onModuleShutdown,
 } from "./hooks.ts";
 import type { CompiledModule } from "./compiler.ts";
 
