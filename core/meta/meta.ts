@@ -176,6 +176,24 @@ export function addToMetadataObject(
   writeMetadataObject(target, existing);
 }
 
+/**
+ * Normalize the target for method decorators.
+ * Required since Bun uses a different decorator signature (TS experimental decorators).
+ *
+ * @param target
+ * @param key
+ */
+export function normTarget(
+  target: Target,
+  key?: string,
+): Target {
+  // support Bun decorators
+  if (typeof target === "object" && key) {
+    return target[key] as Target;
+  }
+  return target;
+}
+
 // export type Metadata = Record<string, unknown>;
 // export type MetaDecoratorFactory<T extends Metadata> = (
 //     desc?: Partial<T>,
