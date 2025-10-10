@@ -41,13 +41,13 @@ export type Ctr<T = Any> = new (...args: Any[]) => T;
  * @internal
  */
 export type MethodContext = {
-  kind: string;
-  name: string;
-  static: boolean;
-  private: boolean;
-  metadata: object;
-  addInitializer: (fn: () => void) => void;
-  access: { get: () => unknown };
+    kind: string;
+    name: string;
+    static: boolean;
+    private: boolean;
+    metadata: object;
+    addInitializer: (fn: () => void) => void;
+    access: { get: () => unknown };
 };
 
 /**
@@ -58,9 +58,9 @@ export type MethodContext = {
  * @see https://github.com/tc39/proposal-decorators?tab=readme-ov-file#class-methods
  */
 export type ClassDecorator = (value: Function, context: {
-  kind: "class";
-  name: string | undefined;
-  addInitializer(initializer: () => void): void;
+    kind: "class";
+    name: string | undefined;
+    addInitializer(initializer: () => void): void;
 }) => Function | void | Any;
 
 /**
@@ -70,12 +70,12 @@ export type ClassDecorator = (value: Function, context: {
  * @see https://github.com/tc39/proposal-decorators?tab=readme-ov-file#class-methods
  */
 export type ClassMethodDecorator = (value: Function, context: {
-  kind: "method";
-  name: string | symbol;
-  access: { get(): unknown };
-  static: boolean;
-  private: boolean;
-  addInitializer(initializer: () => void): void;
+    kind: "method";
+    name: string | symbol;
+    access: { get(): unknown };
+    static: boolean;
+    private: boolean;
+    addInitializer(initializer: () => void): void;
 }) => Function | void;
 
 // metadata read/write utilities
@@ -93,13 +93,13 @@ const MetaKey = "___cho_meta___";
  * @returns T | undefined
  */
 export function read<T = unknown>(
-  target: Target,
-  key: symbol | string,
+    target: Target,
+    key: symbol | string,
 ): T | undefined {
-  if (key in target) {
-    return target[key as keyof typeof target] as T;
-  }
-  return undefined;
+    if (key in target) {
+        return target[key as keyof typeof target] as T;
+    }
+    return undefined;
 }
 
 /**
@@ -110,16 +110,16 @@ export function read<T = unknown>(
  * @param value
  */
 export function write(
-  target: Target,
-  key: symbol | string,
-  value: unknown,
+    target: Target,
+    key: symbol | string,
+    value: unknown,
 ): void {
-  Object.defineProperty(target, key, {
-    value,
-    writable: false,
-    enumerable: false,
-    configurable: false,
-  });
+    Object.defineProperty(target, key, {
+        value,
+        writable: false,
+        enumerable: false,
+        configurable: false,
+    });
 }
 
 /**
@@ -131,9 +131,9 @@ export function write(
  * @returns T | undefined
  */
 export function readMetadataObject<T>(
-  target: Target,
+    target: Target,
 ): T | undefined {
-  return read<T>(target, MetaKey);
+    return read<T>(target, MetaKey);
 }
 
 /**
@@ -143,10 +143,10 @@ export function readMetadataObject<T>(
  * @param obj
  */
 export function writeMetadataObject(
-  target: Target,
-  obj: Record<string, unknown>,
+    target: Target,
+    obj: Record<string, unknown>,
 ) {
-  write(target, MetaKey, obj);
+    write(target, MetaKey, obj);
 }
 
 /**
@@ -157,28 +157,28 @@ export function writeMetadataObject(
  * @param obj
  */
 export function addToMetadataObject(
-  target: Target,
-  obj: Record<string, unknown>,
+    target: Target,
+    obj: Record<string, unknown>,
 ) {
-  const existing = readMetadataObject<Record<string, unknown>>(target) ?? {};
-  // merge arrays, overwrite other types
-  for (const key in obj) {
-    if (
-      key in existing &&
-      Array.isArray(existing[key]) &&
-      Array.isArray(obj[key])
-    ) {
-      existing[key].push(...obj[key]);
-    } else {
-      existing[key] = obj[key];
+    const existing = readMetadataObject<Record<string, unknown>>(target) ?? {};
+    // merge arrays, overwrite other types
+    for (const key in obj) {
+        if (
+            key in existing &&
+            Array.isArray(existing[key]) &&
+            Array.isArray(obj[key])
+        ) {
+            existing[key].push(...obj[key]);
+        } else {
+            existing[key] = obj[key];
+        }
     }
-  }
-  writeMetadataObject(target, existing);
+    writeMetadataObject(target, existing);
 }
 
 export type Metadata = Record<string, unknown>;
 export type MetaDecoratorFactory<T extends Metadata> = (
-  desc?: Partial<T>,
+    desc?: Partial<T>,
 ) => ClassDecorator;
 
 /**
@@ -197,9 +197,9 @@ export type MetaDecoratorFactory<T extends Metadata> = (
  * // todo mark not suppose to be any
  */
 export function createMetaDecorator<T extends Metadata>(
-  mark: Record<string, boolean> = {},
+    mark: Record<string, boolean> = {},
 ): MetaDecoratorFactory<T> {
-  return (desc: Partial<T> = {}) => (target: Target) => {
-    addToMetadataObject(target, { ...desc, ...mark });
-  };
+    return (desc: Partial<T> = {}) => (target: Target) => {
+        addToMetadataObject(target, { ...desc, ...mark });
+    };
 }

@@ -19,12 +19,6 @@ import { isClass, isClassImplement } from "../utils/is.ts";
 
 const log = debuglog("core:compiler");
 
-// export type Meta = {
-//   middlewares?: (ChoMiddlewareFn | ChoMiddleware | Target)[];
-//   errorHandler?: ChoErrorHandlerFn | ChoErrorHandler;
-//   [key: string]: unknown;
-// };
-
 /**
  * A compiled representation of a module, controller, or method.
  * It includes the associated middlewares, metadata, handler, and optional error handler.

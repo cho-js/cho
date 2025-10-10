@@ -165,6 +165,8 @@
  * log(`Starting server on port ${port}`);
  * if (isDev) log("Development mode enabled");
  * ```
+ *
+ * @module
  */
 export * from "./meta/mod.ts";
 export * from "./di/mod.ts";
