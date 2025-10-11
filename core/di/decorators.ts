@@ -6,7 +6,7 @@ import type {
     ModuleDescriptor,
     Token,
 } from "./types.ts";
-import type {Ctr, Target} from "../meta/mod.ts";
+import type {Any, Ctr, Target} from "../meta/mod.ts";
 import {addToMetadataObject, normTarget} from "../meta/mod.ts";
 
 /**
@@ -160,7 +160,7 @@ export function Imports(
 export function Middlewares(
   ...middlewares: (Ctr | Target)[]
 ): ClassDecorator & MethodDecorator {
-  return (target: Target, key?: string) => {
+  return (target: Any, key?: string | symbol) => {
     addToMetadataObject(normTarget(target, key), { middlewares });
   };
 }
@@ -172,7 +172,7 @@ export function Middlewares(
 export function Catch(
   errorHandler: ChoErrorHandler | ChoErrorHandlerFn,
 ): ClassDecorator & MethodDecorator {
-  return (target: Target, key?: string) => {
+  return (target: Any, key?: string | symbol) => {
     addToMetadataObject(normTarget(target, key), { errorHandler });
   };
 }

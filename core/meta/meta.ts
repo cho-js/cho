@@ -185,7 +185,7 @@ export function addToMetadataObject(
  */
 export function normTarget(
   target: Target,
-  key?: string,
+  key?: string | symbol,
 ): Target {
   // support Bun decorators
   if (typeof target === "object" && key) {
