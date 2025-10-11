@@ -6,7 +6,8 @@
     ".": "./mod.ts"
   },
   "imports": {
-    "@chojs/core": "jsr:@chojs/core@^1.8.0",
-    "@std/cli": "jsr:@std/cli@^1.0.22"
+    "@chojs/core": "jsr:@chojs/core@^1.15.1",
+    "@std/cli": "jsr:@std/cli@^1.0.22",
+    "marked": "npm:marked@^16.4.0"
   }
 }

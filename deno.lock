@@ -13,12 +13,6 @@
     "jsr:@std/internal@^1.0.10": "1.0.10",
     "jsr:@std/path@^1.1.1": "1.1.2",
     "jsr:@std/testing@^1.0.15": "1.0.15",
-    "npm:@jsr/chojs__command@0.3": "0.3.0",
-    "npm:@jsr/chojs__core@^1.8.0": "1.8.0",
-    "npm:@jsr/std__datetime@~0.225.5": "0.225.5",
-    "npm:@jsr/std__expect@^1.0.17": "1.0.17",
-    "npm:@jsr/std__fmt@^1.0.8": "1.0.8",
-    "npm:@jsr/std__testing@^1.0.16": "1.0.16",
     "npm:@semantic-release/exec@^7.1.0": "7.1.0_semantic-release@24.2.7__marked@15.0.12",
     "npm:@types/node@*": "24.2.0",
     "npm:jsr@~0.13.5": "0.13.5",
@@ -115,94 +109,6 @@
     },
     "@isaacs/string-locale-compare@1.1.0": {
       "integrity": "sha512-SQ7Kzhh9+D+ZW9MA0zkYv3VXhIDNx+LzM6EJ+/65I3QY+enU6Itte7E5XX7EWrqLW2FN4n06GWzBnPoC3th2aQ=="
-    },
-    "@jsr/chojs__command@0.3.0": {
-      "integrity": "sha512-LjGyPycLchQt55w+z1vj56pwL2GrW8w+QmdUhxf2atfDYWgc8x7lQsOwBwOOSqtI8nf/qm+EUfOyb+lf6VIQog==",
-      "dependencies": [
-        "@jsr/chojs__core",
-        "@jsr/std__cli"
-      ],
-      "tarball": "https://npm.jsr.io/~/11/@jsr/chojs__command/0.3.0.tgz"
-    },
-    "@jsr/chojs__core@1.8.0": {
-      "integrity": "sha512-Qcho4JlDyrvTk7jo7fnfdsHdNZ+F67s0otsucX9TMsebr9KFZGKAEiJ0PuOeYe6AZxY6EBTAPTQ1Vjtxy+j2Jw==",
-      "dependencies": [
-        "@jsr/std__datetime",
-        "@jsr/std__fmt"
-      ],
-      "tarball": "https://npm.jsr.io/~/11/@jsr/chojs__core/1.8.0.tgz"
-    },
-    "@jsr/std__assert@1.0.15": {
-      "integrity": "sha512-iaekOy2yP8hMA5pN5PHMXic4MH0pRggviqTvPd4iEMkS66lDOFTV0uxDRwRc3ia4btRB39QiSUXJPpVZCQu8nA==",
-      "dependencies": [
-        "@jsr/std__internal"
-      ],
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__assert/1.0.15.tgz"
-    },
-    "@jsr/std__async@1.0.15": {
-      "integrity": "sha512-GW6tMWwF79kKKVths4SWcju1cFykhcE+jiV6/k2IOW45611ji+Yomm0MZuW7JR4Oug+GXF0POrsAiSqL8k/9PQ==",
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__async/1.0.15.tgz"
-    },
-    "@jsr/std__cli@1.0.23": {
-      "integrity": "sha512-PrgJfjc8O2XHZTxPYsD0iqY6d5qrqviEEIhQc6LLaumYCqohLkC5nkagRk76O8tJCiV9VKcrU4mrazO4AM3JWg==",
-      "dependencies": [
-        "@jsr/std__internal"
-      ],
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__cli/1.0.23.tgz"
-    },
-    "@jsr/std__data-structures@1.0.9": {
-      "integrity": "sha512-+mT4Nll6fx+CPNqrlC+huhIOYNSMS+KUdJ4B8NujiQrh/bq++ds5PXpEsfV5EPR+YuWcuDGG0P1DE+Rednd7Wg==",
-      "dependencies": [
-        "@jsr/std__assert"
-      ],
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__data-structures/1.0.9.tgz"
-    },
-    "@jsr/std__datetime@0.225.5": {
-      "integrity": "sha512-J11UeI2KGbnIdARtAU0H+sTDfBIYQPI3jVpzvjxhWNi/KWZt+U3nnFfyzx9ZyxRG5xKc37GGJ6bCbLC0iFkZEA==",
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__datetime/0.225.5.tgz"
-    },
-    "@jsr/std__expect@1.0.17": {
-      "integrity": "sha512-+1wHqnotlmsLVrD9nAPTN0ITanwLCYmd9likMB7vn3/4vkTmotv/qUnzwtvegj7utgHrckR4Ksl1NDR8iaW3RQ==",
-      "dependencies": [
-        "@jsr/std__assert",
-        "@jsr/std__internal"
-      ],
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__expect/1.0.17.tgz"
-    },
-    "@jsr/std__fmt@1.0.8": {
-      "integrity": "sha512-miZHzj9OgjuajrcMKzpqNVwFb9O71UHZzV/FHVq0E0Uwmv/1JqXgmXAoBNPrn+MP0fHT3mMgaZ6XvQO7dam67Q==",
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__fmt/1.0.8.tgz"
-    },
-    "@jsr/std__fs@1.0.19": {
-      "integrity": "sha512-TEjyE8g+46jPlu7dJHLrwc8NMGl8zfG+JjWxyNQyDbxP0RtqZ4JmYZfR9vy4RWYWJQbLpw6Kbt2n+K/2zAO/JA==",
-      "dependencies": [
-        "@jsr/std__internal",
-        "@jsr/std__path"
-      ],
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__fs/1.0.19.tgz"
-    },
-    "@jsr/std__internal@1.0.12": {
-      "integrity": "sha512-6xReMW9p+paJgqoFRpOE2nogJFvzPfaLHLIlyADYjKMUcwDyjKZxryIbgcU+gxiTygn8yCjld1HoI0ET4/iZeA==",
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__internal/1.0.12.tgz"
-    },
-    "@jsr/std__path@1.1.2": {
-      "integrity": "sha512-5hkOR1s5M7am02Bn9KS+SNMNwUSivz7t7/w2HBhFIfO7Eh8+mWilaZ+1tdanV9aaSHr4c99Zo4Da+cCSuzUOdA==",
-      "dependencies": [
-        "@jsr/std__internal"
-      ],
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__path/1.1.2.tgz"
-    },
-    "@jsr/std__testing@1.0.16": {
-      "integrity": "sha512-suPk2iMICErQVuRcNj7HweRbFYsBLjqnrI0NgNEXzBAJYv8lA+/87IXMgv/rvyqSABHn3X4ciynFZgpyPCI32A==",
-      "dependencies": [
-        "@jsr/std__assert",
-        "@jsr/std__async",
-        "@jsr/std__data-structures",
-        "@jsr/std__fs",
-        "@jsr/std__internal",
-        "@jsr/std__path"
-      ],
-      "tarball": "https://npm.jsr.io/~/11/@jsr/std__testing/1.0.16.tgz"
     },
     "@nodelib/fs.scandir@2.1.5": {
       "integrity": "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==",
@@ -2879,7 +2785,8 @@
     "packageJson": {
       "dependencies": [
         "npm:@jsr/chojs__command@0.3",
-        "npm:@jsr/chojs__core@^1.8.0",
+        "npm:@jsr/chojs__core@^1.15.1",
+        "npm:@jsr/std__cli@^1.0.23",
         "npm:@jsr/std__datetime@~0.225.5",
         "npm:@jsr/std__expect@^1.0.17",
         "npm:@jsr/std__fmt@^1.0.8",
@@ -2893,7 +2800,7 @@
     "members": {
       "command": {
         "dependencies": [
-          "jsr:@chojs/core@^1.13.0",
+          "jsr:@chojs/core@^1.15.1",
           "jsr:@std/cli@^1.0.22",
           "npm:marked@^16.4.0"
         ]

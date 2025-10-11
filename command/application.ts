@@ -74,12 +74,14 @@ export class Application {
 
     // do we have a sub command?
     if (!args._[0]) {
+      // if there is an error handler, call it
       if (this.appRef.errorHandler) {
         return this.appRef.errorHandler(
           new MissingCommandError(),
           new ChoCommandContext(args),
         );
       }
+      // otherwise throw the error
       throw new MissingCommandError();
     }
 
@@ -91,12 +93,14 @@ export class Application {
     };
 
     if (!this.appRef.commands[route]) {
+      // if there is an error handler, call it
       if (this.appRef.errorHandler) {
         return this.appRef.errorHandler(
           new NotFoundError(),
           new ChoCommandContext(subArgs),
         );
       }
+      // otherwise throw the error
       throw new NotFoundError();
     }
 
@@ -132,6 +136,8 @@ export class Application {
     }
   }
 
+  showHelpNow() {
+  }
   showHelp(cmd: LinkedCommand | LinkedApp): void {
     const meta = cmd?.compiled?.meta as { help?: string };
 

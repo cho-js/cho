@@ -3,8 +3,8 @@
  * Minimist args API
  */
 export type ChoArgs = {
-    _: string[];
-    [key: string]: boolean | string | number | string[] | undefined;
+  _: string[];
+  [key: string]: boolean | string | number | string[] | undefined;
 };
 
 /**
@@ -13,12 +13,6 @@ export type ChoArgs = {
  * todo complete implementation
  */
 export class ChoCommandContext {
-    constructor(readonly args: ChoArgs) {
-    }
-
-    // write() {
-    // }
-    //
-    // writeln() {
-    // }
+  constructor(readonly args: ChoArgs) {
+  }
 }
