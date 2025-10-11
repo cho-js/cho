@@ -4,17 +4,16 @@
   "sideEffects": false,
   "author": "Ziv Perry",
   "license": "MIT",
-  "devDependencies": {
-    "@semantic-release/exec": "^7.1.0",
-    "jsr": "^0.13.5",
-    "semantic-release": "^24.2.7"
-  },
   "dependencies": {
     "@chojs/command": "npm:@jsr/chojs__command@^0.3.0",
-    "@chojs/core": "npm:@jsr/chojs__core@^1.8.0",
+    "@chojs/core": "npm:@jsr/chojs__core@^1.14.0",
+    "@semantic-release/exec": "^7.1.0",
     "@std/datetime": "npm:@jsr/std__datetime@^0.225.5",
     "@std/expect": "npm:@jsr/std__expect@^1.0.17",
     "@std/fmt": "npm:@jsr/std__fmt@^1.0.8",
-    "@std/testing": "npm:@jsr/std__testing@^1.0.16"
+    "@std/testing": "npm:@jsr/std__testing@^1.0.16",
+    "jsr": "^0.13.5",
+    "marked": "^16.4.0",
+    "semantic-release": "^24.2.7"
   }
 }
