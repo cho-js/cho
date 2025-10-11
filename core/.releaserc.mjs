@@ -8,7 +8,7 @@ export default {
       "@semantic-release/exec",
       {
         prepareCmd:
-          'sed -i "s/0.0.0/${nextRelease.version}/g" deno.publish.json && rm deno.json && mv deno.publish.json deno.json &&  cat deno.json',
+            'sed -i -E "s/\\"[0-9]+\\.[0-9]+\\.[0-9]+\\"/\\"${nextRelease.version}\\"/g" deno.json && cat deno.json',
         publishCmd: "npx jsr publish --allow-dirty",
       },
     ],
