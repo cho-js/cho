@@ -1,13 +1,13 @@
 import type {
-  ChoErrorHandler,
-  ChoErrorHandlerFn,
-  ControllerDescriptor,
-  InjectableDescriptor,
-  ModuleDescriptor,
-  Token,
+    ChoErrorHandler,
+    ChoErrorHandlerFn,
+    ControllerDescriptor,
+    InjectableDescriptor,
+    ModuleDescriptor,
+    Token,
 } from "./types.ts";
-import type { ClassMethodDecorator, Ctr, Target } from "../meta/mod.ts";
-import { addToMetadataObject } from "../meta/mod.ts";
+import type {Ctr, Target} from "../meta/mod.ts";
+import {addToMetadataObject, normTarget} from "../meta/mod.ts";
 
 /**
  * Mark a class as injectable and create its provider.
@@ -159,9 +159,9 @@ export function Imports(
  */
 export function Middlewares(
   ...middlewares: (Ctr | Target)[]
-): ClassDecorator & ClassMethodDecorator {
-  return (target: Target) => {
-    addToMetadataObject(target, { middlewares });
+): ClassDecorator & MethodDecorator {
+  return (target: Target, key?: string) => {
+    addToMetadataObject(normTarget(target, key), { middlewares });
   };
 }
 
@@ -171,8 +171,8 @@ export function Middlewares(
  */
 export function Catch(
   errorHandler: ChoErrorHandler | ChoErrorHandlerFn,
-): ClassDecorator & ClassMethodDecorator {
-  return (target: Target) => {
-    addToMetadataObject(target, { errorHandler });
+): ClassDecorator & MethodDecorator {
+  return (target: Target, key?: string) => {
+    addToMetadataObject(normTarget(target, key), { errorHandler });
   };
 }
