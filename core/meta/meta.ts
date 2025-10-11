@@ -193,31 +193,3 @@ export function normTarget(
   }
   return target;
 }
-
-// export type Metadata = Record<string, unknown>;
-// export type MetaDecoratorFactory<T extends Metadata> = (
-//     desc?: Partial<T>,
-// ) => ClassDecorator;
-
-// /**
-//  * class decorator factory that writes metadata to the target
-//  *
-//  * @example
-//  * ```ts
-//  * interface MyMeta {
-//  *   role: string;
-//  *   permissions: string[];
-//  * }
-//  *
-//  * const MyMetaDecorator = createMetaDecorator<MyMeta>();
-//  * ```
-//  *
-//  * // todo mark not suppose to be any
-//  */
-// export function createMetaDecorator<T extends Metadata>(
-//     mark: Record<string, boolean> = {},
-// ): MetaDecoratorFactory<T> {
-//     return (desc: Partial<T> = {}) => (target: Target) => {
-//         addToMetadataObject(target, { ...desc, ...mark });
-//     };
-// }
