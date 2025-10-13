@@ -2784,8 +2784,8 @@
     ],
     "packageJson": {
       "dependencies": [
-        "npm:@jsr/chojs__command@0.3",
-        "npm:@jsr/chojs__core@^1.15.1",
+        "npm:@jsr/chojs__command@0.7",
+        "npm:@jsr/chojs__core@^1.16.0",
         "npm:@jsr/std__cli@^1.0.23",
         "npm:@jsr/std__datetime@~0.225.5",
         "npm:@jsr/std__expect@^1.0.17",
