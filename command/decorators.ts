@@ -5,7 +5,7 @@ import { addToMetadataObject, type Any, normTarget } from "@chojs/core";
  * The main command is executed when no sub-command is provided.
  * todo carefully create a type to fit all environments
  *
- * This decorator can be applied to a method within a controller class.
+ * This decorator can be applied to methods within a controller class.
  *
  * @constructor
  */
@@ -33,7 +33,8 @@ export function Command(name: string): Any {
  * Add help content to a command method or controller.
  * Invoked when --help or -h is provided.
  *
- * This decorator can be applied to either a class or a method
+ * This decorator can be applied to methods within a controller class or to the controller class itself.
+ *
  * @param content
  * @constructor
  */

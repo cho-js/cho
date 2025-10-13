@@ -2800,7 +2800,7 @@
     "members": {
       "command": {
         "dependencies": [
-          "jsr:@chojs/core@^1.15.1",
+          "jsr:@chojs/core@^1.16.0",
           "jsr:@std/cli@^1.0.22",
           "npm:marked@^16.4.0"
         ]

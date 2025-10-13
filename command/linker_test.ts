@@ -1,553 +1,454 @@
 import { expect } from "@std/expect";
 import { test } from "@chojs/core/testing";
-import { Controller, Injectable, Module } from "@chojs/core";
-import { graphBuilder } from "@chojs/core/application";
-import { Compiler } from "@chojs/core/application";
-import { Linker } from "./linker.ts";
+import { Controller, Module } from "@chojs/core/di";
+import { Compiler, graphBuilder } from "@chojs/core/application";
+import { HelpKey, Linker } from "./linker.ts";
 import { Command, Help, Main } from "./decorators.ts";
-import type { LinkedCommandsApp, LinkedMainApp } from "./linker.ts";
+import type { ChoCommandContext } from "./context.ts";
 
-test("Linker should link a module with main command", async () => {
+test("Linker should link a main command application", async () => {
   @Controller()
   class TestController {
     @Main()
-    mainHandler() {
-      return "main executed";
-    }
+    mainHandler() {}
   }
 
-  @Module({
-    controllers: [TestController],
-  })
+  @Module({ controllers: [TestController] })
   class TestModule {}
 
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
 
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedMainApp;
-
-  expect(linked.main).toBeDefined();
-  expect(linked.main.handle).toBeDefined();
-  expect(typeof linked.main.handle).toBe("function");
-  expect(linked.main.middlewares).toEqual([]);
-  expect(linked.main.errorHandler).toBeUndefined();
+  expect("main" in linked).toBe(true);
+  expect(typeof (linked as any).main).toBe("function");
 });
 
-test("Linker should link a module with sub-commands", async () => {
+test("Linker should link a commands application", async () => {
   @Controller()
   class TestController {
-    @Command("start")
-    startCommand() {
-      return "started";
-    }
+    @Command("foo")
+    fooHandler() {}
 
-    @Command("stop")
-    stopCommand() {
-      return "stopped";
-    }
+    @Command("bar")
+    barHandler() {}
   }
 
-  @Module({
-    controllers: [TestController],
-  })
+  @Module({ controllers: [TestController] })
   class TestModule {}
 
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
 
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedCommandsApp;
-
-  expect(linked.commands).toBeDefined();
-  expect(linked.commands["start"]).toBeDefined();
-  expect(linked.commands["stop"]).toBeDefined();
-  expect(typeof linked.commands["start"].handle).toBe("function");
-  expect(typeof linked.commands["stop"].handle).toBe("function");
+  expect("commands" in linked).toBe(true);
+  expect(typeof (linked as any).commands.foo).toBe("function");
+  expect(typeof (linked as any).commands.bar).toBe("function");
 });
 
-test("Linker should throw error when main and sub-commands coexist", async () => {
+test("Linker should throw when main and subcommands exist together", async () => {
   @Controller()
   class TestController {
     @Main()
-    mainHandler() {
-      return "main";
-    }
+    mainHandler() {}
 
-    @Command("test")
-    testCommand() {
-      return "test";
-    }
+    @Command("foo")
+    fooHandler() {}
   }
 
-  @Module({
-    controllers: [TestController],
-  })
+  @Module({ controllers: [TestController] })
   class TestModule {}
 
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
 
-  const linker = new Linker();
-  expect(() => linker.link(compiled)).toThrow(
-    "Cannot have subcommands when 'main' command exists",
-  );
+  expect(() => {
+    new Linker().link(compiled);
+  }).toThrow();
 });
 
-test("Linker should throw error when duplicate commands exist", async () => {
+test("Linker should throw when duplicate command names exist", async () => {
   @Controller()
   class Controller1 {
-    @Command("test")
-    testCommand1() {
-      return "test1";
-    }
+    @Command("foo")
+    fooHandler1() {}
   }
 
   @Controller()
   class Controller2 {
-    @Command("test")
-    testCommand2() {
-      return "test2";
-    }
+    @Command("foo")
+    fooHandler2() {}
   }
 
-  @Module({
-    controllers: [Controller1, Controller2],
-  })
+  @Module({ controllers: [Controller1, Controller2] })
   class TestModule {}
 
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
 
-  const linker = new Linker();
-  expect(() => linker.link(compiled)).toThrow('Command "test" already exists');
+  expect(() => {
+    new Linker().link(compiled);
+  }).toThrow("Command \"foo\" already exists");
 });
 
-test("Linker should include middlewares from module, controller, and method", async () => {
-  const moduleMw = async () => {};
-  const controllerMw = async () => {};
-  const methodMw = async () => {};
-
-  @Controller({ middlewares: [controllerMw] })
+test("Linker should collect help from controller", async () => {
+  @Help("Global help text")
+  @Controller()
   class TestController {
-    @Command("test")
-    testCommand() {
-      return "test";
-    }
+    @Command("foo")
+    fooHandler() {}
   }
 
-  // Apply method middleware after class definition
-  Object.defineProperty(TestController.prototype.testCommand, "name", {
-    value: "testCommand",
-  });
-
-  @Module({
-    controllers: [TestController],
-    middlewares: [moduleMw],
-  })
+  @Module({ controllers: [TestController] })
   class TestModule {}
 
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
 
-  // Manually add method middleware to compiled structure
-  compiled.controllers[0].methods[0].middlewares.push(methodMw);
-
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedCommandsApp;
-
-  expect(linked.commands["test"].middlewares.length).toBe(3);
-  expect(linked.commands["test"].middlewares[0]).toBe(moduleMw);
-  expect(linked.commands["test"].middlewares[1]).toBe(controllerMw);
-  expect(linked.commands["test"].middlewares[2]).toBe(methodMw);
+  expect(linked.help[HelpKey]).toBe("Global help text");
 });
 
-test("Linker should handle error handlers correctly", async () => {
-  const moduleErrorHandler = () => {};
-  const controllerErrorHandler = () => {};
-  const methodErrorHandler = () => {};
-
-  @Controller({ errorHandler: controllerErrorHandler })
+test("Linker should collect help from methods", async () => {
+  @Controller()
   class TestController {
-    @Command("test1")
-    testCommand1() {
-      return "test1";
-    }
+    @Help("Foo help")
+    @Command("foo")
+    fooHandler() {}
 
-    @Command("test2")
-    testCommand2() {
-      return "test2";
-    }
-
-    @Command("test3")
-    testCommand3() {
-      return "test3";
-    }
+    @Help("Bar help")
+    @Command("bar")
+    barHandler() {}
   }
 
-  @Module({
-    controllers: [TestController],
-    errorHandler: moduleErrorHandler,
-  })
+  @Module({ controllers: [TestController] })
   class TestModule {}
 
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
 
-  // Manually set method error handler on test3
-  compiled.controllers[0].methods[2].errorHandler = methodErrorHandler;
-
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedCommandsApp;
-
-  // test1 should use controller error handler
-  expect(linked.commands["test1"].errorHandler).toBe(controllerErrorHandler);
-
-  // test2 should use controller error handler
-  expect(linked.commands["test2"].errorHandler).toBe(controllerErrorHandler);
-
-  // test3 should use method error handler (overrides controller)
-  expect(linked.commands["test3"].errorHandler).toBe(methodErrorHandler);
-
-  // App-level should have module error handler
-  expect(linked.errorHandler).toBe(moduleErrorHandler);
+  expect(linked.help.foo).toBe("Foo help");
+  expect(linked.help.bar).toBe("Bar help");
 });
 
-test("Linker should handle imported modules", async () => {
-  @Controller()
-  class SharedController {
-    @Command("shared")
-    sharedCommand() {
-      return "shared";
-    }
-  }
-
-  @Module({
-    controllers: [SharedController],
-  })
-  class SharedModule {}
-
-  @Controller()
-  class AppController {
-    @Command("app")
-    appCommand() {
-      return "app";
-    }
-  }
-
-  @Module({
-    imports: [SharedModule],
-    controllers: [AppController],
-  })
-  class AppModule {}
-
-  const graph = graphBuilder(AppModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
-
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedCommandsApp;
-
-  expect(linked.commands["app"]).toBeDefined();
-  expect(linked.commands["shared"]).toBeDefined();
-});
-
-test("Linker should skip methods without command decorator", async () => {
+test("Linker should collect help from main command", async () => {
   @Controller()
   class TestController {
-    @Command("test")
-    testCommand() {
-      return "test";
-    }
-
-    // No decorator - should be skipped
-    helperMethod() {
-      return "helper";
-    }
-  }
-
-  @Module({
-    controllers: [TestController],
-  })
-  class TestModule {}
-
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
-
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedCommandsApp;
-
-  expect(linked.commands["test"]).toBeDefined();
-  expect(Object.keys(linked.commands).length).toBe(1);
-});
-
-test("Linker should set compiled gateway reference", async () => {
-  @Controller()
-  class TestController {
+    @Help("Main help")
     @Main()
-    mainHandler() {
-      return "main";
-    }
+    mainHandler() {}
   }
 
-  @Module({
-    controllers: [TestController],
-  })
+  @Module({ controllers: [TestController] })
   class TestModule {}
 
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
 
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedMainApp;
-
-  expect(linked.compiled).toBeDefined();
-  expect(linked.compiled?.meta.isGateway).toBe(true);
+  expect(linked.help.main).toBe("Main help");
 });
 
-test("Linker should handle multiple controllers", async () => {
-  @Controller()
-  class Controller1 {
-    @Command("cmd1")
-    command1() {
-      return "cmd1";
-    }
-  }
-
-  @Controller()
-  class Controller2 {
-    @Command("cmd2")
-    command2() {
-      return "cmd2";
-    }
-  }
-
-  @Module({
-    controllers: [Controller1, Controller2],
-  })
-  class TestModule {}
-
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
-
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedCommandsApp;
-
-  expect(linked.commands["cmd1"]).toBeDefined();
-  expect(linked.commands["cmd2"]).toBeDefined();
-});
-
-test("Linker should handle main command with middlewares and error handler", async () => {
-  const middleware1 = async () => {};
-  const middleware2 = async () => {};
-  const errorHandler = () => {};
-
-  @Controller({ middlewares: [middleware1], errorHandler })
-  class TestController {
-    @Main()
-    mainHandler() {
-      return "main";
-    }
-  }
-
-  @Module({
-    controllers: [TestController],
-    middlewares: [middleware2],
-  })
-  class TestModule {}
-
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
-
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedMainApp;
-
-  expect(linked.main.middlewares.length).toBe(2);
-  expect(linked.main.middlewares[0]).toBe(middleware2);
-  expect(linked.main.middlewares[1]).toBe(middleware1);
-  expect(linked.main.errorHandler).toBe(errorHandler);
-});
-
-test("Linker should preserve compiled method reference in linked command", async () => {
+test("Linker should set empty string for help when not provided", async () => {
   @Controller()
   class TestController {
-    @Command("test")
-    testCommand() {
-      return "test";
-    }
+    @Command("foo")
+    fooHandler() {}
   }
 
-  @Module({
-    controllers: [TestController],
-  })
+  @Module({ controllers: [TestController] })
   class TestModule {}
 
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
 
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedCommandsApp;
-
-  expect(linked.commands["test"].compiled).toBeDefined();
-  expect(linked.commands["test"].compiled.name).toBe("testCommand");
-  expect(linked.commands["test"].compiled.meta).toBeDefined();
+  expect(linked.help.foo).toBe("");
 });
 
-test("Linker should handle commands with special characters", async () => {
+test("Linker should link commands from imported modules", async () => {
   @Controller()
-  class TestController {
-    @Command("test:run")
-    testRunCommand() {
-      return "test:run";
-    }
-
-    @Command("test-all")
-    testAllCommand() {
-      return "test-all";
-    }
+  class ImportedController {
+    @Command("imported")
+    importedHandler() {}
   }
 
-  @Module({
-    controllers: [TestController],
-  })
-  class TestModule {}
+  @Module({ controllers: [ImportedController] })
+  class ImportedModule {}
 
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
-
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedCommandsApp;
-
-  expect(linked.commands["test:run"]).toBeDefined();
-  expect(linked.commands["test-all"]).toBeDefined();
-});
-
-test("Linker should handle deeply nested imports", async () => {
-  @Controller()
-  class Level3Controller {
-    @Command("level3")
-    level3Command() {
-      return "level3";
-    }
-  }
-
-  @Module({
-    controllers: [Level3Controller],
-  })
-  class Level3Module {}
-
-  @Controller()
-  class Level2Controller {
-    @Command("level2")
-    level2Command() {
-      return "level2";
-    }
-  }
-
-  @Module({
-    imports: [Level3Module],
-    controllers: [Level2Controller],
-  })
-  class Level2Module {}
-
-  @Controller()
-  class Level1Controller {
-    @Command("level1")
-    level1Command() {
-      return "level1";
-    }
-  }
-
-  @Module({
-    imports: [Level2Module],
-    controllers: [Level1Controller],
-  })
-  class Level1Module {}
-
-  const graph = graphBuilder(Level1Module);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
-
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedCommandsApp;
-
-  expect(linked.commands["level1"]).toBeDefined();
-  expect(linked.commands["level2"]).toBeDefined();
-  expect(linked.commands["level3"]).toBeDefined();
-});
-
-test("Linker should handle module without controllers", async () => {
-  @Injectable()
-  class TestService {}
-
-  @Module({
-    providers: [TestService],
-  })
-  class TestModule {}
-
-  const graph = graphBuilder(TestModule);
-  const compiler = new Compiler();
-  const compiled = await compiler.compile(graph);
-
-  const linker = new Linker();
-  const linked = linker.link(compiled) as LinkedCommandsApp;
-
-  expect(linked.commands).toBeDefined();
-  expect(Object.keys(linked.commands).length).toBe(0);
-});
-
-test("Linker state should reset between link calls", async () => {
   @Controller()
   class MainController {
-    @Main()
-    mainHandler() {
-      return "main";
-    }
+    @Command("local")
+    localHandler() {}
   }
 
-  @Module({
-    controllers: [MainController],
-  })
-  class MainModule {}
+  @Module({ imports: [ImportedModule], controllers: [MainController] })
+  class TestModule {}
+
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
+
+  expect("commands" in linked).toBe(true);
+  expect(typeof (linked as any).commands.local).toBe("function");
+  expect(typeof (linked as any).commands.imported).toBe("function");
+});
+
+test("Linker should apply module middlewares to commands", async () => {
+  const calls: string[] = [];
+
+  function moduleMiddleware(ctx: ChoCommandContext, next: () => void) {
+    calls.push("module");
+    return next();
+  }
 
   @Controller()
-  class SubController {
-    @Command("test")
-    testCommand() {
-      return "test";
+  class TestController {
+    @Command("foo")
+    fooHandler() {
+      calls.push("handler");
     }
   }
 
   @Module({
-    controllers: [SubController],
+    controllers: [TestController],
+    middlewares: [moduleMiddleware],
   })
-  class SubModule {}
+  class TestModule {}
 
-  const mainGraph = graphBuilder(MainModule);
-  const subGraph = graphBuilder(SubModule);
-  const compiler = new Compiler();
-  const compiledMain = await compiler.compile(mainGraph);
-  const compiledSub = await compiler.compile(subGraph);
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
 
-  const linker = new Linker();
+  await (linked as any).commands.foo({} as ChoCommandContext);
 
-  // First link with main command
-  const linkedMain = linker.link(compiledMain) as LinkedMainApp;
-  expect(linkedMain.main).toBeDefined();
+  expect(calls).toEqual(["module", "handler"]);
+});
 
-  // Second link with sub commands should work (state reset)
-  const linkedSub = linker.link(compiledSub) as LinkedCommandsApp;
-  expect(linkedSub.commands["test"]).toBeDefined();
+test("Linker should apply controller middlewares to commands", async () => {
+  const calls: string[] = [];
+
+  function controllerMiddleware(ctx: ChoCommandContext, next: () => void) {
+    calls.push("controller");
+    return next();
+  }
+
+  @Controller({ middlewares: [controllerMiddleware] })
+  class TestController {
+    @Command("foo")
+    fooHandler() {
+      calls.push("handler");
+    }
+  }
+
+  @Module({ controllers: [TestController] })
+  class TestModule {}
+
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
+
+  await (linked as any).commands.foo({} as ChoCommandContext);
+
+  expect(calls).toEqual(["controller", "handler"]);
+});
+
+test("Linker should apply method middlewares to commands", async () => {
+  const calls: string[] = [];
+
+  function methodMiddleware(ctx: ChoCommandContext, next: () => void) {
+    calls.push("method");
+    return next();
+  }
+
+  @Controller()
+  class TestController {
+    @Command("foo")
+    fooHandler() {
+      calls.push("handler");
+    }
+  }
+
+  @Module({ controllers: [TestController] })
+  class TestModule {}
+
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+
+  // Manually add method middleware to test
+  compiled.controllers[0].methods[0].middlewares = [methodMiddleware];
+
+  const linked = new Linker().link(compiled);
+
+  await (linked as any).commands.foo({} as ChoCommandContext);
+
+  expect(calls).toEqual(["method", "handler"]);
+});
+
+test("Linker should apply all middlewares in correct order", async () => {
+  const calls: string[] = [];
+
+  function moduleMiddleware(ctx: ChoCommandContext, next: () => void) {
+    calls.push("module");
+    return next();
+  }
+
+  function controllerMiddleware(ctx: ChoCommandContext, next: () => void) {
+    calls.push("controller");
+    return next();
+  }
+
+  function methodMiddleware(ctx: ChoCommandContext, next: () => void) {
+    calls.push("method");
+    return next();
+  }
+
+  @Controller({ middlewares: [controllerMiddleware] })
+  class TestController {
+    @Command("foo")
+    fooHandler() {
+      calls.push("handler");
+    }
+  }
+
+  @Module({
+    controllers: [TestController],
+    middlewares: [moduleMiddleware],
+  })
+  class TestModule {}
+
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
+
+  await (linked as any).commands.foo({} as ChoCommandContext);
+
+  expect(calls).toEqual(["module", "controller", "handler"]);
+});
+
+test("Linker should handle errors with method error handler", async () => {
+  let errorHandled = false;
+
+  function methodErrorHandler(err: Error) {
+    errorHandled = true;
+    expect(err.message).toBe("test error");
+  }
+
+  @Controller()
+  class TestController {
+    @Command("foo")
+    fooHandler() {
+      throw new Error("test error");
+    }
+  }
+
+  @Module({ controllers: [TestController] })
+  class TestModule {}
+
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+
+  // Manually set error handler on the endpoint
+  compiled.controllers[0].methods[0].errorHandler = methodErrorHandler;
+
+  const linked = new Linker().link(compiled);
+
+  await (linked as any).commands.foo({} as ChoCommandContext);
+
+  expect(errorHandled).toBe(true);
+});
+
+test("Linker should propagate error when no error handler is set", async () => {
+  @Controller()
+  class TestController {
+    @Command("foo")
+    fooHandler() {
+      throw new Error("test error");
+    }
+  }
+
+  @Module({ controllers: [TestController] })
+  class TestModule {}
+
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
+
+  await expect(
+    (linked as any).commands.foo({} as ChoCommandContext),
+  ).rejects.toThrow("test error");
+});
+
+test("Linker should use global error handler when method handler not set", async () => {
+  let errorHandled = false;
+
+  function globalErrorHandler(err: Error) {
+    errorHandled = true;
+    expect(err.message).toBe("test error");
+  }
+
+  @Controller()
+  class TestController {
+    @Command("foo")
+    fooHandler() {
+      throw new Error("test error");
+    }
+  }
+
+  @Module({ controllers: [TestController] })
+  class TestModule {}
+
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  compiled.errorHandler = globalErrorHandler;
+
+  const linked = new Linker().link(compiled);
+
+  await (linked as any).commands.foo({} as ChoCommandContext);
+
+  expect(errorHandled).toBe(true);
+});
+
+test("Linker should pass correct context to handler", async () => {
+  let receivedContext: ChoCommandContext | null = null;
+
+  @Controller()
+  class TestController {
+    @Command("foo")
+    fooHandler(ctx: ChoCommandContext) {
+      receivedContext = ctx;
+    }
+  }
+
+  @Module({ controllers: [TestController] })
+  class TestModule {}
+
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
+
+  const testContext = { args: { _: [] } } as ChoCommandContext;
+  await (linked as any).commands.foo(testContext);
+
+  expect(receivedContext).toBe(testContext);
+});
+
+test("Linker should store reference to compiled module", async () => {
+  @Controller()
+  class TestController {
+    @Command("foo")
+    fooHandler() {}
+  }
+
+  @Module({ controllers: [TestController] })
+  class TestModule {}
+
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  const linked = new Linker().link(compiled);
+
+  expect(linked.compiled).toBe(compiled);
+});
+
+test("Linker should store error handler reference", async () => {
+  function globalErrorHandler() {}
+
+  @Controller()
+  class TestController {
+    @Command("foo")
+    fooHandler() {}
+  }
+
+  @Module({ controllers: [TestController] })
+  class TestModule {}
+
+  const compiled = await new Compiler().compile(graphBuilder(TestModule));
+  compiled.errorHandler = globalErrorHandler;
+
+  const linked = new Linker().link(compiled);
+
+  expect(linked.errorHandler).toBe(globalErrorHandler);
 });

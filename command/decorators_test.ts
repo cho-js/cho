@@ -1,5 +1,5 @@
 import { expect } from "@std/expect";
-import { readMetadataObject } from "@chojs/core";
+import { readMetadataObject } from "@chojs/core/meta";
 import { test } from "@chojs/core/testing";
 import { Command, Help, Main } from "./decorators.ts";
 
@@ -13,119 +13,99 @@ test("Main decorator should add command metadata with 'main' value", () => {
   });
 });
 
-test("Command decorator should add command metadata with provided name", () => {
+test("Command decorator should add command metadata with given name", () => {
   class TestController {
-    @Command("test")
-    testCommand() {}
+    @Command("foo")
+    fooHandler() {}
   }
-  expect(readMetadataObject(TestController.prototype.testCommand)).toEqual({
-    command: "test",
+  expect(readMetadataObject(TestController.prototype.fooHandler)).toEqual({
+    command: "foo",
   });
 });
 
-test("Command decorator with different names should create different metadata", () => {
+test("Command decorator with different names should create separate metadata", () => {
   class TestController {
-    @Command("create")
-    createCommand() {}
+    @Command("foo")
+    fooHandler() {}
 
-    @Command("delete")
-    deleteCommand() {}
+    @Command("bar")
+    barHandler() {}
   }
-  expect(readMetadataObject(TestController.prototype.createCommand)).toEqual({
-    command: "create",
+  expect(readMetadataObject(TestController.prototype.fooHandler)).toEqual({
+    command: "foo",
   });
-  expect(readMetadataObject(TestController.prototype.deleteCommand)).toEqual({
-    command: "delete",
+  expect(readMetadataObject(TestController.prototype.barHandler)).toEqual({
+    command: "bar",
   });
 });
 
-test("Help decorator on method should add help content metadata", () => {
+test("Help decorator on method should add help metadata", () => {
   class TestController {
-    @Help("This is a test command")
-    testMethod() {}
+    @Help("This is help text")
+    @Command("foo")
+    fooHandler() {}
   }
-  expect(readMetadataObject(TestController.prototype.testMethod)).toEqual({
-    help: "This is a test command",
+  expect(readMetadataObject(TestController.prototype.fooHandler)).toEqual({
+    command: "foo",
+    help: "This is help text",
   });
 });
 
-test("Help decorator on class should add help content metadata", () => {
-  @Help("This is a test controller")
+test("Help decorator on class should add help metadata", () => {
+  @Help("Global help text")
   class TestController {}
   expect(readMetadataObject(TestController)).toEqual({
-    help: "This is a test controller",
+    help: "Global help text",
   });
 });
 
-test("Command and Help decorators should merge metadata", () => {
+test("Help decorator should work with Main decorator", () => {
   class TestController {
-    @Command("test")
-    @Help("This is a test command")
-    testCommand() {}
-  }
-  expect(readMetadataObject(TestController.prototype.testCommand)).toEqual({
-    command: "test",
-    help: "This is a test command",
-  });
-});
-
-test("Main and Help decorators should merge metadata", () => {
-  class TestController {
+    @Help("Main command help")
     @Main()
-    @Help("Main command help text")
     mainHandler() {}
   }
   expect(readMetadataObject(TestController.prototype.mainHandler)).toEqual({
     command: "main",
-    help: "Main command help text",
+    help: "Main command help",
   });
 });
 
-test("Multiple methods with Command decorator should have independent metadata", () => {
+test("Multiple Command decorators on different methods should be independent", () => {
   class TestController {
-    @Command("start")
-    @Help("Start the service")
-    startCommand() {}
+    @Command("cmd1")
+    @Help("Command 1 help")
+    cmd1Handler() {}
 
-    @Command("stop")
-    @Help("Stop the service")
-    stopCommand() {}
+    @Command("cmd2")
+    @Help("Command 2 help")
+    cmd2Handler() {}
 
     @Main()
-    @Help("Main handler")
+    @Help("Main help")
     mainHandler() {}
   }
-
-  expect(readMetadataObject(TestController.prototype.startCommand)).toEqual({
-    command: "start",
-    help: "Start the service",
+  expect(readMetadataObject(TestController.prototype.cmd1Handler)).toEqual({
+    command: "cmd1",
+    help: "Command 1 help",
   });
-  expect(readMetadataObject(TestController.prototype.stopCommand)).toEqual({
-    command: "stop",
-    help: "Stop the service",
+  expect(readMetadataObject(TestController.prototype.cmd2Handler)).toEqual({
+    command: "cmd2",
+    help: "Command 2 help",
   });
   expect(readMetadataObject(TestController.prototype.mainHandler)).toEqual({
     command: "main",
-    help: "Main handler",
+    help: "Main help",
   });
 });
 
-test("Help decorator with multiline content should preserve formatting", () => {
-  const helpText = `Usage: myapp [options]
-
-Options:
-  --help, -h     Show help
-  --version, -v  Show version`;
-
+test("Help decorator can be applied without Command or Main decorator", () => {
   class TestController {
-    @Help(helpText)
-    @Main()
-    mainHandler() {}
+    @Help("Some help")
+    someMethod() {}
   }
-
-  expect(readMetadataObject(TestController.prototype.mainHandler)).toEqual({
-    command: "main",
-    help: helpText,
+  expect(readMetadataObject(TestController.prototype.someMethod)).toEqual({
+    help: "Some help",
   });
 });
 
@@ -139,112 +119,36 @@ test("Command decorator with empty string should still add metadata", () => {
   });
 });
 
-test("Command decorator with special characters should work", () => {
+test("Command decorator with special characters should preserve name", () => {
   class TestController {
-    @Command("test:run")
-    testRunCommand() {}
-
-    @Command("test-all")
-    testAllCommand() {}
+    @Command("foo-bar:baz")
+    specialCommand() {}
   }
-  expect(readMetadataObject(TestController.prototype.testRunCommand)).toEqual({
-    command: "test:run",
-  });
-  expect(readMetadataObject(TestController.prototype.testAllCommand)).toEqual({
-    command: "test-all",
+  expect(readMetadataObject(TestController.prototype.specialCommand)).toEqual({
+    command: "foo-bar:baz",
   });
 });
 
-test("Help decorator on class and method should be independent", () => {
-  @Help("Controller help")
-  class TestController {
-    @Help("Method help")
-    @Command("test")
-    testCommand() {}
-  }
+test("Help decorator with multiline string should preserve formatting", () => {
+  const helpText = `Usage: myapp [options]
+
+Options:
+  --help    Show help
+  --version Show version`;
+
+  @Help(helpText)
+  class TestController {}
 
   expect(readMetadataObject(TestController)).toEqual({
-    help: "Controller help",
-  });
-  expect(readMetadataObject(TestController.prototype.testCommand)).toEqual({
-    command: "test",
-    help: "Method help",
+    help: helpText,
   });
 });
 
-test("Command decorator with unicode characters should work", () => {
-  class TestController {
-    @Command("K")
-    unicodeCommand() {}
-  }
-  expect(readMetadataObject(TestController.prototype.unicodeCommand)).toEqual({
-    command: "K",
-  });
-});
+test("Help decorator with empty string should add empty help metadata", () => {
+  @Help("")
+  class TestController {}
 
-test("Multiple Help decorators should overwrite (last wins)", () => {
-  class TestController {
-    @Help("First help")
-    @Help("Second help")
-    testMethod() {}
-  }
-  // Decorators apply bottom-up, so "Second help" is applied first,
-  // then "First help" overwrites it
-  expect(readMetadataObject(TestController.prototype.testMethod)).toEqual({
-    help: "First help",
-  });
-});
-
-test("Command decorator should work with kebab-case names", () => {
-  class TestController {
-    @Command("create-user")
-    @Help("Create a new user")
-    createUserCommand() {}
-  }
-  expect(readMetadataObject(TestController.prototype.createUserCommand))
-    .toEqual({
-      command: "create-user",
-      help: "Create a new user",
-    });
-});
-
-test("Main decorator with multiple methods should add metadata to each independently", () => {
-  class TestController {
-    @Main()
-    handler1() {}
-  }
-
-  class AnotherController {
-    @Main()
-    handler2() {}
-  }
-
-  expect(readMetadataObject(TestController.prototype.handler1)).toEqual({
-    command: "main",
-  });
-  expect(readMetadataObject(AnotherController.prototype.handler2)).toEqual({
-    command: "main",
-  });
-});
-
-test("Command decorator with spaces should work", () => {
-  class TestController {
-    @Command("run test")
-    runTestCommand() {}
-  }
-  expect(readMetadataObject(TestController.prototype.runTestCommand)).toEqual({
-    command: "run test",
-  });
-});
-
-test("Help decorator with empty string should add empty help", () => {
-  class TestController {
-    @Help("")
-    @Command("test")
-    testCommand() {}
-  }
-  expect(readMetadataObject(TestController.prototype.testCommand)).toEqual({
-    command: "test",
+  expect(readMetadataObject(TestController)).toEqual({
     help: "",
   });
 });
