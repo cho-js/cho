@@ -15,25 +15,9 @@
  * @category @chojs/core/utils
  */
 export function env(key: string): string | undefined {
-  // @ts-ignore: used to support multiple runtimes
+  // both, Bun and Deno support Node.js-style process.env
   if ("process" in globalThis && globalThis.process?.env) {
-    // @ts-ignore: used to support multiple runtimes
     return globalThis.process.env[key];
-  }
-  // @ts-ignore: used to support multiple runtimes
-  if ("Deno" in globalThis && Deno?.env?.get) {
-    // TODO: remove the try-catch? Let the user know about permission errors?
-    try {
-      // @ts-ignore: used to support multiple runtimes
-      return globalThis.Deno.env.get(key);
-    } catch (err) {
-      return undefined;
-    }
-  }
-  // @ts-ignore: used to support multiple runtimes
-  if ("Bun" in globalThis && globalThis.Bun?.env) {
-    // @ts-ignore: used to support multiple runtimes
-    return globalThis.Bun.env[key];
   }
   return undefined;
 }
