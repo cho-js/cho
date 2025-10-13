@@ -121,17 +121,24 @@ export class ApplicationCommands extends Application<LinkedCommandsApp> {
 
     // if show help without subcommand, show main help (gateway help)
     if (showHelp && !route) {
+      // todo auto generate main help from subcommands if no help provided?
       return this.handleHelp(this.appRef.help[HelpKey]);
     }
 
     // no subcommand?
     if (!route) {
-      return await this.handleError(new MissingCommandError("No command provided"), args);
+      return await this.handleError(
+        new MissingCommandError("No command provided"),
+        args,
+      );
     }
 
     // is subcommand exists?
     if (!this.appRef.commands[route]) {
-      return await this.handleError(new NotFoundError(`Command "${route}" not found`), args);
+      return await this.handleError(
+        new NotFoundError(`Command "${route}" not found`),
+        args,
+      );
     }
 
     // show help for this subcommand

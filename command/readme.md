@@ -22,6 +22,7 @@ Single command example:
 
 @Controller()
 class CliController {
+    @Help("This is a simple CLI application")
     @Main()
     main(ctx: ChoCommandContext) {
         console.log("Hello World");
@@ -52,7 +53,6 @@ class CliController {
 #### TODO
 
 - [ ] Auto generate help message
-- [ ] Add markdown support help content
-- [ ] Complete test cases
+- [x] Complete test cases
 - [ ] Add more examples
 - [ ] Specifications tests

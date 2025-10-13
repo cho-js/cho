@@ -4,11 +4,15 @@ import type { ChoErrorHandlerFn, ChoMiddlewareFn } from "@chojs/core/di";
 import { debuglog } from "@chojs/core/utils";
 import { ChoCommandContext } from "./context.ts";
 
+/**
+ * A linked application instance base, with common properties.
+ */
 export type LinkedAppBase = {
   help: Record<string | symbol, string>;
   compiled: CompiledModule;
   errorHandler?: Target;
 };
+
 /**
  * A linked application instance with its commands.
  */
@@ -102,6 +106,12 @@ export class Linker {
     return linked;
   }
 
+    /**
+     * Link a compiled module to an application instance.
+     * @param cm
+     * @param app
+     * @protected
+     */
   protected apply(cm: CompiledModule, app: LinkedApp): LinkedApp {
     // collect middlewares. module -> gateway (controller) -> action (method)
     const moduleMiddlewares = cm.middlewares ?? [];
@@ -158,7 +168,9 @@ export class Linker {
 
         log(`mount command: ${command}`);
         // specific help for this command if any
-        const endpointMeta = endpoint.meta as typeof endpoint.meta & { help?: string };
+        const endpointMeta = endpoint.meta as typeof endpoint.meta & {
+          help?: string;
+        };
         app.help[command] = endpointMeta.help ?? "";
         if (command === "main") {
           this.isMain = true;
