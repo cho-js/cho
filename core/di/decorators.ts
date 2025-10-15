@@ -1,13 +1,13 @@
 import type {
-    ChoErrorHandler,
-    ChoErrorHandlerFn,
-    ControllerDescriptor,
-    InjectableDescriptor,
-    ModuleDescriptor,
-    Token,
+  ChoErrorHandler,
+  ChoErrorHandlerFn,
+  ControllerDescriptor,
+  InjectableDescriptor,
+  ModuleDescriptor,
+  Token,
 } from "./types.ts";
-import type {Any, Ctr, Target} from "../meta/mod.ts";
-import {addToMetadataObject, normTarget} from "../meta/mod.ts";
+import type { Any, Ctr, Target } from "../meta/mod.ts";
+import { addToMetadataObject, normTarget } from "../meta/mod.ts";
 
 /**
  * Mark a class as injectable and create its provider.
