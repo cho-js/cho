@@ -49,9 +49,6 @@ test("Graph builder should build a module graph", () => {
   expect(graph.ctr).toBe(RootModule);
   expect(graph.imports.length).toBe(1);
   expect(graph.controllers.length).toBe(0);
-  expect(graph.providers.length).toBe(0);
-  expect(graph.middlewares.length).toBe(0);
-  expect(graph.errorHandler).toBeUndefined();
 
   // Verify imported SomeModule
   const someModule = graph.imports[0];
@@ -59,16 +56,6 @@ test("Graph builder should build a module graph", () => {
   expect(someModule.ctr).toBe(SomeModule);
   expect(someModule.imports.length).toBe(0);
   expect(someModule.controllers.length).toBe(1);
-  expect(someModule.providers.length).toBe(2);
-  expect(someModule.middlewares.length).toBe(0);
-  expect(someModule.errorHandler).toBeUndefined();
-
-  // Verify providers in SomeModule
-  expect(someModule.providers[0]).toEqual({
-    provide: "token",
-    factory: expect.any(Function),
-  });
-  expect(someModule.providers[1]).toBe(SomeService);
 
   // Verify SomeController
   const controller = someModule.controllers[0];
@@ -76,7 +63,5 @@ test("Graph builder should build a module graph", () => {
   expect(controller.meta.isGateway).toBe(true);
   expect(controller.meta.route).toBe("test");
   expect(controller.meta.deps).toEqual([SomeService]);
-  expect(controller.middlewares.length).toBe(0);
-  expect(controller.errorHandler).toBeUndefined();
   expect(controller.methods.length).toBe(0);
 });

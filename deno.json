@@ -6,7 +6,9 @@
   },
   "workspace": [
     "./command",
-    "./core"
+    "./core",
+    "./web",
+    "./vendor/hono"
   ],
   "imports": {
     "@chojs/core": "./core/mod.ts",

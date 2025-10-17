@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@hono/hono@^4.9.4": "4.9.8",
     "jsr:@std/assert@^1.0.13": "1.0.14",
     "jsr:@std/assert@^1.0.14": "1.0.14",
     "jsr:@std/async@^1.0.13": "1.0.14",
@@ -20,6 +21,9 @@
     "npm:semantic-release@^24.2.7": "24.2.7_marked@15.0.12"
   },
   "jsr": {
+    "@hono/hono@4.9.8": {
+      "integrity": "908150f13e90181a051a3af3bf15203aff00190682afedfd38824d0cb9299a95"
+    },
     "@std/assert@1.0.14": {
       "integrity": "68d0d4a43b365abc927f45a9b85c639ea18a9fab96ad92281e493e4ed84abaa4",
       "dependencies": [
@@ -2784,8 +2788,8 @@
     ],
     "packageJson": {
       "dependencies": [
-        "npm:@jsr/chojs__command@0.7",
-        "npm:@jsr/chojs__core@^1.16.0",
+        "npm:@jsr/chojs__command@0.8",
+        "npm:@jsr/chojs__core@^1.17.0",
         "npm:@jsr/std__cli@^1.0.23",
         "npm:@jsr/std__datetime@~0.225.5",
         "npm:@jsr/std__expect@^1.0.17",
@@ -2800,7 +2804,7 @@
     "members": {
       "command": {
         "dependencies": [
-          "jsr:@chojs/core@^1.16.0",
+          "jsr:@chojs/core@^1.17.0",
           "jsr:@std/cli@^1.0.22",
           "npm:marked@^16.4.0"
         ]
@@ -2810,6 +2814,18 @@
           "jsr:@std/datetime@~0.225.5",
           "jsr:@std/expect@^1.0.17",
           "jsr:@std/fmt@^1.0.8"
+        ]
+      },
+      "vendor/hono": {
+        "dependencies": [
+          "jsr:@chojs/core@1.17.0",
+          "jsr:@chojs/web@2.0.0",
+          "jsr:@hono/hono@^4.9.4"
+        ]
+      },
+      "web": {
+        "dependencies": [
+          "jsr:@chojs/core@1.17.0"
         ]
       }
     }

@@ -14,36 +14,38 @@ import type {
  * A node in the module graph, representing a module, controller, or method.
  * Each node contains its metadata, associated middlewares, and an optional error handler.
  */
-export type Node<M = Any, T = Any> = T & {
-  meta: M;
-  middlewares: (ChoMiddleware | ChoMiddlewareFn)[];
-  errorHandler?: ChoErrorHandler | ChoErrorHandlerFn;
-};
+// export type Node<M = Any, T = Any> = T & {
+//   meta: M;
+//   middlewares: (ChoMiddleware | ChoMiddlewareFn)[];
+//   errorHandler?: ChoErrorHandler | ChoErrorHandlerFn;
+// };
 
 /**
  * A node representing a method within a controller, including its metadata and middlewares.
  */
-export type MethodNode = Node<MethodDescriptor, {
+export type MethodNode = {
   name: string;
-}>;
+  meta: MethodDescriptor;
+};
 
 /**
  * A node representing a controller, including its metadata, middlewares, and methods.
  */
-export type ControllerNode = Node<ControllerDescriptor, {
+export type ControllerNode = {
   ctr: Ctr;
+  meta: ControllerDescriptor;
   methods: MethodNode[];
-}>;
+};
 
 /**
  * A node representing a module, including its metadata, middlewares, imports, providers, and controllers.
  */
-export type ModuleNode = Node<ModuleDescriptor, {
+export type ModuleNode = {
   ctr: Ctr;
+  meta: ModuleDescriptor;
   imports: ModuleNode[];
-  providers: (Provider | Ctr)[];
   controllers: ControllerNode[];
-}>;
+};
 
 /**
  * Get all methods of a class constructor along with their metadata.
@@ -82,8 +84,6 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
   ): MethodNode {
     return {
       name,
-      middlewares: (meta.middlewares as ChoMiddleware[]) || [],
-      errorHandler: meta.errorHandler || undefined,
       meta,
     };
   }
@@ -99,8 +99,8 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
       ctr,
       meta,
       methods: getMethods(ctr).map(constructMethod),
-      middlewares: meta.middlewares ?? [],
-      errorHandler: meta.errorHandler,
+      // middlewares: meta.middlewares ?? [],
+      // errorHandler: meta.errorHandler,
     };
   }
 
@@ -121,9 +121,6 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
       meta,
       imports: (meta.imports ?? []).map(constructModule),
       controllers: (meta.controllers ?? []).map(constructController),
-      providers: meta.providers ?? [],
-      middlewares: meta.middlewares ?? [],
-      errorHandler: meta.errorHandler,
     };
     modules.set(ctr, node);
     return node;

@@ -19,32 +19,30 @@ deno add jsr:@chojs/command
 Single command example:
 
 ```ts
-
 @Controller()
 class CliController {
-    @Help("This is a simple CLI application")
-    @Main()
-    main(ctx: ChoCommandContext) {
-        console.log("Hello World");
-    }
+  @Help("This is a simple CLI application")
+  @Main()
+  main(ctx: ChoCommandContext) {
+    console.log("Hello World");
+  }
 }
 ```
 
 Multiple sub-commands example:
 
 ```ts
-
 @Controller()
 class CliController {
-    @Command("greet")
-    greet(ctx: ChoCommandContext) {
-        console.log("Greetings!");
-    }
+  @Command("greet")
+  greet(ctx: ChoCommandContext) {
+    console.log("Greetings!");
+  }
 
-    @Command("farewell")
-    farewell(ctx: ChoCommandContext) {
-        console.log("Farewell!");
-    }
+  @Command("farewell")
+  farewell(ctx: ChoCommandContext) {
+    console.log("Farewell!");
+  }
 }
 ```
 

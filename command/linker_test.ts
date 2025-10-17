@@ -84,7 +84,7 @@ test("Linker should throw when duplicate command names exist", async () => {
 
   expect(() => {
     new Linker().link(compiled);
-  }).toThrow("Command \"foo\" already exists");
+  }).toThrow('Command "foo" already exists');
 });
 
 test("Linker should collect help from controller", async () => {
