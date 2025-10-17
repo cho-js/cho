@@ -106,12 +106,12 @@ export class Linker {
     return linked;
   }
 
-    /**
-     * Link a compiled module to an application instance.
-     * @param cm
-     * @param app
-     * @protected
-     */
+  /**
+   * Link a compiled module to an application instance.
+   * @param cm
+   * @param app
+   * @protected
+   */
   protected apply(cm: CompiledModule, app: LinkedApp): LinkedApp {
     // collect middlewares. module -> gateway (controller) -> action (method)
     const moduleMiddlewares = cm.middlewares ?? [];

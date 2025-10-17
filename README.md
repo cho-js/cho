@@ -3,7 +3,7 @@
 [![Release](https://github.com/cho-js/cho/actions/workflows/release.yml/badge.svg)](https://github.com/cho-js/cho/actions/workflows/release.yml)
 
 | Package              | Version                                                                               |
-|----------------------|---------------------------------------------------------------------------------------|
+| -------------------- | ------------------------------------------------------------------------------------- |
 | `@chojs/core`        | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)               |
 | `@chojs/command`     | [![JSR](https://jsr.io/badges/@chojs/command)](https://jsr.io/@chojs/command)         |
 | `@chojs/web`         | [![JSR](https://jsr.io/badges/@chojs/web)](https://jsr.io/@chojs/web)                 |
@@ -34,10 +34,10 @@ Decorators and reflect metadata are not yet part of the official ECMAScript
 standard, leading to inconsistencies in their implementation across different
 runtimes (TS experimental vs TC39 proposal, for example). This lack of
 standardization can result in compatibility issues and hinder the adoption of
-these features in different production environments.
-This project aims to provide a consistent and reliable way to use decorators
-across multiple JavaScript runtimes, ensuring that developers can leverage
-these powerful features without worrying about compatibility issues.
+these features in different production environments. This project aims to
+provide a consistent and reliable way to use decorators across multiple
+JavaScript runtimes, ensuring that developers can leverage these powerful
+features without worrying about compatibility issues.
 
 ### Build for Performance
 

@@ -139,7 +139,7 @@ export class Compiler {
    * @protected
    */
   protected async middleware(
-    mw: ChoMiddleware | ChoMiddlewareFn,
+    mw: ChoMiddleware | ChoMiddlewareFn | Target,
     injector: Injector,
   ): Promise<ChoMiddlewareFn> {
     if (typeof mw !== "function") {
@@ -194,12 +194,12 @@ export class Compiler {
     const handle = instance[node.name as keyof typeof instance].bind(instance);
 
     const middlewares: ChoMiddlewareFn[] = [];
-    for (const mw of node.middlewares) {
+    for (const mw of (node.meta.middlewares ?? [])) {
       middlewares.push(await this.middleware(mw, injector));
     }
 
-    const errorHandler = node.errorHandler
-      ? await this.errorHandler(node.errorHandler, injector)
+    const errorHandler = node.meta.errorHandler
+      ? await this.errorHandler(node.meta.errorHandler, injector)
       : undefined;
 
     return {
@@ -229,12 +229,12 @@ export class Compiler {
     }
 
     const middlewares: ChoMiddlewareFn[] = [];
-    for (const mw of node.middlewares) {
+    for (const mw of (node.meta.middlewares ?? [])) {
       middlewares.push(await this.middleware(mw, injector));
     }
 
-    const errorHandler = node.errorHandler
-      ? await this.errorHandler(node.errorHandler, injector)
+    const errorHandler = node.meta.errorHandler
+      ? await this.errorHandler(node.meta.errorHandler, injector)
       : undefined;
 
     return {
@@ -275,12 +275,12 @@ export class Compiler {
     }
 
     const middlewares: ChoMiddlewareFn[] = [];
-    for (const mw of node.middlewares) {
+    for (const mw of (node.meta.middlewares ?? [])) {
       middlewares.push(await this.middleware(mw, injector));
     }
 
-    const errorHandler = node.errorHandler
-      ? await this.errorHandler(node.errorHandler, injector)
+    const errorHandler = node.meta.errorHandler
+      ? await this.errorHandler(node.meta.errorHandler, injector)
       : undefined;
 
     const mod: CompiledModule = {
