@@ -1,24 +1,9 @@
-import { type Any, type Ctr, readMetadataObject } from "../meta/mod.ts";
+import { type Ctr, readMetadataObject } from "../meta/mod.ts";
 import type {
-  ChoErrorHandler,
-  ChoErrorHandlerFn,
-  ChoMiddleware,
-  ChoMiddlewareFn,
   ControllerDescriptor,
   MethodDescriptor,
   ModuleDescriptor,
-  Provider,
 } from "../di/types.ts";
-
-/**
- * A node in the module graph, representing a module, controller, or method.
- * Each node contains its metadata, associated middlewares, and an optional error handler.
- */
-// export type Node<M = Any, T = Any> = T & {
-//   meta: M;
-//   middlewares: (ChoMiddleware | ChoMiddlewareFn)[];
-//   errorHandler?: ChoErrorHandler | ChoErrorHandlerFn;
-// };
 
 /**
  * A node representing a method within a controller, including its metadata and middlewares.
@@ -99,15 +84,18 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
       ctr,
       meta,
       methods: getMethods(ctr).map(constructMethod),
-      // middlewares: meta.middlewares ?? [],
-      // errorHandler: meta.errorHandler,
     };
   }
 
-  function constructModule(ctr: Ctr): ModuleNode {
+  function constructModule(ctr: Ctr, history: Ctr[] = []): ModuleNode {
     if (modules.has(ctr)) {
       return modules.get(ctr) as ModuleNode;
     }
+    if (history.includes(ctr)) {
+      const cyclePath = [...history.map((c) => c.name), ctr.name].join(" → ");
+      throw new Error(`Circular module dependency detected: ${cyclePath}`);
+    }
+    history.push(ctr);
 
     const meta = readMetadataObject<ModuleDescriptor>(ctr);
     if (!meta || !meta.isModule) {
@@ -119,7 +107,7 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
     const node: ModuleNode = {
       ctr,
       meta,
-      imports: (meta.imports ?? []).map(constructModule),
+      imports: (meta.imports ?? []).map((im) => constructModule(im, history)),
       controllers: (meta.controllers ?? []).map(constructController),
     };
     modules.set(ctr, node);
