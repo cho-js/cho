@@ -6,7 +6,7 @@
     ".": "./mod.ts"
   },
   "imports": {
-    "@chojs/core": "jsr:@chojs/core@1.22.0"
+    "@chojs/core": "jsr:@chojs/core@1.23.0"
   },
   "publish": {
     "exclude": [
