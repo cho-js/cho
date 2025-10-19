@@ -2,6 +2,7 @@ import type { Any, Ctr, Target } from "../meta/mod.ts";
 import type {
   ChoErrorHandler,
   ChoErrorHandlerFn,
+  ChoGuard,
   ChoMiddleware,
   ChoMiddlewareFn,
   Context,
@@ -177,10 +178,10 @@ export class Compiler {
     }
 
     // is implement ChoGuard interface
-    if (typeof mw.prototype.canActivate === "function") {
+    if (isClassImplement<ChoGuard>(mw, "canActivate")) {
       const instance = await injector
         .register(mw as Ctr)
-        .resolve(mw as Ctr);
+        .resolve<ChoGuard>(mw as Ctr);
       const mwFn = async function (ctx: Context, next: Next) {
         if (await instance.canActivate(ctx)) {
           return next();

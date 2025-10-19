@@ -5,6 +5,10 @@ export type OnModuleInit = {
 };
 
 export type OnModuleActivate = {
+  /**
+   * @param mdl
+   * @param target The linked target instance associated with the module.
+   */
   onModuleActivate(mdl: CompiledModule, target: unknown): void | Promise<void>;
 };
 
