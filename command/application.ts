@@ -1,4 +1,5 @@
-import type { Ctr } from "@chojs/core/meta";
+import type { Ctr, Token } from "@chojs/core";
+import { Injector } from "@chojs/core";
 import { parseArgs } from "@std/cli/parse-args";
 import {
   HelpKey,
@@ -51,11 +52,12 @@ export abstract class Application<T extends LinkedApp> {
     await onModuleActivate(compiled, linked);
 
     return ("main" in linked)
-      ? new ApplicationMain(compiled, linked)
-      : new ApplicationCommands(compiled, linked);
+      ? new ApplicationMain(ctr, compiled, linked)
+      : new ApplicationCommands(ctr, compiled, linked);
   }
 
   protected constructor(
+    readonly ctr: Ctr,
     readonly instance: CompiledModule,
     readonly appRef: T,
   ) {
