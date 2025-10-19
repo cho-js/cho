@@ -2,9 +2,9 @@ import type {
   CompiledGateway,
   CompiledMethod,
   CompiledModule,
-} from "@chojs/core/compiler";
+} from "@chojs/core/application";
 import type { Any, Target } from "@chojs/core/meta";
-import type { ChoEndpointFn } from "@chojs/core/di";
+import type { ChoEndpointFn, ChoMiddlewareFn } from "@chojs/core/di";
 import type { ChoWebAdapter } from "./adapter.ts";
 import type { ChoWebContext } from "./context.ts";
 import type { InputFactory } from "./types.ts";
@@ -40,7 +40,9 @@ export class Linker {
     let mounted = false;
 
     const feat = this.adapter.createFeature(
-      this.adapter.createMiddlewares(cm.meta.middlewares ?? []),
+      this.adapter.createMiddlewares(
+        (cm.meta.middlewares ?? []) as ChoMiddlewareFn[],
+      ),
       cm.errorHandler,
     );
 
@@ -87,7 +89,9 @@ export class Linker {
     }
     let mounted = false;
     const controller = this.adapter.createController(
-      this.adapter.createMiddlewares(cg.meta.middlewares ?? []),
+      this.adapter.createMiddlewares(
+        (cg.meta.middlewares ?? []) as ChoMiddlewareFn[],
+      ),
       cg.errorHandler,
     );
 
@@ -104,7 +108,9 @@ export class Linker {
       );
       this.adapter.mountEndpoint(
         controller,
-        this.adapter.createMiddlewares(cm.meta.middlewares ?? []),
+        this.adapter.createMiddlewares(
+          (cm.meta.middlewares ?? []) as ChoMiddlewareFn[],
+        ),
         endpoint,
         cm.meta.route ?? "",
         cm.meta.type,
@@ -239,7 +245,7 @@ export class Linker {
       } catch (err) {
         // if there is an error handler, use it
         if (handler) {
-          return handler(err, ctx);
+          return handler(err as Error, ctx);
         }
         throw err;
       }
@@ -273,11 +279,11 @@ export class Linker {
         // todo should we close the stream on error?
         if (handler) {
           // todo is the error handler compatible with streaming?
-          return handler(err, ctx);
+          return handler(err as Error, ctx);
         }
         throw err;
       }
-    };
+    } as ChoEndpointFn;
   }
 
   protected linkAsyncStream(
@@ -314,11 +320,11 @@ export class Linker {
         }
       } catch (err) {
         if (handler) {
-          return handler(err, ctx);
+          return handler(err as Error, ctx);
         }
         throw err;
       }
-    };
+    } as ChoEndpointFn;
   }
 
   /**

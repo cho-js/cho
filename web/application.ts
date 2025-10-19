@@ -3,8 +3,11 @@ import type { CompiledModule } from "@chojs/core/application";
 import { Compiler } from "@chojs/core/application";
 import type { ChoWebAdapter } from "./adapter.ts";
 import { Linker } from "./linker.ts";
-import { onModuleActivate, onModuleInit } from "../core/application/hooks.ts";
-import { graphBuilder } from "../core/application/graph-builder.ts";
+import {
+  graphBuilder,
+  onModuleActivate,
+  onModuleInit,
+} from "@chojs/core/application";
 
 export type ApplicationOptions = {
   adapter: ChoWebAdapter;
@@ -35,13 +38,13 @@ export class Application<AppRef> {
     const compiled = await new Compiler().compile(graphBuilder(feature));
     await onModuleInit(compiled);
 
-    const linked = new Linker(adapter).link(compiled);
-    await onModuleActivate(compiled);
+    const linked = new Linker(adapter as ChoWebAdapter).link(compiled);
+    await onModuleActivate(compiled, linked);
 
     return new Application<T>(
-      compiled,
+      compiled as CompiledModule,
       linked as T,
-      adapter,
+      adapter as ChoWebAdapter,
     );
   }
 

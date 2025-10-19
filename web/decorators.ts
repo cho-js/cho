@@ -1,5 +1,4 @@
 import type { Any, ClassMethodDecorator, Target } from "@chojs/core";
-import type { MethodDecoratorFn } from "./internals/meta.ts";
 import { addToMetadataObject } from "@chojs/core/meta";
 import { InputFactory } from "./types.ts";
 
@@ -11,6 +10,10 @@ export type MethodDecoratorFn<R = string> = (
   args?: InputFactory[],
 ) => Any; // ClassMethodDecorator;
 
+export type MethodExtendedDecoratorFn<R = string> = (
+  route: R,
+  method?: string,
+) => Any; // ClassMethodDecorator;
 /**
  * Extracts the name from the decorator context.
  * Supports both TC39 stage 3 and TS experimental decorators.
@@ -23,7 +26,7 @@ function nameFromContext(context: unknown): string {
   ) {
     return context;
   } else if (
-    typeof context === "object" && "name" in context
+    typeof context === "object" && null !== context && "name" in context
   ) {
     return (context as any).name;
   }
@@ -65,7 +68,7 @@ function createMethodDecorator<R = string>(
  */
 function createExtendedMethodDecorator(
   type: string,
-): MethodDecoratorFn<string> {
+): MethodExtendedDecoratorFn<string> {
   return function (route: string, method = "GET"): ClassMethodDecorator {
     return function (target, context) {
       const name = nameFromContext(context);
@@ -184,6 +187,8 @@ export const Patch: MethodDecoratorFn = createMethodDecorator("PATCH");
 /**
  * Method decorator for WebSocket endpoints.
  *
+ * todo temporary removed until implementation is ready
+ *   should be implemented as a transport layer module
  * @example
  * ```ts
  * class ChatController {
@@ -192,7 +197,7 @@ export const Patch: MethodDecoratorFn = createMethodDecorator("PATCH");
  * }
  * ```
  */
-export const WebSocket: MethodDecoratorFn = createExtendedMethodDecorator("WS");
+// export const WebSocket: MethodDecoratorFn = createExtendedMethodDecorator("WS");
 
 /**
  * Method decorator for Server-Sent Events (SSE) endpoints.
@@ -205,22 +210,25 @@ export const WebSocket: MethodDecoratorFn = createExtendedMethodDecorator("WS");
  * }
  * ```
  */
-export const Sse: MethodDecoratorFn = createExtendedMethodDecorator("SSE");
-
-/**
- * Method decorator for Server-Sent Events (SSE) endpoints.
- *
- * @example
- * ```ts
- * class MyController {
- *   @Sse("events")
- *   streamEvents(stream, context) { ... }
- * }
- * ```
- */
-export const SseAsync: MethodDecoratorFn = createExtendedMethodDecorator(
-  "SSE_ASYNC",
+export const Sse: MethodExtendedDecoratorFn = createExtendedMethodDecorator(
+  "SSE",
 );
+
+/**
+ * Method decorator for Server-Sent Events (SSE) endpoints.
+ *
+ * @example
+ * ```ts
+ * class MyController {
+ *   @Sse("events")
+ *   streamEvents(stream, context) { ... }
+ * }
+ * ```
+ */
+export const SseAsync: MethodExtendedDecoratorFn =
+  createExtendedMethodDecorator(
+    "SSE_ASYNC",
+  );
 
 /**
  * Method decorator for streaming endpoints.
@@ -234,7 +242,7 @@ export const SseAsync: MethodDecoratorFn = createExtendedMethodDecorator(
  * }
  * ```
  */
-export const Stream: MethodDecoratorFn = createExtendedMethodDecorator(
+export const Stream: MethodExtendedDecoratorFn = createExtendedMethodDecorator(
   "STREAM",
 );
 
@@ -255,9 +263,10 @@ export const Stream: MethodDecoratorFn = createExtendedMethodDecorator(
  * }
  *       ```
  */
-export const StreamAsync: MethodDecoratorFn = createExtendedMethodDecorator(
-  "STREAM_ASYNC",
-);
+export const StreamAsync: MethodExtendedDecoratorFn =
+  createExtendedMethodDecorator(
+    "STREAM_ASYNC",
+  );
 
 /**
  * Method decorator for text streaming endpoints.
@@ -271,9 +280,10 @@ export const StreamAsync: MethodDecoratorFn = createExtendedMethodDecorator(
  * }
  * ```
  */
-export const StreamText: MethodDecoratorFn = createExtendedMethodDecorator(
-  "STREAM_TEXT",
-);
+export const StreamText: MethodExtendedDecoratorFn =
+  createExtendedMethodDecorator(
+    "STREAM_TEXT",
+  );
 
 /**
  * Method decorator for text streaming endpoints.
@@ -292,9 +302,10 @@ export const StreamText: MethodDecoratorFn = createExtendedMethodDecorator(
  * }
  * ```
  */
-export const StreamTextAsync: MethodDecoratorFn = createExtendedMethodDecorator(
-  "STREAM_TEXT_ASYNC",
-);
+export const StreamTextAsync: MethodExtendedDecoratorFn =
+  createExtendedMethodDecorator(
+    "STREAM_TEXT_ASYNC",
+  );
 
 /**
  * Method decorator for streaming endpoints that pipe from a ReadableStream.
@@ -311,6 +322,7 @@ export const StreamTextAsync: MethodDecoratorFn = createExtendedMethodDecorator(
  * }
  * ```
  */
-export const StreamPipe: MethodDecoratorFn = createExtendedMethodDecorator(
-  "STREAM_PIPE",
-);
+export const StreamPipe: MethodExtendedDecoratorFn =
+  createExtendedMethodDecorator(
+    "STREAM_PIPE",
+  );

@@ -1,13 +1,12 @@
 {
   "name": "@chojs/web",
-  "version": "1.11.0",
+  "version": "2.2.0",
   "license": "MIT",
   "exports": {
-    ".": "./mod.ts",
-    "./meta": "./meta.ts"
+    ".": "./mod.ts"
   },
   "imports": {
-    "@chojs/core": "jsr:@chojs/core@1.17.0"
+    "@chojs/core": "jsr:@chojs/core@1.22.0"
   },
   "publish": {
     "exclude": [
