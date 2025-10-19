@@ -24,9 +24,7 @@ function checkUserAgent(platform: string): boolean {
  * @see https://developers.cloudflare.com/workers/runtime-apis/web-standards/#navigatoruseragent
  */
 export function isCloudflare(): boolean {
-  if (checkUserAgent("Cloudflare-Workers")) {
-    return true;
-  }
+  return checkUserAgent("Cloudflare-Workers");
 }
 
 /**
