@@ -88,15 +88,19 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
   }
 
   function constructModule(ctr: Ctr, history: Ctr[] = []): ModuleNode {
+    // process module only once
     if (modules.has(ctr)) {
       return modules.get(ctr) as ModuleNode;
     }
+
+    // circular dependencies guard
     if (history.includes(ctr)) {
       const cyclePath = [...history.map((c) => c.name), ctr.name].join(" → ");
       throw new Error(`Circular module dependency detected: ${cyclePath}`);
     }
     history.push(ctr);
 
+    // module metadata
     const meta = readMetadataObject<ModuleDescriptor>(ctr);
     if (!meta || !meta.isModule) {
       throw new Error(
@@ -104,13 +108,25 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
       );
     }
 
+    // construct children nodes
+    const controllers = (meta.controllers ?? []).map(
+      constructController,
+    );
+    const imports = (meta.imports ?? []).map((im) =>
+      constructModule(im, [...history])
+    );
+
+    // construct module node
     const node: ModuleNode = {
       ctr,
       meta,
-      imports: (meta.imports ?? []).map((im) => constructModule(im, history)),
-      controllers: (meta.controllers ?? []).map(constructController),
+      imports,
+      controllers,
     };
+
+    // cache constructed module
     modules.set(ctr, node);
+
     return node;
   }
 

@@ -4,9 +4,11 @@ import type {
   ChoErrorHandlerFn,
   ChoMiddleware,
   ChoMiddlewareFn,
+  Context,
   ControllerDescriptor,
   MethodDescriptor,
   ModuleDescriptor,
+  Next,
 } from "../di/types.ts";
 import type {
   ControllerNode,
@@ -60,6 +62,10 @@ export type CompiledMethod = Compiled<MethodDescriptor, {
  */
 export type CompiledGateway = Compiled<ControllerDescriptor, {
   /**
+   * The class constructor of the controller.
+   */
+  ctr: Ctr;
+  /**
    * List of compiled methods within the gateway.
    */
   methods: CompiledMethod[];
@@ -69,6 +75,10 @@ export type CompiledGateway = Compiled<ControllerDescriptor, {
  * A compiled module, including its controllers and imported modules.
  */
 export type CompiledModule = Compiled<ModuleDescriptor, {
+  /**
+   * The class constructor of the module.
+   */
+  ctr: Ctr;
   /**
    * List of compiled gateways (controllers) within the module.
    */
@@ -156,7 +166,7 @@ export class Compiler {
       return mw as ChoMiddlewareFn;
     }
 
-    // is implement ChoMiddlewareFn interface
+    // is implement ChoMiddleware interface
     if (isClassImplement<ChoMiddleware>(mw, "handle")) {
       const instance = await injector
         .register(mw as Ctr)
@@ -166,13 +176,21 @@ export class Compiler {
       return mwFn;
     }
 
-    // if (typeof mw.prototype.canActivate === "function") {
-    //   const instance = await injector
-    //     .register(mw as Ctr)
-    //     .resolve(mw as Ctr);
-    //   // todo add support for guard type middleware
-    //   // complete the implementation
-    // }
+    // is implement ChoGuard interface
+    if (typeof mw.prototype.canActivate === "function") {
+      const instance = await injector
+        .register(mw as Ctr)
+        .resolve(mw as Ctr);
+      const mwFn = async function (ctx: Context, next: Next) {
+        if (await instance.canActivate(ctx)) {
+          return next();
+        } else {
+          throw new Error("Request blocked by guard middleware");
+        }
+      } as ChoMiddlewareFn;
+      this.middlewares.set(mw, mwFn);
+      return mwFn;
+    }
 
     throw new Error(
       'ChoMiddlewareFn is not middleware class, it does not implement "handle" method',
@@ -238,6 +256,7 @@ export class Compiler {
       : undefined;
 
     return {
+      ctr: node.ctr,
       meta: node.meta,
       errorHandler,
       middlewares,
@@ -284,6 +303,7 @@ export class Compiler {
       : undefined;
 
     const mod: CompiledModule = {
+      ctr: node.ctr,
       meta: node.meta,
       errorHandler,
       middlewares,

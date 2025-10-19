@@ -1,17 +1,32 @@
+/**
+ * Utility functions to detect the JavaScript runtime engine.
+ * @see https://runtime-keys.proposal.wintercg.org/
+ */
+
+/**
+ * Type representing different JavaScript runtime engines.
+ */
 export type EngineTpe =
   | "node"
   | "deno"
   | "bun"
-  | "cloudflare"
-  | "edge"
+  | "worked" // cloudflare workers
+  | "edge" // Vercel Edge Functions
   | "unknown";
+
+function checkUserAgent(platform: string): boolean {
+  const userAgent = globalThis?.navigator?.userAgent;
+  return typeof userAgent === "string" && userAgent.includes(platform);
+}
 
 /**
  * Detect if the current runtime is Cloudflare Workers.
  * @see https://developers.cloudflare.com/workers/runtime-apis/web-standards/#navigatoruseragent
  */
 export function isCloudflare(): boolean {
-  return globalThis?.navigator?.userAgent === "Cloudflare-Workers";
+  if (checkUserAgent("Cloudflare-Workers")) {
+    return true;
+  }
 }
 
 /**
@@ -23,23 +38,27 @@ export function isEdge(): boolean {
 
 /**
  * Detect if the current runtime is Deno.
+ * @see https://docs.deno.com/api/web/~/Navigator.userAgent
  */
 export function isDeno(): boolean {
-  return "Deno" in globalThis;
+  return checkUserAgent("Deno");
 }
 
 /**
  * Detect if the current runtime is Bun.
+ * @see https://bun.com/reference/globals/Navigator/userAgent
  */
 export function isBun(): boolean {
-  return "Bun" in globalThis;
+  return checkUserAgent("Bun");
 }
 
 /**
  * Detect if the current runtime is Node.js.
+ * @see https://nodejs.org/api/process.html#processrelease
  */
 export function isNode(): boolean {
-  return globalThis.process?.release?.name === "node";
+  return checkUserAgent("Node.js") ||
+    globalThis.process?.release?.name === "node";
 }
 
 /**
@@ -48,7 +67,7 @@ export function isNode(): boolean {
  */
 export function engine(): EngineTpe {
   if (isCloudflare()) {
-    return "cloudflare";
+    return "worked";
   }
 
   if (isEdge()) {
