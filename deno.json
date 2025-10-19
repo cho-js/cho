@@ -6,7 +6,8 @@
   },
   "workspace": [
     "./command",
-    "./core"
+    "./core",
+    "./web"
   ],
   "imports": {
     "@chojs/core": "./core/mod.ts",

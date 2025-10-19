@@ -1,0 +1,18 @@
+{
+  "name": "@chojs/web",
+  "version": "1.11.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./mod.ts",
+    "./meta": "./meta.ts"
+  },
+  "imports": {
+    "@chojs/core": "jsr:@chojs/core@1.17.0"
+  },
+  "publish": {
+    "exclude": [
+      "./**/*_test.ts",
+      "./*.mjs"
+    ]
+  }
+}
