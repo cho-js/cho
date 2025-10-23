@@ -101,13 +101,13 @@ export class HonoAdapter implements
 
   // SseAdapter
 
-    createSseEndpoint(handler: ChoEndpointFn): Target {
-        return function (ctx: RawContext) {
-            return streamSSE(ctx, (stream) => handler(ctx, stream));
-        };
-    }
+  createSseEndpoint(handler: ChoEndpointFn): Target {
+    return function (ctx: RawContext) {
+      return streamSSE(ctx, (stream) => handler(ctx, stream));
+    };
+  }
 
-    // StreamAdapter
+  // StreamAdapter
 
   createStreamEndpoint(handler: ChoEndpointFn): Target {
     return function (ctx: RawContext) {
