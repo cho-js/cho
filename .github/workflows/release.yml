@@ -43,13 +43,13 @@ jobs:
 #        if: contains(github.event.head_commit.message, '(web)')
         run: cd web && npx semantic-release
 
-      - name: 🦋release vendor-hono
+#      - name: 🦋release vendor-hono
 #        if: contains(github.event.head_commit.message, '(hono)')
-        run: cd vendor/hono && npx semantic-release
+#        run: cd vendor/hono && npx semantic-release
 
-      - name: 🦋release dev
+#      - name: 🦋release dev
 #        if: contains(github.event.head_commit.message, '(dev)')
-        run: cd dev && npx semantic-release
+#        run: cd dev && npx semantic-release
 
       - name: 🦋release command
 #        if: contains(github.event.head_commit.message, '(command)')
