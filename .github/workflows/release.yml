@@ -36,21 +36,21 @@ jobs:
         run: npm ci --no-fund
 
       - name: 🦋release core
-        if: contains(github.event.head_commit.message, '(core)')
+#        if: contains(github.event.head_commit.message, '(core)')
         run: cd core && npx semantic-release
 
       - name: 🦋release web
-        if: contains(github.event.head_commit.message, '(web)')
+#        if: contains(github.event.head_commit.message, '(web)')
         run: cd web && npx semantic-release
 
       - name: 🦋release vendor-hono
-        if: contains(github.event.head_commit.message, '(hono)')
+#        if: contains(github.event.head_commit.message, '(hono)')
         run: cd vendor/hono && npx semantic-release
 
       - name: 🦋release dev
-        if: contains(github.event.head_commit.message, '(dev)')
+#        if: contains(github.event.head_commit.message, '(dev)')
         run: cd dev && npx semantic-release
 
       - name: 🦋release command
-        if: contains(github.event.head_commit.message, '(command)')
+#        if: contains(github.event.head_commit.message, '(command)')
         run: cd command && npx semantic-release
