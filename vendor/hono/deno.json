@@ -1,12 +1,12 @@
 {
   "name": "@chojs/vendor-hono",
-  "version": "2.4.0",
+  "version": "2.5.1",
   "license": "MIT",
   "exports": "./mod.ts",
   "imports": {
     "hono": "jsr:@hono/hono@^4.9.4",
-    "@chojs/core": "jsr:@chojs/core@^2.5.0",
-    "@chojs/web": "jsr:@chojs/web@2.4.0"
+    "@chojs/core": "jsr:@chojs/core@^2.5.1",
+    "@chojs/web": "jsr:@chojs/web@2.5.1"
   },
   "publish": {
     "exclude": [
