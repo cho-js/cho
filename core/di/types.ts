@@ -97,7 +97,7 @@ export type InputFactory = (c: Context) => Promise<unknown>;
  */
 export type ChoEndpointFn = {
   (ctx: Context): void | Response | Promise<void | Response>;
-  (...aegs: unknown[]): void | Response | Promise<void | Response>;
+  (...args: unknown[]): void | Response | Promise<void | Response>;
 };
 
 /**

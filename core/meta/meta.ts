@@ -81,6 +81,12 @@ export type ClassMethodDecorator = (value: Function, context: {
 // metadata read/write utilities
 // ------------------------------------
 
+/**
+ * In order to use symbols as metadata keys, we need to ensure that the same symbol instance
+ * is used across different modules. The only way to guarantee this is to align all versions
+ * of the code that uses the symbol.
+ * @internal
+ */
 // const MetaKey = Symbol("meta");
 const MetaKey = "___cho_meta___";
 

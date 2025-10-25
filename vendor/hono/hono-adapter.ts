@@ -1,4 +1,4 @@
-import type { Target } from "@chojs/core/meta";
+import type { Any, Target } from "@chojs/core/meta";
 import type {
   ChoEndpointFn,
   ChoErrorHandlerFn,
@@ -32,7 +32,7 @@ export class HonoAdapter implements
 
   createMiddlewares(
     middlewares: ChoMiddlewareFn[],
-  ): Target {
+  ): Target[] {
     return middlewares.map((m) =>
       createMiddleware(m as MiddlewareHandler) as Target
     );
@@ -75,7 +75,8 @@ export class HonoAdapter implements
     route: string,
     httpMethod: string,
   ): void {
-    httpMethod = httpMethod.toLowerCase() as keyof Hono;
+    httpMethod = httpMethod.toLowerCase() as keyof typeof Hono;
+    // @ts-ignore
     ctr[httpMethod](
       route,
       ...middlewares,
@@ -102,24 +103,33 @@ export class HonoAdapter implements
   // SseAdapter
 
   createSseEndpoint(handler: ChoEndpointFn): Target {
-    return function (ctx: RawContext) {
-      return streamSSE(ctx, (stream) => handler(ctx, stream));
+    return function (ctx: Context) {
+      return streamSSE(
+        ctx,
+        (stream) => handler(ctx, stream) as Promise<void>,
+      );
     };
   }
 
   // StreamAdapter
 
   createStreamEndpoint(handler: ChoEndpointFn): Target {
-    return function (ctx: RawContext) {
-      return stream(ctx, (stream) => handler(ctx, stream));
+    return function (ctx: Context) {
+      return stream(
+        ctx,
+        (stream) => handler(ctx, stream) as Promise<void>,
+      );
     };
   }
 
   // TextStreamAdapter
 
   createTextStreamEndpoint(handler: ChoEndpointFn): Target {
-    return function (ctx: RawContext) {
-      return streamText(ctx, (stream) => handler(ctx, stream));
+    return function (ctx: Context) {
+      return streamText(
+        ctx,
+        (stream) => handler(ctx, stream) as Promise<void>,
+      );
     };
   }
 }

@@ -1,9 +1,9 @@
 name: Release
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+#  push:
+#    branches:
+#      - main
 
 jobs:
   publish:
@@ -40,6 +40,7 @@ jobs:
         run: cd core && npx semantic-release
 
       - name: 🦋release web
+
 #        if: contains(github.event.head_commit.message, '(web)')
         run: cd web && npx semantic-release
 

@@ -73,11 +73,11 @@ export class Application<AppRef> {
     throw new Error(`Module "${ctr.name}" not found in application`);
   }
 
-  resolve<T>(ctr: Ctr<T>): T {
-  }
+  // resolve<T>(ctr: Ctr<T>): T {
+  // }
 
   // iterate over all modules in the application
-  *it(cm = this.instance): Generator<CompiledModule> {
+  private *it(cm = this.instance): Generator<CompiledModule> {
     yield cm;
     for (const im of this.instance.imports) {
       yield* this.it(im);
