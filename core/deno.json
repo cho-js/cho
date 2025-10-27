@@ -1,6 +1,6 @@
 {
   "name": "@chojs/core",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "license": "MIT",
   "exports": {
     ".": "./mod.ts",
