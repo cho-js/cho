@@ -1,5 +1,9 @@
 import type { Ctr } from "../meta/mod.ts";
-import { type CompiledGateway, type CompiledModule, Compiler } from "./compiler.ts";
+import {
+  type CompiledGateway,
+  type CompiledModule,
+  Compiler,
+} from "./compiler.ts";
 import type { Token } from "../di/types.ts";
 import { Injector } from "../di/injector.ts";
 import { graphBuilder } from "./graph-builder.ts";
@@ -12,7 +16,7 @@ function* iter(
   compiled: CompiledModule | CompiledGateway,
 ): Generator<CompiledModule | CompiledGateway> {
   yield compiled;
-  if (!compiled.imports && !compiled.controllers) {
+  if (!("imports" in compiled) && !("controllers" in compiled)) {
     return;
   }
   for (const im of ((compiled as CompiledModule).imports ?? [])) {
@@ -53,7 +57,7 @@ export class AppRef {
   select<T>(ctr: Ctr): T {
     for (const cm of iter(this.compiled)) {
       if (cm.ctr === ctr) {
-        return cm.handle;
+        return cm.handle as T;
       }
     }
     throw new Error(`Module not found for controller: ${ctr.name}`);
@@ -63,9 +67,9 @@ export class AppRef {
    * Resolve a token to its instance using the application's injector (top level one).
    * @param token
    */
-  async resolve(token: Token) {
+  async resolve<T>(token: Token): Promise<T> {
     // todo consider changing the api to make sure no injector created on missing...
     const injector = await Injector.get(this.compiled.ctr);
-    return injector.resolve(token);
+    return injector.resolve<T>(token);
   }
 }
