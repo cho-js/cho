@@ -19,7 +19,7 @@ const tokenName = (token: Token) =>
 /**
  * Provider found during search.
  */
-export type SearchResultProvider = {
+type SearchResultProvider = {
   type: "provider";
   value: Provider;
 };
@@ -27,7 +27,7 @@ export type SearchResultProvider = {
 /**
  * Resolved value found in cache.
  */
-export type SearchResultResolved = {
+type SearchResultResolved = {
   type: "resolved";
   value: Any;
 };
@@ -35,7 +35,7 @@ export type SearchResultResolved = {
 /**
  * Token not found in the injector or its imports.
  */
-export type SearchResultNotFound = {
+type SearchResultNotFound = {
   type: "not-found";
   value: null;
 };
@@ -43,7 +43,7 @@ export type SearchResultNotFound = {
 /**
  * Circular dependency detected during search.
  */
-export type SearchResultCircular = {
+type SearchResultCircular = {
   type: "circular-dependency-detected";
   value: Injector[];
 };
@@ -51,7 +51,7 @@ export type SearchResultCircular = {
 /**
  * Search result can be a provider, a resolved value, not found, or circular dependency.
  */
-export type SearchResult =
+type SearchResult =
   | SearchResultProvider
   | SearchResultResolved
   | SearchResultNotFound
@@ -102,9 +102,7 @@ export class Injector implements Resolver {
     return inj;
   }
 
-  // todo convert to protected, should be created via Injector.get()
-  //  fix tests first to not use constructor directly
-  constructor(
+  protected constructor(
     readonly ctr: Ctr,
   ) {
     const inj = read(ctr, InjectorMetadata);

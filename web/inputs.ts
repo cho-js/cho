@@ -1,5 +1,4 @@
-import { InputFactory, Validator } from "./types.ts";
-import { ChoWebContext } from "./context.ts";
+import { ChoWebContext, InputFactory, Validator } from "./types.ts";
 
 export type InputTypeFunction = {
   (key?: string): InputFactory;

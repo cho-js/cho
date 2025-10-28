@@ -1,5 +1,6 @@
-import { ChoWebContext } from "./context.ts";
+import type { Context } from "@hono/hono";
 
+export type ChoWebContext = Context;
 export type InputFactory = (c: ChoWebContext) => Promise<unknown>;
 
 // types for middleware and guards
