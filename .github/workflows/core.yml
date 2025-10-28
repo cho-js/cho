@@ -26,5 +26,8 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: 🌻 Prepare
+        run: deno install
+
       - name: 🌺 Release
         run: cd core && deno publish --dry-run
