@@ -14,6 +14,7 @@
   "imports": {
     "@chojs/core": "./core/mod.ts",
     "@chojs/command": "./command/mod.ts",
+    "@chojs/web": "./web/mod.ts",
     "@std/cli": "jsr:@std/cli@^1.0.22",
     "@std/datetime": "jsr:@std/datetime@^0.225.5",
     "@std/expect": "jsr:@std/expect@^1.0.17",

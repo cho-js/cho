@@ -1,0 +1,30 @@
+name: Release Core
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      id-token: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+#      - name: 🌸 Setup Node.js
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: "24"
+
+      - name: 🌼 Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: 🌺 Release
+        run: cd core && deno publish --dry-run
