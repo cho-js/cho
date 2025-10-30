@@ -1,6 +1,6 @@
 import { expect } from "@std/expect";
 import { test } from "../testing/mod.ts";
-import { Controller, Injectable, Module } from "../di/decorators.ts";
+import { Controller, Injectable, Module } from "../decorators.ts";
 import { AppRef } from "./app-ref.ts";
 
 test("AppRef.create should create an application reference", async () => {
@@ -19,8 +19,8 @@ test("AppRef.create should create an application reference", async () => {
   const appRef = await AppRef.create(TestModule);
 
   expect(appRef).toBeDefined();
-  expect(appRef.compiled).toBeDefined();
-  expect(appRef.compiled.meta.isModule).toBe(true);
+  expect(appRef.initiated).toBeDefined();
+  expect(appRef.initiated.meta.isModule).toBe(true);
 });
 
 test("AppRef.select should find module instance", async () => {

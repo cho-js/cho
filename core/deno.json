@@ -1,12 +1,11 @@
 {
   "name": "@chojs/core",
-  "version": "2.5.3",
+  "version": "2.5.4",
   "license": "MIT",
   "exports": {
     ".": "./mod.ts",
-    "./application": "./application/mod.ts",
-    "./di": "./di/mod.ts",
-    "./meta": "./meta/mod.ts",
+    "./decorators": "./decorators.ts",
+    "./internals": "./internals/mod.ts",
     "./testing": "./testing/mod.ts",
     "./utils": "./utils/mod.ts"
   },

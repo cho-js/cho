@@ -1,4 +1,4 @@
-import type { Any, Ctr } from "../meta/mod.ts";
+import type { Any, Ctr } from "./meta.ts";
 import type {
   InjectableDescriptor,
   ModuleDescriptor,
@@ -7,7 +7,7 @@ import type {
   Token,
 } from "./types.ts";
 import { debuglog } from "../utils/debuglog.ts";
-import { read, readMetadataObject, write } from "../meta/mod.ts";
+import { read, readMetadataObject, write } from "./meta.ts";
 
 const log = debuglog("di:injector");
 

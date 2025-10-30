@@ -1,36 +1,62 @@
-import { type Ctr, readMetadataObject } from "../meta/mod.ts";
+import { type Ctr, readMetadataObject } from "./meta.ts";
 import type {
   ControllerDescriptor,
   MethodDescriptor,
   ModuleDescriptor,
-} from "../di/types.ts";
+} from "./types.ts";
 
 /**
  * A node representing a method within a controller, including its metadata and middlewares.
  */
-export type MethodNode = {
-  name: string;
-  meta: MethodDescriptor;
-};
+export class MethodNode {
+  constructor(
+    readonly name: string,
+    readonly meta: MethodDescriptor,
+  ) {}
+
+  toString() {
+    return `MethodNode(${this.name})`;
+  }
+}
 
 /**
  * A node representing a controller, including its metadata, middlewares, and methods.
  */
-export type ControllerNode = {
-  ctr: Ctr;
-  meta: ControllerDescriptor;
-  methods: MethodNode[];
-};
+export class ControllerNode {
+  constructor(
+    readonly ctr: Ctr,
+    readonly meta: ControllerDescriptor,
+    readonly methods: MethodNode[],
+  ) {}
+
+  get name(): string {
+    return this.ctr.name;
+  }
+
+  toString() {
+    return `ControllerNode(${this.name})`;
+  }
+}
 
 /**
  * A node representing a module, including its metadata, middlewares, imports, providers, and controllers.
  */
-export type ModuleNode = {
-  ctr: Ctr;
-  meta: ModuleDescriptor;
-  imports: ModuleNode[];
-  controllers: ControllerNode[];
-};
+export class ModuleNode {
+  constructor(
+    readonly ctr: Ctr,
+    readonly meta: ModuleDescriptor,
+    readonly imports: ModuleNode[],
+    readonly controllers: ControllerNode[],
+  ) {}
+
+  get name(): string {
+    return this.ctr.name;
+  }
+
+  toString() {
+    return `ModuleNode(${this.name})`;
+  }
+}
 
 /**
  * Get all methods of a class constructor along with their metadata.
@@ -67,10 +93,10 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
   function constructMethod(
     { name, meta }: { name: string; meta: MethodDescriptor },
   ): MethodNode {
-    return {
+    return new MethodNode(
       name,
       meta,
-    };
+    );
   }
 
   function constructController(ctr: Ctr): ControllerNode {
@@ -80,11 +106,11 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
         `Class ${ctr.name} is not a controller. Did you forget to add @Controller()?`,
       );
     }
-    return {
+    return new ControllerNode(
       ctr,
       meta,
-      methods: getMethods(ctr).map(constructMethod),
-    };
+      getMethods(ctr).map(constructMethod),
+    );
   }
 
   function constructModule(ctr: Ctr, history: Ctr[] = []): ModuleNode {
@@ -117,12 +143,12 @@ export function graphBuilder(ctr: Ctr): ModuleNode {
     );
 
     // construct module node
-    const node: ModuleNode = {
+    const node = new ModuleNode(
       ctr,
       meta,
       imports,
       controllers,
-    };
+    );
 
     // cache constructed module
     modules.set(ctr, node);

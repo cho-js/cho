@@ -1,6 +1,6 @@
 import { expect } from "@std/expect";
 import { test } from "../testing/mod.ts";
-import { Module } from "../di/decorators.ts";
+import { Module } from "../decorators.ts";
 import { graphBuilder } from "./graph-builder.ts";
 import { Compiler } from "./compiler.ts";
 import {
@@ -107,7 +107,7 @@ test("onModuleInit should handle async hooks", async () => {
   expect(calls).toEqual(["AsyncModule.onModuleInit"]);
 });
 
-test("onModuleInit should pass the correct compiled module", async () => {
+test("onModuleInit should pass the correct initiated module", async () => {
   let receivedModule: CompiledModule | null = null;
 
   @Module({})

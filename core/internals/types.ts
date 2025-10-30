@@ -1,4 +1,4 @@
-import type { Any, Ctr, Target } from "../meta/mod.ts";
+import type { Any, Ctr, Target } from "./meta.ts";
 
 /**
  * Token type for dependency injection.
@@ -131,7 +131,7 @@ export type ChoGuardFn = (ctx: Context) => boolean | Promise<boolean>;
  * An interface representing a guard class.
  */
 export interface ChoGuard {
-  canActivate(ctx: Context): boolean | Promise<boolean>;
+  can(ctx: Context): boolean | Promise<boolean>;
 }
 
 // error handlers types

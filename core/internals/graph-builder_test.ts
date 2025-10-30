@@ -1,6 +1,6 @@
 import { expect } from "@std/expect";
 import { test } from "../testing/mod.ts";
-import { Controller, Injectable, Module } from "../di/decorators.ts";
+import { Controller, Injectable, Module } from "../decorators.ts";
 import { graphBuilder } from "./graph-builder.ts";
 
 test("Should throw for circular module dependencies", () => {

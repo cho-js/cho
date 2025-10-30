@@ -1,7 +1,8 @@
 import type { CompiledModule } from "./compiler.ts";
+import { InitiatedModule } from "./initiator.ts";
 
 export type OnModuleInit = {
-  onModuleInit(mdl: CompiledModule): void | Promise<void>;
+  onModuleInit(mdl: InitiatedModule): void | Promise<void>;
 };
 
 export type OnModuleActivate = {
@@ -9,30 +10,25 @@ export type OnModuleActivate = {
    * @param mdl
    * @param target The linked target instance associated with the module.
    */
-  onModuleActivate(mdl: CompiledModule, target: unknown): void | Promise<void>;
+  onModuleActivate(mdl: InitiatedModule, target: unknown): void | Promise<void>;
 };
 
 export type OnModuleShutdown = {
-  onModuleShutdown(mdl: CompiledModule, target: unknown): void | Promise<void>;
+  onModuleShutdown(mdl: InitiatedModule, target: unknown): void | Promise<void>;
 };
 
 /**
  * Executes the `onModuleInit` lifecycle hook for the given module and its imports.
  * @param mdl
  */
-export function onModuleInit(mdl: CompiledModule): Promise<void> {
-  async function visit(m: CompiledModule) {
+export async function onModuleInit(mdl: InitiatedModule): Promise<void> {
+  for (const m of mdl) {
     const handle = m.handle as OnModuleInit;
 
     if (handle && typeof handle.onModuleInit === "function") {
       await handle.onModuleInit(mdl);
     }
-
-    for (const im of m.imports) {
-      await visit(im);
-    }
   }
-  return visit(mdl);
 }
 
 /**
@@ -41,22 +37,17 @@ export function onModuleInit(mdl: CompiledModule): Promise<void> {
  * @param mdl
  * @param target
  */
-export function onModuleActivate(
-  mdl: CompiledModule,
+export async function onModuleActivate(
+  mdl: InitiatedModule,
   target: unknown,
 ): Promise<void> {
-  async function visit(m: CompiledModule) {
+  for (const m of mdl) {
     const handle = m.handle as OnModuleActivate;
 
     if (handle && typeof handle.onModuleActivate === "function") {
       await handle.onModuleActivate(mdl, target);
     }
-
-    for (const im of m.imports) {
-      await visit(im);
-    }
   }
-  return visit(mdl);
 }
 
 /**
@@ -64,20 +55,15 @@ export function onModuleActivate(
  * @param mdl
  * @param target
  */
-export function onModuleShutdown(
+export async function onModuleShutdown(
   mdl: CompiledModule,
   target: unknown,
 ): Promise<void> {
-  async function visit(m: CompiledModule) {
+  for (const m of mdl) {
     const handle = m.handle as OnModuleShutdown;
 
     if (handle && typeof handle.onModuleShutdown === "function") {
       await handle.onModuleShutdown(mdl, target);
     }
-
-    for (const im of m.imports) {
-      await visit(im);
-    }
   }
-  return visit(mdl);
 }

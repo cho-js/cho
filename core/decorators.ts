@@ -5,9 +5,9 @@ import type {
   InjectableDescriptor,
   ModuleDescriptor,
   Token,
-} from "./types.ts";
-import type { Any, Ctr, Target } from "../meta/mod.ts";
-import { addToMetadataObject, normTarget } from "../meta/mod.ts";
+} from "./internals/types.ts";
+import type { Any, Ctr, Target } from "./internals/meta.ts";
+import { addToMetadataObject, normTarget } from "./internals/meta.ts";
 
 /**
  * Mark a class as injectable and create its provider.
@@ -37,7 +37,7 @@ export function Injectable(
 }
 
 /**
- * Mark a class as a module and create its provider.
+ * Mark a class as a module.
  * Modules can import other modules and provide services.
  * Module is an injectable itself and can have its own dependencies.
  *
@@ -58,8 +58,8 @@ export function Module(
 }
 
 /**
- * Mark a class as a web controller (gateway).
- * Controllers can have their own route prefix, middlewares, and error handlers.
+ * Mark a class as a controller (gateway) for any CHO application.
+ * Controllers can have their own route prefix (supported applications), middlewares, and error handlers.
  * Controller is an injectable itself and can have its own dependencies.
  *
  * @param route

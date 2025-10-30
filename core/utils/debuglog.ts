@@ -81,15 +81,29 @@ export function debuglog(
     }
   }
 
-  log.error = (...args: unknown[]) => {
-    if (canLog()) {
-      console.error(
-        yellow(timestamp()),
-        red(context),
-        ...args,
-      );
-    }
-  };
+  Object.defineProperty(log, "error", {
+    enumerable: false,
+    writable: false,
+    value: function error(...args: unknown[]) {
+      if (canLog()) {
+        console.error(
+          yellow(timestamp()),
+          red(context),
+          ...args,
+        );
+      }
+    },
+  });
+
+  // log.error = (...args: unknown[]) => {
+  //   if (canLog()) {
+  //     console.error(
+  //       yellow(timestamp()),
+  //       red(context),
+  //       ...args,
+  //     );
+  //   }
+  // };
 
   log.start = () => {
     // log the elapsed time since start

@@ -1,4 +1,4 @@
-import { Ctr } from "../meta/mod.ts";
+import { Ctr } from "../internals/mod.ts";
 
 /**
  * Check if a value is a class constructor.
