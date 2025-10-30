@@ -14,7 +14,7 @@ export class MethodNode {
     readonly meta: MethodDescriptor,
   ) {}
 
-  toString() {
+  toString(): string {
     return `MethodNode(${this.name})`;
   }
 }
@@ -33,7 +33,7 @@ export class ControllerNode {
     return this.ctr.name;
   }
 
-  toString() {
+  toString(): string {
     return `ControllerNode(${this.name})`;
   }
 }
@@ -53,7 +53,7 @@ export class ModuleNode {
     return this.ctr.name;
   }
 
-  toString() {
+  toString(): string {
     return `ModuleNode(${this.name})`;
   }
 }

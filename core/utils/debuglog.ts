@@ -121,7 +121,7 @@ export function debuglog(
     };
   };
 
-  return log;
+  return log as Debuglog;
 }
 
 /**

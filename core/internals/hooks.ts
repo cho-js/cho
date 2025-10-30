@@ -1,5 +1,4 @@
-import type { CompiledModule } from "./compiler.ts";
-import { InitiatedModule } from "./initiator.ts";
+import {InitiatedModule} from "./initiator.ts";
 
 export type OnModuleInit = {
   onModuleInit(mdl: InitiatedModule): void | Promise<void>;
@@ -56,7 +55,7 @@ export async function onModuleActivate(
  * @param target
  */
 export async function onModuleShutdown(
-  mdl: CompiledModule,
+  mdl: InitiatedModule,
   target: unknown,
 ): Promise<void> {
   for (const m of mdl) {

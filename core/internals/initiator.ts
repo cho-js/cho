@@ -85,12 +85,12 @@ export class InitiatedModule {
  * @param injector
  */
 async function choMiddlewareToFn(
-  mw: ChoMiddleware,
+  mw: Ctr,
   injector: Injector,
-): ChoMiddlewareFn {
+): Promise<ChoMiddlewareFn> {
   const instance = await injector
-    .register(mw as Ctr)
-    .resolve<ChoMiddleware>(mw as Ctr);
+    .register(mw)
+    .resolve<ChoMiddleware>(mw);
   return instance
     .handle
     .bind(instance) as ChoMiddlewareFn;
@@ -105,12 +105,12 @@ async function choMiddlewareToFn(
  * @param injector
  */
 async function choGuardToFn(
-  mw: ChoGuard,
+  mw: Ctr,
   injector: Injector,
-): ChoMiddlewareFn {
+): Promise<ChoMiddlewareFn> {
   const instance = await injector
-    .register(mw as Ctr)
-    .resolve<ChoGuard>(mw as Ctr);
+    .register(mw)
+    .resolve<ChoGuard>(mw);
   return async function (ctx: Context, next: Next) {
     if (await instance.can(ctx)) {
       return next();
@@ -205,7 +205,7 @@ async function createMiddlewares(
  */
 export async function initiate(
   root: ModuleNode,
-) {
+): Promise<InitiatedModule> {
   /**
    * Module resolution cache (modules are processed only once)
    */
