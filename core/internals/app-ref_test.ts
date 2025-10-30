@@ -110,7 +110,7 @@ test("AppRef.select should throw when constructor not found", async () => {
   const appRef = await AppRef.create(TestModule);
 
   expect(() => appRef.select(NonExistentController)).toThrow(
-    "Module not found for controller: NonExistentController",
+    "Entity NonExistentController not found",
   );
 });
 

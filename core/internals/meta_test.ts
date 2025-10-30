@@ -6,7 +6,7 @@ import {
   readMetadataObject,
   write,
   writeMetadataObject,
-} from "./meta/mod.ts";
+} from "./meta.ts";
 import { test } from "../testing/mod.ts";
 
 const key = Symbol("key");
