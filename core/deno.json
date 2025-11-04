@@ -1,6 +1,6 @@
 {
   "name": "@chojs/core",
-  "version": "2.5.4",
+  "version": "2.5.5",
   "license": "MIT",
   "exports": {
     ".": "./mod.ts",
@@ -16,9 +16,7 @@
   },
   "publish": {
     "exclude": [
-      "./specs/**/*",
-      "./**/*_test.ts",
-      "./*.mjs"
+      "./**/*_test.ts"
     ]
   }
 }

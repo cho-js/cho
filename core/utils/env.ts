@@ -16,7 +16,9 @@
  */
 export function env(key: string): string | undefined {
   // both, Bun and Deno support Node.js-style process.env
-  if ("process" in globalThis && globalThis.process?.env) {
+  // @ts-ignore
+  if ("process" in globalThis && globalThis?.process?.env) {
+    // @ts-ignore
     return globalThis.process.env[key];
   }
   return undefined;

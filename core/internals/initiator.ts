@@ -77,6 +77,15 @@ export class InitiatedModule {
       yield* im.all();
     }
   }
+
+  *ctrls(): Generator<InitiatedController> {
+    for (const ctrl of this.controllers) {
+      yield ctrl;
+    }
+    for (const im of this.imports) {
+      yield* im.ctrls();
+    }
+  }
 }
 
 /**

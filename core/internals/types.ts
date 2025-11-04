@@ -103,7 +103,7 @@ export type ChoEndpointFn = {
 /**
  * A function type representing the next middleware in the chain.
  */
-export type Next = () => void | Promise<void>;
+export type Next = (err?: unknown) => void | Promise<void>;
 
 /**
  * A function type representing a middleware function.
