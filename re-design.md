@@ -49,61 +49,65 @@ instance of a class or any other value. The factory function is always async and
 to resolve its dependencies.
 
 ```ts
+type Any = any;
+
 type Ctr = new (...args: any[]) => any | Function;
 
 type InjectionToken<T> = { token: string | symbol; };
 
-type Token = InjectionToken<any> | Ctr;
+type Token = InjectionToken<Any> | Ctr;
 
 type Resolver = { resolve: <T>(token: Token) => Promise<T> };
 
-type Factory<T = any> = (injector: Resolver) => Promise<T>;
+type Factory<T = Any> = (injector: Resolver) => Promise<T>;
 
-type Provider<T = any> = { provide: InjectionToken<T> | Ctr; factory?: Factory<T>; };
+type Provider<T = Any> = { provide: InjectionToken<T> | Ctr; factory?: Factory<T>; };
 ```
 
 ##### Implementation Example
 
 ```ts
 
+// example for service with no dependencies
 @Injectable()
 class Service {
 }
 
+// example for service with dependencies
 @Injectable(["Config", Service])
 class ApiService {
-    constructor(private apiUrl: string, private service: Service) {
-    }
+  constructor(private apiUrl: string, private service: Service) {
+  }
 }
 
 @Module({
-    imports: [
-        OtherModule,
-        AnotherModule,
-    ],
-    // registering providers
-    providers: [
-        // implicit provider definition
-        Service,
-        // explicit providers definition
-        {
-            provide: "Config",
-            factory: (injector) => {
-                return Promise.resolve({apiUrl: "https://api.example.com"});
-            },
-        },
-        // implicit provider definition
-        // ApiService,
-        // explicit (the same) providers definition
-        {
-            provide: ApiService,
-            factory: async (injector) => {
-                const config = await injector.resolve("Config");
-                const service = await injector.resolve(Service);
-                return new ApiService(config.apiUrl, service);
-            },
-        },
-    ],
+  imports: [
+    OtherModule,
+    AnotherModule,
+  ],
+  // registering providers
+  providers: [
+    // implicit provider definition
+    Service,
+    // explicit providers definition
+    {
+      provide: "Config",
+      factory: (injector) => {
+        return Promise.resolve({apiUrl: "https://api.example.com"});
+      },
+    },
+    // implicit provider definition
+    ApiService,
+    // explicit (the same) providers definition
+    {
+      provide: ApiService,
+      factory: async (injector) => {
+        const config = await injector.resolve("Config");
+        const service = await injector.resolve(Service);
+        return new ApiService(config.apiUrl, service);
+      },
+    },
+  ],
 })
 class SomeModule {
 }
@@ -124,29 +128,60 @@ The graph is a plain JS structure, not JSON:
   reference to that same node, so nothing is duplicated.
 
 ```ts
+class ActionNode {
+  constructor(
+          public name: string,                  // method name on the controller's prototype
+          public meta: Record<string, unknown>, // method decorators metadata (route, command, etc.)
+  ) {
+  }
+}
+
+class GatewayNode {
+  constructor(
+          public ctr: Ctr,                      // the controller class itself
+          public deps: Token[],                 // constructor dependencies, resolved by the module's injector
+          public meta: Record<string, unknown>, // controller decorators metadata (route prefix, etc.)
+          public actions: ActionNode[],         // decorated methods only
+          public middlewares: Token[],          // controller middlewares, resolved by the module's injector
+  ) {
+  }
+}
+
+class ModuleNode {
+  constructor(
+          public ctr: Ctr,                      // the module class itself
+          public deps: Token[],                 // constructor dependencies, resolved by the module's injector
+          public meta: Record<string, unknown>, // module decorators metadata
+          public imports: ModuleNode[],         // references to the imported module nodes, in import order
+          public providers: ProviderNode[],     // in registration order
+          public gateways: GatewayNode[],
+  ) {
+  }
+}
+
 type MethodNode = {
-    name: string;                  // method name on the controller's prototype
-    meta: Record<string, unknown>; // method decorators metadata (route, command, etc.)
+  name: string;                  // method name on the controller's prototype
+  meta: Record<string, unknown>; // method decorators metadata (route, command, etc.)
 };
 
 type ControllerNode = {
-    ctr: Ctr;                      // the controller class itself
-    deps: Token[];                 // constructor dependencies, resolved by the module's injector
-    meta: Record<string, unknown>; // controller decorators metadata (route prefix, etc.)
-    methods: MethodNode[];         // decorated methods only
+  ctr: Ctr;                      // the controller class itself
+  deps: Token[];                 // constructor dependencies, resolved by the module's injector
+  meta: Record<string, unknown>; // controller decorators metadata (route prefix, etc.)
+  methods: MethodNode[];         // decorated methods only
 };
 
 type ProviderNode = {
-    provide: Token;                // the token the provider is registered under
-    factory: Factory;              // explicit factory, or generated from the constructor and its deps
-    deps?: Token[];                // implicit providers only (explicit factories resolve their deps themselves)
+  provide: Token;                // the token the provider is registered under
+  factory: Factory;              // explicit factory, or generated from the constructor and its deps
+  deps?: Token[];                // implicit providers only (explicit factories resolve their deps themselves)
 };
 
 type ModuleNode = {
-    ctr: Ctr;                      // the module class itself
-    imports: ModuleNode[];         // references to the imported module nodes, in import order
-    providers: ProviderNode[];     // in registration order
-    controllers: ControllerNode[];
+  ctr: Ctr;                      // the module class itself
+  imports: ModuleNode[];         // references to the imported module nodes, in import order
+  providers: ProviderNode[];     // in registration order
+  controllers: ControllerNode[];
 };
 ```
 
