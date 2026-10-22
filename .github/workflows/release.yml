@@ -1,57 +1,57 @@
-name: Release
-on:
-  workflow_dispatch:
-#  push:
-#    branches:
-#      - main
-
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      id-token: write
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: 🌸 Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      #      - name: 🌼 Setup Deno
-      #        uses: denoland/setup-deno@v2
-      #        with:
-      #          deno-version: v2.x
-
-      #      - name: 🧪 testing
-      #        run: deno test --allow-env
-
-      - name: 🛫 install semantic-release
-        run: npm ci --no-fund
-
-      - name: 🦋release core
-#        if: contains(github.event.head_commit.message, '(core)')
-        run: cd core && npx semantic-release
-
-      - name: 🦋release web
-
-#        if: contains(github.event.head_commit.message, '(web)')
-        run: cd web && npx semantic-release
-
-#      - name: 🦋release vendor-hono
-#        if: contains(github.event.head_commit.message, '(hono)')
-#        run: cd vendor/hono && npx semantic-release
-
-#      - name: 🦋release dev
-#        if: contains(github.event.head_commit.message, '(dev)')
-#        run: cd dev && npx semantic-release
-
-      - name: 🦋release command
-#        if: contains(github.event.head_commit.message, '(command)')
-        run: cd command && npx semantic-release
+#name: Release
+#on:
+#  workflow_dispatch:
+##  push:
+##    branches:
+##      - main
+#
+#jobs:
+#  publish:
+#    runs-on: ubuntu-latest
+#    permissions:
+#      contents: write
+#      issues: write
+#      id-token: write
+#    env:
+#      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#    steps:
+#      - uses: actions/checkout@v4
+#        with:
+#          fetch-depth: 0
+#
+#      - name: 🌸 Setup Node.js
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: "24"
+#
+#      #      - name: 🌼 Setup Deno
+#      #        uses: denoland/setup-deno@v2
+#      #        with:
+#      #          deno-version: v2.x
+#
+#      #      - name: 🧪 testing
+#      #        run: deno test --allow-env
+#
+#      - name: 🛫 install semantic-release
+#        run: npm ci --no-fund
+#
+#      - name: 🦋release core
+##        if: contains(github.event.head_commit.message, '(core)')
+#        run: cd core && npx semantic-release
+#
+#      - name: 🦋release web
+#
+##        if: contains(github.event.head_commit.message, '(web)')
+#        run: cd web && npx semantic-release
+#
+##      - name: 🦋release vendor-hono
+##        if: contains(github.event.head_commit.message, '(hono)')
+##        run: cd vendor/hono && npx semantic-release
+#
+##      - name: 🦋release dev
+##        if: contains(github.event.head_commit.message, '(dev)')
+##        run: cd dev && npx semantic-release
+#
+#      - name: 🦋release command
+##        if: contains(github.event.head_commit.message, '(command)')
+#        run: cd command && npx semantic-release

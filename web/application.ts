@@ -1,8 +1,11 @@
-import { AppRef } from "../core/application/app-ref.ts";
-import { Ctr } from "../core/meta/meta.ts";
-import { HonoLinker } from "./hono-linker.ts";
-import { onModuleActivate, onModuleInit } from "../core/application/hooks.ts";
+import {
+  AppRef,
+  type Ctr,
+  onModuleActivate,
+  onModuleInit,
+} from "@chojs/core/internals";
 import { Hono } from "@hono/hono";
+import { HonoLinker } from "./hono-linker.ts";
 
 export class WebApplication {
   constructor(
@@ -18,10 +21,10 @@ export class WebFactory {
    */
   static async create(ctr: Ctr) {
     const ref = await AppRef.create(ctr);
-    await onModuleInit(ref.compiled);
+    await onModuleInit(ref.initiated);
 
-    const linked = new HonoLinker().link(ref.compiled);
-    await onModuleActivate(ref.compiled, linked);
+    const linked = new HonoLinker().link(ref.initiated);
+    await onModuleActivate(ref.initiated, linked);
 
     return new WebApplication(ref, linked);
   }

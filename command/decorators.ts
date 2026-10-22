@@ -1,4 +1,4 @@
-import { addToMetadataObject, type Any, normTarget } from "@chojs/core";
+import { addToMetadataObject, type Any, normTarget } from "@chojs/core/internals";
 
 /**
  * Mark a method as the main command handler.
@@ -21,11 +21,12 @@ export function Main(): Any {
  * This decorator can be applied to methods within a controller class.
  *
  * @param name
+ * @param alias
  * @constructor
  */
-export function Command(name: string): Any {
+export function Command(name: string, alias?: string): Any {
   return (target: Any, key?: string | symbol) => {
-    addToMetadataObject(normTarget(target, key), { command: name });
+    addToMetadataObject(normTarget(target, key), { command: name, alias });
   };
 }
 

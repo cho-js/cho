@@ -1,0 +1,41 @@
+#name: Release Core
+#on:
+#  workflow_dispatch:
+#    inputs:
+#      core: { type: 'boolean', description: 'Core' }
+#      web: { type: 'boolean', description: 'Web' }
+#      command: { type: 'boolean', description: 'Command' }
+#
+#jobs:
+#  publish:
+#    runs-on: ubuntu-latest
+#    permissions:
+#      contents: write
+#      issues: write
+#      id-token: write
+#    env:
+#      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#    steps:
+#      - uses: actions/checkout@v4
+#        with:
+#          fetch-depth: 0
+#
+#      - name: 🌼 Setup Deno
+#        uses: denoland/setup-deno@v2
+#        with:
+#          deno-version: v2.x
+#
+#      - name: 🌻 Prepare
+#        run: deno install
+#
+#      - if: ${{ inputs.core }}
+#        name: 🌺 Release Core
+#        run: cd && cd core && deno publish
+#
+#      - if: ${{ inputs.web }}
+#        name: 🌺 Release Web
+#        run: cd && cd web && deno publish
+#
+#      - if: ${{ inputs.command }}
+#        name: 🌺 Release Command
+#        run: cd && cd command && deno publish

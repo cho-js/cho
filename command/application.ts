@@ -1,22 +1,14 @@
-import type { Ctr, Token } from "@chojs/core";
-import { Injector } from "@chojs/core";
 import { parseArgs } from "@std/cli/parse-args";
+import type { Ctr } from "@chojs/core/internals";
+import { AppRef, onModuleActivate, onModuleInit } from "@chojs/core/internals";
 import {
-  HelpKey,
-  LinkedApp,
+  type ChoArgs,
   LinkedCommandsApp,
   LinkedMainApp,
+  linker,
 } from "./linker.ts";
-import { Linker } from "./linker.ts";
-import {
-  type CompiledModule,
-  Compiler,
-  graphBuilder,
-  onModuleActivate,
-  onModuleInit,
-  onModuleShutdown,
-} from "@chojs/core/application";
-import { type ChoArgs, ChoCommandContext } from "./context.ts";
+
+export { ChoCommandContext } from "./linker.ts";
 
 /**
  * Error thrown when no command is provided.
@@ -33,119 +25,74 @@ export class NotFoundError extends Error {}
  */
 export class MissingHelpError extends Error {}
 
-/**
- * Command Application Handler
- */
-export abstract class Application<T extends LinkedApp> {
-  /**
-   * Create an application instance from a root controller.
-   *
-   * @param ctr
-   */
-  static async create(
-    ctr: Ctr,
-  ): Promise<ApplicationMain | ApplicationCommands> {
-    const compiled = await new Compiler().compile(graphBuilder(ctr));
-    await onModuleInit(compiled);
-
-    const linked = new Linker().link(compiled);
-    await onModuleActivate(compiled, linked);
-
-    return ("main" in linked)
-      ? new ApplicationMain(ctr, compiled, linked)
-      : new ApplicationCommands(ctr, compiled, linked);
-  }
-
-  protected constructor(
-    readonly ctr: Ctr,
-    readonly instance: CompiledModule,
-    readonly appRef: T,
+export abstract class CommandApplication<T> {
+  constructor(
+    readonly ref: AppRef,
+    readonly linked: T,
   ) {
   }
 
+  abstract run(argv: string[]): void;
+}
+
+export class SingleCommandApplication
+  extends CommandApplication<LinkedMainApp> {
   /**
-   * Run the application with the given command-line arguments.
    * @param argv
    */
-  abstract run(argv: string[]): void | Promise<void>;
-
-  /**
-   * Handle an error using the application's error handler if available.
-   * @param err
-   * @param args
-   */
-  protected async handleError(err: Error, args: ChoArgs): Promise<void> {
-    if (this.appRef.errorHandler) {
-      await this.appRef.errorHandler(
-        err,
-        new ChoCommandContext(args),
-      );
+  run(argv: string[]): void {
+    const args = parseArgs(argv) as ChoArgs;
+    if (args.help || args.h) {
+      const help = this.linked.main.help ?? this.linked.help;
+      if (!help) {
+        throw new MissingHelpError("No help available");
+      }
+      console.log(help);
       return;
     }
-    throw err;
-  }
 
-  protected handleHelp(help?: string) {
-    if (!help) {
-      throw new MissingHelpError();
-    }
-    console.log(help);
+    // invoke main command
+    this.linked.main.handle(args);
   }
 }
 
-export class ApplicationMain extends Application<LinkedMainApp> {
+export class MultiCommandApplication
+  extends CommandApplication<LinkedCommandsApp> {
   /**
    * @param argv
    */
-  async run(argv: string[]): Promise<void> {
-    const args = parseArgs(argv) as ChoArgs;
-    const showHelp = args.help ?? args.h ?? false;
-
-    if (showHelp) {
-      return this.handleHelp(
-        this.appRef.help["main"] || this.appRef.help[HelpKey],
-      );
-    }
-
-    await this.appRef.main(new ChoCommandContext(args));
-    await onModuleShutdown(this.instance, this.appRef);
-  }
-}
-
-export class ApplicationCommands extends Application<LinkedCommandsApp> {
-  /**
-   * @param argv
-   */
-  async run(argv: string[]): Promise<void> {
+  run(argv: string[]): void {
     const args = parseArgs(argv) as ChoArgs;
     const route = args._.length ? args._[0] as string : null;
     const showHelp = args.help ?? args.h ?? false;
 
-    // if show help without subcommand, show main help (gateway help)
     if (showHelp && !route) {
-      // todo auto generate main help from subcommands if no help provided?
-      return this.handleHelp(this.appRef.help[HelpKey]);
+      // show main help
+      const help = (this.linked.help ?? []).join("\n");
+      if (!help) {
+        throw new MissingHelpError("No global help available");
+      }
+      console.log(help);
+      return;
     }
 
-    // no subcommand?
     if (!route) {
-      return await this.handleError(
-        new MissingCommandError("No command provided"),
-        args,
-      );
+      // todo show usage? (global help?!)
+      throw new MissingCommandError();
     }
 
-    // is subcommand exists?
-    if (!this.appRef.commands[route]) {
-      return await this.handleError(
-        new NotFoundError(`Command "${route}" not found`),
-        args,
-      );
+    if (!this.linked.commands[route]) {
+      throw new NotFoundError(`Command "${route}" not found`);
     }
 
-    // show help for this subcommand
     if (showHelp) {
-      return this.handleHelp(this.appRef.help[route]);
+      // show command help for subcommand
+      const help = this.linked.commands[route].help;
+      if (!help) {
+        throw new MissingHelpError(`No help available for command "${route}"`);
+      }
+      console.log(help);
+      return;
     }
 
     // remove the route from args
@@ -155,7 +102,23 @@ export class ApplicationCommands extends Application<LinkedCommandsApp> {
     };
 
     // invoke the subcommand
-    await this.appRef.commands[route](new ChoCommandContext(normalized));
-    await onModuleShutdown(this.instance, this.appRef);
+    this.linked.commands[route].handle(normalized);
+  }
+}
+
+export class CommandFactory {
+  /**
+   * @param ctr
+   */
+  static async create(ctr: Ctr) {
+    const ref = await AppRef.create(ctr);
+    await onModuleInit(ref.initiated);
+
+    const linked = linker(ref);
+    await onModuleActivate(ref.initiated, linked);
+
+    return (linked instanceof LinkedMainApp)
+      ? new SingleCommandApplication(ref, linked)
+      : new MultiCommandApplication(ref, linked);
   }
 }

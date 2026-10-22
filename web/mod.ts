@@ -92,7 +92,7 @@
  * - `compile(feature)` - Compile feature modules into linked structures
  *
  * ### Linking System (`./linker.ts`)
- * - `linker<App>(root, adapter)` - Link compiled features with framework adapters
+ * - `linker<App>(root, adapter)` - Link initiated features with framework adapters
  *
  * ### Adapter Interface (`./adapter.ts`)
  * - `Adapter<Application, Feature, Controller, ChoMiddlewareFn>` - Framework adapter interface

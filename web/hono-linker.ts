@@ -16,11 +16,11 @@ import type { SSEMessage, SSEStreamingApi } from "@hono/hono/streaming";
 const log = debuglog("web:hono-linker");
 
 /**
- * Where the magic happens, linking compiled modules to Hono application instances.
+ * Where the magic happens, linking initiated modules to Hono application instances.
  */
 export class HonoLinker {
   /**
-   * Link a compiled module to an Hono application instance.
+   * Link a initiated module to an Hono application instance.
    * @param cm
    */
   link(cm: CompiledModule): Hono {
@@ -34,7 +34,7 @@ export class HonoLinker {
   }
 
   /**
-   * Return a feature for the given compiled module, or null if the module has no routes.
+   * Return a feature for the given initiated module, or null if the module has no routes.
    * The feature is a Hono instance.
    *
    * @param cm
@@ -81,7 +81,7 @@ export class HonoLinker {
   }
 
   /**
-   * Return a controller for the given compiled gateway, or null if the gateway has no routes.
+   * Return a controller for the given initiated gateway, or null if the gateway has no routes.
    * @param cg
    * @protected
    */
@@ -128,7 +128,7 @@ export class HonoLinker {
   }
 
   /**
-   * Return an endpoint for the given compiled method, or null if the method is not an endpoint.
+   * Return an endpoint for the given initiated method, or null if the method is not an endpoint.
    * todo add extended endpoint support (e.g. websockets, graphql, etc.)
    * @param cm
    */
@@ -207,7 +207,7 @@ export class HonoLinker {
         };
 
       /**
-       * todo how to handle other types of endpoints (error?!)
+       * In a case the controller is not an HTTP one, return null.
        */
       default:
         return null;
@@ -332,7 +332,7 @@ export class HonoLinker {
   }
 
   /**
-   * Create a controller for the given compiled item (module or gateway).
+   * Create a controller for the given initiated item (module or gateway).
    * @param c
    * @protected
    */

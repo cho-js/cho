@@ -5,7 +5,7 @@ export type InputFactory = (c: ChoWebContext) => Promise<unknown>;
 
 // types for middleware and guards
 
-// compiled types
+// initiated types
 
 /**
  * Interface for input validators that can safely parse and validate data.

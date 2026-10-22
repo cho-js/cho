@@ -6,7 +6,7 @@
 /**
  * Type representing different JavaScript runtime engines.
  */
-export type EngineTpe =
+export type EngineType =
   | "node"
   | "deno"
   | "bun"
@@ -61,9 +61,9 @@ export function isNode(): boolean {
 
 /**
  * Detect the current JavaScript runtime engine.
- * @returns {EngineTpe} The detected engine type.
+ * @returns {EngineType} The detected engine type.
  */
-export function engine(): EngineTpe {
+export function engine(): EngineType {
   if (isCloudflare()) {
     return "worked";
   }
