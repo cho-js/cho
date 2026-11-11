@@ -1,0 +1,15 @@
+{
+  "name": "@chojs/command",
+  "version": "3.0.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "imports": {
+  },
+  "publish": {
+    "exclude": [
+      "./**/*_test.ts"
+    ]
+  }
+}
