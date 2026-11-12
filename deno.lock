@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@hono/hono@^4.13.18": "4.13.18",
     "jsr:@hono/hono@^4.13.6": "4.13.18",
     "npm:@types/node@*": "24.2.0"
   },
@@ -21,6 +22,9 @@
     }
   },
   "workspace": {
+    "dependencies": [
+      "jsr:@hono/hono@^4.13.18"
+    ],
     "members": {
       "vendor/hono": {
         "dependencies": [

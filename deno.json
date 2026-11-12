@@ -11,6 +11,7 @@
     "./vendor/hono"
   ],
   "imports": {
+    "@hono/hono": "jsr:@hono/hono@^4.13.18"
   },
   "fmt": {
     "lineWidth": 80,

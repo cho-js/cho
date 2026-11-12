@@ -8,9 +8,7 @@
   },
   "publish": {
     "exclude": [
-      "./**/*_test.ts",
-      "./*.mjs",
-      "./hono-cors.ts"
+      "./**/*_test.ts"
     ]
   }
 }
