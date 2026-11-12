@@ -1,8 +1,8 @@
 /**
  * The decorators of `@chojs/web`.
  *
- * - `@Get`, `@Post`, `@Put`, `@Patch` and `@Delete` mark the route handlers of
- *   a controller. They write the handler's method and route on the decorated
+ * - `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Head` and `@Options` mark
+ *   the route handlers of a controller. They write the handler's method and route on the decorated
  *   method, under the private `HTTP` key (`keys.ts`), which the web graph
  *   builder reads (see `build-graph.ts`).
  * - `@Module` and `@Controller` are the core's decorators, with the `route`
@@ -378,6 +378,77 @@ export function Put(route: string): ChoMethodDecorator {
  */
 export function Patch(route: string): ChoMethodDecorator {
   return create_http_decorator("Patch", route, "PATCH");
+}
+
+/**
+ * Mark a method as the handler of `HEAD route`.
+ *
+ * The method receives the request's `ChoWebContext`. A `HEAD` response has no
+ * body: only the status and the headers of what the method returns are sent,
+ * so return a `Response` to set them.
+ *
+ * Without a `@Head` handler, what a `HEAD` request gets is up to the adapter:
+ * Hono answers it from the `@Get` handler of the same route, without the
+ * body.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @returns A method decorator.
+ * @throws {Error} When the route is invalid, or when the method already has
+ *   an HTTP method decorator.
+ * @throws {TypeError} When the decorated member is not a public, non-static,
+ *   string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "files" })
+ * class FilesController {
+ *   // HEAD /files/report.pdf
+ *   @Head(":name")
+ *   async stat(ctx: ChoWebContext) {
+ *     const size = await this.files.size(ctx.params.name);
+ *     return new Response(null, { headers: { "content-length": `${size}` } });
+ *   }
+ * }
+ * ```
+ */
+export function Head(route: string): ChoMethodDecorator {
+  return create_http_decorator("Head", route, "HEAD");
+}
+
+/**
+ * Mark a method as the handler of `OPTIONS route`.
+ *
+ * The method receives the request's `ChoWebContext`. What it returns is the
+ * response: a `Response` as is, nothing as `204`, anything else as JSON.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @returns A method decorator.
+ * @throws {Error} When the route is invalid, or when the method already has
+ *   an HTTP method decorator.
+ * @throws {TypeError} When the decorated member is not a public, non-static,
+ *   string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   // OPTIONS /users
+ *   @Options("")
+ *   options() {
+ *     return new Response(null, {
+ *       status: 204,
+ *       headers: { allow: "GET, POST, OPTIONS" },
+ *     });
+ *   }
+ * }
+ * ```
+ */
+export function Options(route: string): ChoMethodDecorator {
+  return create_http_decorator("Options", route, "OPTIONS");
 }
 
 /**

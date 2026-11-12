@@ -144,6 +144,12 @@ export class FeatureRef extends NodeRef {
 export class AppRef {
   /** The global route prefix; `""` when there is none. */
   readonly route: string;
+  /**
+   * The error handler of the application (the `onError` option of
+   * `ChoWeb.create`), or `null` when it has none. It handles the errors of the
+   * routes that no `@Catch` handler covers.
+   */
+  readonly errorHandler: ErrorHandlerRef;
   /** The features of the application. */
   readonly features: FeatureRef[];
 
@@ -151,9 +157,11 @@ export class AppRef {
    * Create the application node, with no features yet.
    *
    * @param route The global route prefix.
+   * @param errorHandler The error handler of the application, or `null`.
    */
-  constructor(route: string) {
+  constructor(route: string, errorHandler: ErrorHandlerRef = null) {
     this.route = route;
+    this.errorHandler = errorHandler;
     this.features = [];
   }
 }

@@ -40,8 +40,8 @@ open. Each mark was checked against the code.
 | D5   | fixed    | positionals are strings; commands declare their flags                       |
 | D6   | fixed    | `web/syntax_test.ts` runs real decorator syntax on Deno, Bun and Node       |
 
-Current checks: `deno check`, `deno lint` pass; 102 tests / 646 steps on Deno,
-629 on Bun and on Node.
+Current checks: `deno check`, `deno lint` pass; 104 tests / 654 steps on Deno,
+637 on Bun and on Node.
 
 ## Verdict
 
@@ -439,7 +439,7 @@ kind of bug that follows. One fixture file with real syntax, executed by
 - **[FIXED]** The duplicate-route error named nothing; `:id` vs `:name`
   duplicates passed.
 - **[FIXED]** `ControllerInstance` and `MethodRef.type` are removed.
-- **[PARTLY FIXED]** `@Patch` exists; `@Head` and `@Options` do not.
+- **[FIXED]** `@Patch`, `@Head` and `@Options` exist.
 
 **vendor/hono** — **[FIXED]** The middleware leak (A1), the ignored prefix and
 the inconsistent error-handler argument order are gone with the rewrite, and so

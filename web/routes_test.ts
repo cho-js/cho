@@ -9,14 +9,16 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Injectable } from "@chojs/core/di";
-import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
+import { capture, legacy, loose, with_env } from "@chojs/core/utils/test_utils";
 import type { ChoWebContext } from "./context.ts";
 import {
   Catch,
   Controller,
   Get,
+  Head,
   Middlewares,
   Module,
+  Options,
   Post,
 } from "./decorators.ts";
 import { TestLinker } from "./testing.ts";
@@ -140,6 +142,77 @@ describe("routes", () => {
     Controller()(Users);
     const app = await create(feature([Users]));
     assert.equal(await (await send(app, "/")).json(), "hello");
+  });
+});
+
+describe("routes, HEAD and OPTIONS", () => {
+  /** `GET`, `HEAD` and `OPTIONS` on the same path. */
+  function files_app() {
+    class Files {
+      get() {
+        return { name: "report" };
+      }
+      stat() {
+        return new Response("ignored", {
+          status: 200,
+          headers: { "content-length": "42", "x-kind": "head" },
+        });
+      }
+      json() {
+        return { also: "ignored" };
+      }
+      boom() {
+        throw new Error("boom");
+      }
+      options() {
+        return new Response(null, {
+          status: 204,
+          headers: { allow: "GET, HEAD, OPTIONS" },
+        });
+      }
+    }
+    legacy(Get("file"), Files, "get");
+    legacy(Head("file"), Files, "stat");
+    legacy(Head("json"), Files, "json");
+    legacy(Head("boom"), Files, "boom");
+    legacy(Options("file"), Files, "options");
+    Controller()(Files);
+    Catch(() => Response.json({ error: "x" }, { status: 500 }))(Files);
+    return feature([Files]);
+  }
+
+  it("routes them next to GET, on the same path", async () => {
+    const app = await create(files_app());
+    assert.deepEqual(
+      app.routes.map((r) => `${r.method} ${r.path}`),
+      ["GET /file", "HEAD /file", "HEAD /json", "HEAD /boom", "OPTIONS /file"],
+    );
+    assert.deepEqual(await (await send(app, "/file")).json(), {
+      name: "report",
+    });
+    const options = await send(app, "/file", "OPTIONS");
+    assert.equal(options.status, 204);
+    assert.equal(options.headers.get("allow"), "GET, HEAD, OPTIONS");
+  });
+
+  it("sends a HEAD response without its body, keeping status and headers", async () => {
+    const app = await create(files_app());
+
+    const head = await send(app, "/file", "HEAD");
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get("x-kind"), "head");
+    assert.equal(head.headers.get("content-length"), "42");
+    assert.equal(await head.text(), "");
+
+    const json = await send(app, "/json", "HEAD");
+    assert.equal(json.status, 200);
+    assert.match(json.headers.get("content-type") ?? "", /application\/json/);
+    assert.equal(await json.text(), "");
+
+    // what an error handler answers has no body either
+    const failed = await send(app, "/boom", "HEAD");
+    assert.equal(failed.status, 500);
+    assert.equal(await failed.text(), "");
   });
 });
 
@@ -399,6 +472,123 @@ describe("routes, error handlers", () => {
       await logs({ ...OFF, CHO_DEBUGLOG: "cho:web" }),
       /ERROR GET \/x failed: Error: boom/,
     );
+  });
+});
+
+describe("routes, the application's error handler", () => {
+  const boom = () => {
+    throw new Error("boom");
+  };
+  const tag = (level: string) => (error: unknown, ctx: ChoWebContext) =>
+    new Response(
+      `${level}: ${(error as Error).message} at ${ctx.url.pathname}`,
+      { status: 500 },
+    );
+
+  it("handles the errors no @Catch handler covers, in every feature", async () => {
+    const Covered = controller("covered", boom);
+    Catch(tag("controller"))(Covered);
+    const A = feature([Covered, controller("a", boom)]);
+    const B = feature([controller("b", boom)]);
+    class App {}
+    Module({ imports: [A, B] })(App);
+    const app = await ChoWeb.create(App, {
+      linker: new TestLinker(),
+      onError: tag("app"),
+    });
+
+    const text = async (path: string) => (await send(app, path)).text();
+    assert.equal(await text("/covered"), "controller: boom at /covered");
+    assert.equal(await text("/a"), "app: boom at /a");
+    assert.equal(await text("/b"), "app: boom at /b");
+    assert.equal(typeof app.graph.errorHandler, "function");
+  });
+
+  it("converts its result like a handler's, and handles middleware errors", async () => {
+    const Ctrl = controller("x", () => "fine");
+    Middlewares(boom)(Ctrl);
+    const app = await ChoWeb.create(feature([Ctrl]), {
+      linker: new TestLinker(),
+      onError: (error) => ({ error: (error as Error).message }),
+    });
+    assert.deepEqual(await (await send(app, "/x")).json(), { error: "boom" });
+  });
+
+  it("can be a class, created in the scope of the root module", async () => {
+    class Reporter {
+      seen: unknown[] = [];
+    }
+    Injectable()(Reporter);
+    class OnError {
+      constructor(readonly reporter: Reporter) {}
+      handle(error: unknown) {
+        this.reporter.seen.push(error);
+        return new Response("reported", { status: 500 });
+      }
+    }
+    Injectable([Reporter])(OnError);
+    class App {}
+    Module({
+      imports: [feature([controller("x", boom)])],
+      providers: [Reporter, OnError],
+    })(App);
+    const app = await ChoWeb.create(App, {
+      linker: new TestLinker(),
+      onError: OnError,
+    });
+
+    assert.equal(await (await send(app, "/x")).text(), "reported");
+    assert.equal(app.graph.errorHandler?.name, "OnError.handle");
+  });
+
+  it("is not called for a request that matches no route", async () => {
+    let called = false;
+    const app = await ChoWeb.create(feature([controller("x", () => 1)]), {
+      linker: new TestLinker(),
+      onError: () => {
+        called = true;
+      },
+    });
+    assert.equal((await send(app, "/nope")).status, 404);
+    assert.equal(called, false);
+  });
+
+  it("rejects when it throws itself", async () => {
+    const linker = new TestLinker();
+    const app = await ChoWeb.create(feature([controller("x", boom)]), {
+      linker,
+      onError: () => {
+        throw new Error("handler failed");
+      },
+    });
+    assert.equal((await send(app, "/x")).status, 500);
+    assert.equal((linker.errors[0] as Error).message, "handler failed");
+  });
+
+  it("is validated when the application is created", async () => {
+    const App = feature([controller("x", () => 1)]);
+    const linker = new TestLinker();
+    await assert.rejects(
+      ChoWeb.create(App, { linker, onError: loose("handler") }),
+      {
+        name: "TypeError",
+        message:
+          'The application\'s error handler must be a function or a class, got "handler"',
+      },
+    );
+    class NoHandle {}
+    await assert.rejects(
+      ChoWeb.create(App, { linker, onError: loose(NoHandle) }),
+      {
+        message: "Error handler class NoHandle must implement 'handle' method.",
+      },
+    );
+    class NotProvided {
+      handle() {}
+    }
+    await assert.rejects(ChoWeb.create(App, { linker, onError: NotProvided }), {
+      message: "Failed to create error handler NotProvided in module Feature",
+    });
   });
 });
 

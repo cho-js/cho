@@ -52,7 +52,11 @@ writing `web/specs.md`. Each was reproduced against the current code.
    first (`@Get(":id")`) also matches the static routes declared after it
    (`@Get("raw")`), which are then unreachable. Nothing warns about it.
 
-6. **There is no `@Patch` decorator**, although the Hono adapter supports PATCH.
+6. **[FIXED] There is no `@Patch` decorator**, although the Hono adapter
+   supports PATCH.
+
+   **Fix:** `@Patch`, `@Head` and `@Options` exist. A `HEAD` response is sent
+   without its body.
 
 7. **The `name` and `version` options of `ChoWeb.create` are not used.**
 

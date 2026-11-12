@@ -170,6 +170,9 @@ function create_middleware_factory(
  *
  * @param injector The injector of the application.
  * @param prefix The global route prefix (`""` for none).
+ * @param on_error The error handler of the application, if any: a function,
+ *   or a class with a `handle` method, created by the injector in the scope
+ *   of the root module.
  * @returns The HTTP graph.
  * @throws {Error} When a route is invalid, or when a middleware or an error
  *   handler is invalid or cannot be created.
@@ -177,8 +180,22 @@ function create_middleware_factory(
 export async function build_http_graph(
   injector: Injector,
   prefix: string,
+  on_error?: unknown,
 ): Promise<AppRef> {
-  const graph = new AppRef(normalize_route(prefix, "the global prefix"));
+  const route = normalize_route(prefix, "the global prefix");
+  if (on_error !== undefined && typeof on_error !== "function") {
+    throw new TypeError(
+      `The application's error handler must be a function or a class, got ${
+        describe(on_error)
+      }`,
+    );
+  }
+  // A handler class is created in the scope of the root module.
+  const root = injector.graph.root.ctr;
+  const graph = new AppRef(
+    route,
+    await error_handler_factory(root, injector)(on_error),
+  );
 
   for (const mdl of injector.modules()) {
     const meta: ModuleMetadata = mdl.meta;

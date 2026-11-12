@@ -58,7 +58,9 @@ export class HonoLinked implements Linked<Hono> {
  *
  * - Handlers receive a `ChoWebContext`; Hono's own `Context` is its `native`
  *   property.
- * - Routes are matched in declaration order.
+ * - Routes are matched in declaration order, `HEAD` routes first.
+ * - A `HEAD` request runs the `@Head` handler of the route; without one, Hono
+ *   answers it from the `@Get` handler, without the body.
  * - A route that fails without a `@Catch` handler goes to Hono's error
  *   handler, which logs the error and answers `500` (see `app.onError`).
  * - Hono middlewares (`cors()`, `logger()`, ...) are not CHO middlewares. To
@@ -107,7 +109,20 @@ export class HonoLinker implements Linker<Hono> {
    */
   link(routes: readonly Route[]): HonoLinked {
     const app = this.#app;
-    for (const route of routes) {
+    // Hono answers a HEAD request by running the GET routes, so a HEAD
+    // route is registered as a GET route that only answers HEAD requests,
+    // ahead of the others: the GET route of the same path must not win.
+    for (const route of routes.filter((r) => r.method === "HEAD")) {
+      app.on(
+        "GET",
+        route.path,
+        (ctx, next) =>
+          ctx.req.raw.method === "HEAD"
+            ? route.handle(ctx.req.raw, ctx.req.param(), ctx)
+            : next(),
+      );
+    }
+    for (const route of routes.filter((r) => r.method !== "HEAD")) {
       app.on(
         route.method,
         route.path,

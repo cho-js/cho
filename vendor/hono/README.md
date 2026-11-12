@@ -64,10 +64,14 @@ parameters.
   ```
 
 - Routes are matched in declaration order: declare static routes before
-  parameter routes (`@Get("me")` before `@Get(":id")`).
-- A route that fails without a `@Catch` handler goes to Hono's error handler,
-  which logs the error and answers `500`. Set your own with `onError`, and the
-  answer to unmatched requests with `notFound`, on the Hono application.
+  parameter routes (`@Get("me")` before `@Get(":id")`). `HEAD` routes are
+  matched before the others.
+- A `HEAD` request runs the `@Head` handler of the route. Without one, Hono
+  answers it from the `@Get` handler, without the body.
+- A route that fails without a `@Catch` handler, and without the application's
+  `onError` (`ChoWeb.create`), goes to Hono's error handler, which logs the
+  error and answers `500`. Set your own with `onError`, and the answer to
+  unmatched requests with `notFound`, on the Hono application.
 - Any HTTP method is registered as given.
 
 ## Known issues

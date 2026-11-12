@@ -21,8 +21,10 @@ import {
   type ChoWebMiddlewareFn,
   Controller,
   Get,
+  Head,
   Middlewares,
   Module,
+  Options,
   Post,
 } from "@chojs/web";
 import type { Route } from "@chojs/web/linker";
@@ -107,6 +109,26 @@ describe("HonoLinker.link", () => {
     assert.equal(await (await send(linked, "/users/42")).text(), "param");
   });
 
+  it("runs a HEAD route for HEAD requests, wherever it is declared", async () => {
+    const named = (method: string, path: string, name: string): Route => ({
+      ...echo(method, path),
+      handle: () =>
+        Promise.resolve(new Response(null, { headers: { "x-route": name } })),
+    });
+    const linked = new HonoLinker().link([
+      named("GET", "/file", "get"), // declared first: must not answer HEAD
+      named("HEAD", "/file", "head"),
+      named("GET", "/other", "get-other"),
+    ]);
+
+    const route = async (path: string, method: string) =>
+      (await send(linked, path, method)).headers.get("x-route");
+    assert.equal(await route("/file", "HEAD"), "head");
+    assert.equal(await route("/file", "GET"), "get");
+    // without a HEAD route, Hono answers HEAD from the GET route
+    assert.equal(await route("/other", "HEAD"), "get-other");
+  });
+
   it("answers 500 when a route rejects, and logs the error", async () => {
     const linked = new HonoLinker().link([{
       ...echo("GET", "/x"),
@@ -117,6 +139,41 @@ describe("HonoLinker.link", () => {
     const { result, output } = await capture(() => send(linked, "/x"));
     assert.equal(result.status, 500);
     assert.equal((output.error[0] as Error).message, "boom");
+  });
+});
+
+describe("HonoLinker, HEAD and OPTIONS with ChoWeb", () => {
+  it("serves @Head and @Options handlers", async () => {
+    class Files {
+      get() {
+        return { name: "report" };
+      }
+      stat() {
+        return new Response("no body", { headers: { "x-size": "42" } });
+      }
+      options() {
+        return new Response(null, { status: 204, headers: { allow: "GET" } });
+      }
+    }
+    legacy(Get(":name"), Files, "get");
+    legacy(Head(":name"), Files, "stat");
+    legacy(Options(":name"), Files, "options");
+    Controller({ route: "files" })(Files);
+    class App {}
+    Module({ controllers: [Files] })(App);
+    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
+
+    const head = await send(app, "/files/report", "HEAD");
+    assert.equal(head.headers.get("x-size"), "42");
+    assert.equal(await head.text(), "");
+    assert.deepEqual(await (await send(app, "/files/report")).json(), {
+      name: "report",
+    });
+    const options = await send(app, "/files/report", "OPTIONS");
+    assert.deepEqual(
+      [options.status, options.headers.get("allow")],
+      [204, "GET"],
+    );
   });
 });
 

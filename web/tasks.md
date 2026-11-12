@@ -203,8 +203,9 @@ parameters.
 ## Later (not part of this change)
 
 - A built-in adapter on `URLPattern`, so `@chojs/web` works with no vendor.
-- An `onError` option on `ChoWeb.create` as the application-wide fallback.
-- `@Head` and `@Options`.
+- **[DONE]** An `onError` option on `ChoWeb.create` as the application-wide
+  fallback.
+- **[DONE]** `@Head` and `@Options`.
 - Helpers as plain functions (`json(value, init)`, `redirect(url)`), if the
   standard `Response` statics prove too thin.
 

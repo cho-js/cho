@@ -75,10 +75,10 @@ Deno.serve(app.handler); // or Bun.serve({ fetch: app.handler })
   own handlers, it has the handlers it **inherits** from a base class; a
   subclass that decorates an inherited method again replaces its route.
 - A **handler** is a controller method marked with `@Get(route)`,
-  `@Post(route)`, `@Put(route)`, `@Patch(route)` or `@Delete(route)`. Other
-  methods are not routes. A handler is a public, non-static method with a string
-  name, and has one HTTP method decorator: anything else throws when the class
-  is defined.
+  `@Post(route)`, `@Put(route)`, `@Patch(route)`, `@Delete(route)`,
+  `@Head(route)` or `@Options(route)`. Other methods are not routes. A handler
+  is a public, non-static method with a string name, and has one HTTP method
+  decorator: anything else throws when the class is defined.
 
 Only what serves a route counts. A controller without a handler is not part of
 the web application, and a module left without such a controller is not a
@@ -142,6 +142,9 @@ context. Code that uses `native` only runs on that adapter.
 - What it returns is the response: a `Response` is sent as is; `undefined`
   answers `204 No Content`; anything else is sent as JSON with status `200` (a
   string becomes a JSON string, `null` becomes `null`).
+- The response of a `@Head` handler is sent **without its body**: only its
+  status and headers. Without a `@Head` handler, what a `HEAD` request gets is
+  up to the adapter (Hono answers it from the `@Get` handler, without the body).
 - A handler runs on its controller instance, so `this` works. Controllers are
   created once, with their dependencies, when the application is created.
 
@@ -217,7 +220,25 @@ method created by the injector like a middleware class. Its result is the
 response, converted like a handler's result. It can be `async`.
 
 An error thrown by a handler or by a middleware goes to the nearest one: the
-handler's, else the controller's, else the feature's.
+handler's, else the controller's, else the feature's, else the application's.
+
+**The application's error handler** is the `onError` option of `ChoWeb.create`:
+the fallback for every route, in every feature, that no `@Catch` covers. It
+takes what `@Catch` takes; a class is created in the scope of the root module.
+
+```ts
+const app = await ChoWeb.create(App, {
+  linker: new HonoLinker(),
+  onError: (error, ctx) => {
+    console.error(ctx.req.method, ctx.url.pathname, error);
+    return Response.json({ error: "internal error" }, { status: 500 });
+  },
+});
+```
+
+It handles the errors of routes only. A request that matches no route never
+reaches it: that answer belongs to the adapter (with Hono, `notFound` on the
+Hono application given to the linker).
 
 ```ts
 @Catch((error) => Response.json({ error: String(error) }, { status: 500 }))
@@ -231,9 +252,9 @@ class UsersController {
 }
 ```
 
-Without any error handler, or when the error handler throws too, the error goes
-to the adapter: the Hono adapter logs it and answers `500` (or calls the
-`onError` of the Hono application given to the linker).
+Without any error handler at any level, or when the error handler throws too,
+the error goes to the adapter: the Hono adapter logs it and answers `500` (or
+calls the `onError` of the Hono application given to the linker).
 
 ## 6. The application: `ChoWeb`
 
@@ -241,6 +262,7 @@ to the adapter: the Hono adapter logs it and answers `500` (or calls the
 const app = await ChoWeb.create(App, {
   linker: new HonoLinker(), // required: the runtime adapter
   prefix: "api", // optional: the global prefix (section 2.2)
+  onError: (error, ctx) => new Response("oops", { status: 500 }), // optional: section 5
 });
 app.handler; // (req: Request) => Promise<Response>
 app.linked.instance; // the runtime's own application (a Hono app)
@@ -344,19 +366,19 @@ instance, middleware and error handler already created:
 
 | Node            | Holds                                                                            |
 | --------------- | -------------------------------------------------------------------------------- |
-| `AppRef`        | `route` (the global prefix), `features`                                          |
+| `AppRef`        | `route` (the global prefix), `errorHandler` (the application's), `features`      |
 | `FeatureRef`    | `route`, `middlewares`, `errorHandler`, `controllers`                            |
 | `ControllerRef` | `route`, `middlewares`, `errorHandler`, `instance`, `methods`                    |
 | `MethodRef`     | `route`, `middlewares`, `errorHandler`, `name`, `method` (`"GET"`, …), `handler` |
 
 ## 8. Public API
 
-| Entry point          | Exports                                                                                                                                                                                                                                                                                                                                                                                                     |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Middlewares`, `Catch`, the types `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable` and the option types |
-| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                 |
-| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                          |
-| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                                                                                                  |
+| Entry point          | Exports                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Middlewares`, `Catch`, the types `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable` and the option types |
+| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                             |
+| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 
@@ -379,6 +401,7 @@ instance, middleware and error handler already created:
 | A route is not a string                       | `TypeError: Invalid route of <where>: expected a string, got <v>`                            |
 | A route breaks a rule (section 2.3)           | `Invalid route "<route>" of <where>: <reason>`                                               |
 | Two handlers with the same method and path    | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>` |
+| `onError` is not a function or a class        | `TypeError: The application's error handler must be a function or a class, got <v>`          |
 | A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                    |
 | A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause  |
 | An error handler class has no `handle` method | `Error handler class <Name> must implement 'handle' method.`                                 |

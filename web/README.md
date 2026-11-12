@@ -22,7 +22,8 @@ application into a `fetch`-style request handler that any server can call.
 - **Four route levels.** A global prefix, the feature module, the controller and
   the handler.
 - **Middlewares and error handlers** on modules, controllers and handlers, as
-  functions or injectable classes.
+  functions or injectable classes, and one error handler for the whole
+  application (`onError`).
 - **Every runtime.** Deno, Node.js and Bun: `app.handler` is a plain
   `(req: Request) => Promise<Response>`.
 

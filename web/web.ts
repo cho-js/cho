@@ -18,6 +18,7 @@ import { build_http_graph } from "./build-graph.ts";
 import type { AppRef } from "./graph.ts";
 import type { Linked, Linker, Route } from "./linker.ts";
 import { compile_routes } from "./routes.ts";
+import type { ChoWebErrorHandler } from "./types.ts";
 
 /**
  * Options of {@link ChoWeb.create}. `linker` is required; the other options
@@ -50,6 +51,30 @@ export type ChoWebOptions<T = unknown> = {
    * leading or trailing `/` (for example `"api"`). Default: `""`, no prefix.
    */
   prefix?: string;
+  /**
+   * The error handler of the application: it handles the errors of every
+   * route that no `@Catch` handler covers (the handler's, the controller's
+   * and the feature's come first). Like `@Catch`, it takes a function
+   * `(error, ctx)`, or a class with a `handle(error, ctx)` method, created by
+   * the injector in the scope of the root module; what it returns is the
+   * response, converted like a handler's result. Default: none, such errors
+   * go to the HTTP runtime, which answers `500`.
+   *
+   * It covers the errors of routes only: a request that matches no route
+   * never reaches it (set the runtime's own not-found handler).
+   *
+   * @example
+   * ```ts
+   * const app = await ChoWeb.create(AppModule, {
+   *   linker: new HonoLinker(),
+   *   onError: (error, ctx) => {
+   *     console.error(ctx.req.method, ctx.url.pathname, error);
+   *     return Response.json({ error: "internal error" }, { status: 500 });
+   *   },
+   * });
+   * ```
+   */
+  onError?: ChoWebErrorHandler;
   /**
    * Providers that replace the declared providers of the same token, for
    * tests (see `InjectorOptions.overrides` of `@chojs/core`). Default: none.
@@ -144,7 +169,11 @@ export class ChoWeb<T = unknown> {
         options.overrides ? { overrides: options.overrides } : {},
       );
       await inj.init();
-      const graph = await build_http_graph(inj, options.prefix ?? "");
+      const graph = await build_http_graph(
+        inj,
+        options.prefix ?? "",
+        options.onError,
+      );
       const routes = compile_routes(graph, log);
       if (log.enabled) {
         for (const route of routes) {

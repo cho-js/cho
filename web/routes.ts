@@ -63,9 +63,11 @@ export function assert_no_duplicate_routes(routes: readonly Route[]): void {
  *   middlewares, then the handler, whose result is converted by
  *   `to_response`;
  * - an error thrown anywhere in the chain goes to the nearest error handler
- *   (the handler's, the controller's, then the feature's), whose result is
+ *   (the handler's, the controller's, the feature's, then the application's),
+ *   whose result is
  *   converted the same way. Without one, or when it throws too, the route
- *   rejects.
+ *   rejects;
+ * - the response of a `HEAD` route is sent without its body.
  *
  * @param graph The HTTP graph of the application.
  * @param log The `cho:web` debug logger: each error given to an error
@@ -96,8 +98,13 @@ export function compile_routes(
           ],
           async (ctx) => to_response(await method.handler(ctx)),
         );
+        // A HEAD response has no body, whatever produced it.
+        const finish = method.method === "HEAD"
+          ? (response: Response) =>
+            response.body === null ? response : new Response(null, response)
+          : (response: Response) => response;
         const on_error = method.errorHandler ?? controller.errorHandler ??
-          feature.errorHandler;
+          feature.errorHandler ?? graph.errorHandler;
 
         routes.push({
           method: method.method,
@@ -106,13 +113,13 @@ export function compile_routes(
           async handle(req, params, native) {
             const ctx = create_context(req, params, native);
             try {
-              return await run(ctx);
+              return finish(await run(ctx));
             } catch (error) {
               if (!on_error) {
                 throw error;
               }
               log.error(`${req.method} ${ctx.url.pathname} failed:`, error);
-              return to_response(await on_error(error, ctx));
+              return finish(to_response(await on_error(error, ctx)));
             }
           },
         });

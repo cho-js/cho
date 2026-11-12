@@ -19,8 +19,10 @@ import {
   Controller,
   Delete,
   Get,
+  Head,
   Middlewares,
   Module,
+  Options,
   Patch,
   Post,
   Put,
@@ -34,6 +36,8 @@ describe("HTTP method decorators", () => {
       [Post, "POST"],
       [Put, "PUT"],
       [Patch, "PATCH"],
+      [Head, "HEAD"],
+      [Options, "OPTIONS"],
       [Delete, "DELETE"],
     ] as const
   ) {

@@ -1,22 +1,22 @@
 #!/usr/bin/env -S deno run --allow-all
-import {ChoCommand, Controller, Help, Injectable, Main, Module} from "@chojs/command";
-import type { ChoArgs } from "@chojs/command";
+import type {ChoArgs} from "@chojs/command";
+import {ChoCommand, Controller, Help, Main, Module,} from "@chojs/command";
 
-@Injectable()
-export class Timing {
-  async handle(ctx: ChoCliContext, next: ChoCliNext) {
-    const start = performance.now();
-    await next();
-    const end = performance.now() - start;
-    console.log(`...`)
-  }
-}
-
-@Module({
-  providers: [Timing],
-  exports: [Timing],
-})
-export class TimingModule {}
+// @Injectable()
+// export class Timing {
+//   async handle(ctx: ChoCliContext, next: ChoCliNext) {
+//     const start = performance.now();
+//     await next();
+//     const end = performance.now() - start;
+//     console.log(`...`);
+//   }
+// }
+//
+// @Module({
+//   providers: [Timing],
+//   exports: [Timing],
+// })
+// export class TimingModule {}
 
 @Help("Hello world CLI example")
 @Controller()
