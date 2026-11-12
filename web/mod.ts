@@ -1,127 +1,88 @@
 /**
- * # CHO Web Framework Module
+ * @chojs/web — HTTP applications on top of `@chojs/core`.
  *
- * The CHO web module provides a decorator-based framework for building modular web applications
- * using JavaScript stage 3 decorators. It's designed to be framework-agnostic and works with
- * various web frameworks through adapters.
+ * Controllers declare route handlers with `@Get`, `@Post`, `@Put` and
+ * `@Delete`, and {@link ChoWeb} links them to an HTTP runtime with a linker
+ * from a runtime adapter (such as `HonoLinker` from `@chojs/vendor-hono`),
+ * which gives a `fetch`-style request handler. `@Middlewares` and `@Catch`
+ * declare middlewares and error handlers; `@Controller`, `@Module` and
+ * `@Injectable` come from `@chojs/core`, and so do `token` and `provider`,
+ * to declare values that are not classes: an application imports everything
+ * from `@chojs/web`.
  *
- * ## Key Features
+ * Handlers, middlewares and error handlers receive a {@link ChoWebContext},
+ * built on the standard `Request`: application code does not depend on the
+ * HTTP runtime.
  *
- * - **Decorator-based Architecture**: Uses `@Controller`, `@Feature`, and HTTP method decorators
- * - **Dependency Injection**: Built-in DI system with `@Injectable` classes
- * - **Type-safe Parameter Binding**: Extract and validate request data with `Params()`, `Body()`, etc.
- * - **ChoMiddlewareFn Support**: Apply middleware at feature, controller, or method level
- * - **Framework Agnostic**: Works with different web frameworks via adapters
- * - **Modular Design**: Organize code into features and controllers
+ * Routes have up to four levels: the global `prefix` of
+ * {@link ChoWeb.create}, the `route` of the feature module (a module that
+ * declares controllers), the `route` of the controller, and the route of the
+ * handler.
  *
- * ## Core Concepts
- *
- * ### Controllers
- * Define API endpoints using the `@Controller` decorator and HTTP method decorators:
+ * @example
  * ```ts
- * @Controller("users")
- * class UserController {
- *   @Get(":id", [Params("id")])
- *   getUser(id: string) { ... }
+ * import {
+ *   ChoWeb,
+ *   type ChoWebContext,
+ *   Controller,
+ *   Get,
+ *   Middlewares,
+ *   Module,
+ * } from "@chojs/web";
+ * import { HonoLinker } from "@chojs/vendor-hono";
  *
- *   @Post("", [Body()])
- *   createUser(userData: CreateUserDto) { ... }
- * }
- * ```
- *
- * ### Features
- * Group related functionality using the `@Feature` decorator:
- * ```ts
- * @Feature({
- *   controllers: [UserController, PostController],
- *   providers: [UserService, DatabaseService]
- * })
- * class UserFeature {}
- * ```
- *
- * ### Parameter Binding
- * Extract data from HTTP requests with type safety:
- * ```ts
- * @Get("users/:id", [
- *   Params("id", z.string().uuid()),
- *   Query("include"),
- *   Header("authorization")
- * ])
- * getUser(id: string, include: string, auth: string) { ... }
- * ```
- *
- * ## Exported Modules
- *
- * ### Decorators (`./decorators.ts`)
- * - **Class Decorators**:
- *   - `Controller(route, options?)` - Mark a class as a web controller
- *   - `Feature(options)` - Mark a class as a feature module
- *   - `Middlewares(...middlewares)` - Apply middleware to classes or methods
- *
- * - **HTTP Method Decorators**:
- *   - `Get(route, args?)` - Handle GET requests
- *   - `Post(route, args?)` - Handle POST requests
- *   - `Put(route, args?)` - Handle PUT requests
- *   - `Delete(route, args?)` - Handle DELETE requests
- *   - `Patch(route, args?)` - Handle PATCH requests
- *
- * - **Special Endpoint Decorators**:
- *   - `Sse(route, args?)` - Server-Sent Events endpoints
- *   - `WebSocket(route, args?)` - WebSocket endpoints
- *   - `Stream(route, args?)` - Streaming endpoints
- *
- * ### Parameter Functions (`./inputs.ts`)
- * - `Params(key?, validator?)` - Extract URL path parameters
- * - `Body(key?, validator?)` - Extract request body data
- * - `Query(key?, validator?)` - Extract query parameters
- * - `Header(key?, validator?)` - Extract request headers
- * - `Cookie(key?, validator?)` - Extract cookies
- *
- * ### Type Definitions (`./types.ts`)
- * - **Core Types**: `MethodType`, `ArgType`, `MethodArgType`
- * - **Descriptor Types**: `ControllerDescriptor`, `FeatureDescriptor`
- * - **Compilation Types**: `CompiledMethod`, `CompiledController`, `CompiledFeature`
- * - **ChoMiddlewareFn Types**: `ChoMiddlewareFn`, `Next`, `ChoMiddleware`, `ChoGuard`
- * - **Validation Types**: `Validator`, `ArgValidator`
- *
- * ### ChoWebContext Interface (`./context.ts`)
- * - `ChoWebContext<Ctx, Req, Res>` - Unified interface over different web frameworks
- * - `ParamsType<S>` - Type for URL parameters
- *
- * ### Compilation System (`./compiler.ts`)
- * - `compile(feature)` - Compile feature modules into linked structures
- *
- * ### Linking System (`./linker.ts`)
- * - `linker<App>(root, adapter)` - Link compiled features with framework adapters
- *
- * ### Adapter Interface (`./adapter.ts`)
- * - `Adapter<Application, Feature, Controller, ChoMiddlewareFn>` - Framework adapter interface
- *
- * ## Usage Example
- *
- * ```ts
- * import { Controller, Feature, Get, Post, Params, Body } from "@chojs/web";
- *
- * @Controller("users")
- * class UserController {
- *   @Get(":id", [Params("id")])
- *   getUser(id: string) {
- *     return { id, name: "John Doe" };
- *   }
- *
- *   @Post("", [Body()])
- *   createUser(userData: any) {
- *     return { id: "new-id", ...userData };
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   @Get(":id")
+ *   get(ctx: ChoWebContext) {
+ *     return { id: ctx.params.id };
  *   }
  * }
  *
- * @Feature({
- *   controllers: [UserController]
+ * @Middlewares(async (ctx, next) => {
+ *   console.log(ctx.req.method, ctx.url.pathname);
+ *   return await next();
  * })
- * class AppFeature {}
+ * @Module({ route: "v1", controllers: [UsersController] })
+ * class App {}
+ *
+ * // GET /api/v1/users/42 -> {"id":"42"}
+ * const app = await ChoWeb.create(App, {
+ *   linker: new HonoLinker(),
+ *   prefix: "api",
+ * });
+ * Deno.serve(app.handler);
  * ```
+ *
+ * @module
  */
-export * from "./application.ts";
+
+// What an application needs from the core, so that it only imports
+// `@chojs/web`: the `@Injectable` decorator, and `token` and `provider` to
+// declare values that are not classes (and the `overrides` of tests).
+export {
+  type ControllerOptions,
+  Injectable,
+  type InjectableOptions,
+  type InjectionToken,
+  type ModuleOptions,
+  type Provider,
+  provider,
+  token,
+  type WithDependencies,
+} from "@chojs/core/di";
+// What `ChoWeb` exposes: its routes, its graph and its linked application.
+// They are also in `@chojs/web/linker` and `@chojs/web/graph`, for adapters.
+export type { Linked, Linker, Route } from "./linker.ts";
+export type {
+  AppRef,
+  ControllerRef,
+  ErrorHandlerRef,
+  FeatureRef,
+  MethodRef,
+  NodeRef,
+} from "./graph.ts";
 export * from "./decorators.ts";
-export * from "./inputs.ts";
-export * from "./types.ts";
+export * from "./web.ts";
+export type { ChoWebContext } from "./context.ts";
+export type * from "./types.ts";

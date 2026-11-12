@@ -1,146 +1,83 @@
-import { cyan, gray, magenta, red, yellow } from "@std/fmt/colors";
-import { format } from "@std/datetime";
-import { format as duration } from "@std/fmt/duration";
-import { env, envbool } from "./env.ts";
+/**
+ * Debug logging by context, enabled from the environment:
+ *
+ * - `CHO_DEBUG=1` enables every context;
+ * - `CHO_DEBUGLOG` enables a comma-separated list of contexts, where `*`
+ *   matches every context and `name*` every context that starts with `name`
+ *   (`CHO_DEBUGLOG=di:*,cho`).
+ *
+ * The environment is read when a logger is created. Logs go to stderr.
+ *
+ * @module
+ */
 
-const TIMESTAMP = env("CHO_DEBUGLOG_TIMESTAMP") ?? "HH:mm:ss.SSS";
+import { env, env_bool } from "./env.ts";
 
+/** A logger for one context. */
 export type Debuglog = {
   (...args: unknown[]): void;
+  /** Log an error message. */
   error(...args: unknown[]): void;
+  /** Start a timer; the returned logger appends the elapsed time. */
   start(): (...args: unknown[]) => void;
+  /** Whether this context logs; check it before building costly messages. */
+  readonly enabled: boolean;
 };
 
 /**
- * Debug log function factory.
+ * Whether a context is enabled by `CHO_DEBUG` / `CHO_DEBUGLOG`.
  *
- * Returns a logging function that prefixes messages with a timestamp and context.
- * The logging destination is STDERR to avoid interfering with program output.
- *
- * The logging function expose 2 methods:
- * - `error` for error messages (colored red).
- * - `start` which returns a new logging function that appends the elapsed time since `start` was called.
- *
- * The logging configured using the following environment variables:
- * - `CHO_DEBUG`: Enable all debug logging if set to a truthy value.
- * - `CHO_DEBUGLOG`: Comma-separated list of contexts to enable logging for, or `*` for all contexts.
- * - `CHO_DEBUGLOG_TIMESTAMP`: Timestamp format (default: `HH:MM:SS.mmm`).
- *
- * @example Creating logging function:
- * ```ts
- * const log = debuglog("context");
- * ```
- *
- * @example Logging messages:
- * ```ts
- * log("example message");
- * ```
- *
- * @example Logging error messages:
- * ```ts
- * log.error("example error message");
- * ```
- *
- * @example Logging with elapsed time:
- * ```ts
- * const end = log.start();
- * // some code...
- * end("example message");
- * ```
- *
- * @private
- * @param context
- * @returns logging function
- * @category @chojs/core/utils
+ * @param context The context name.
  */
-export function debuglog(
-  context: string,
-): Debuglog {
-  /**
-   * indicates weather to log or not
-   */
-  function canLog() {
-    // system-wide debug logging
-    if (envbool("CHO_DEBUG")) {
-      return true;
-    }
-    // context-specific debug logging
-    const debuglog: string = env("CHO_DEBUGLOG") ?? "";
-    return debuglog.includes(context) || debuglog.includes("*");
+export function is_enabled(context: string): boolean {
+  if (env_bool("CHO_DEBUG")) {
+    return true;
   }
-
-  const timestamp = () => format(new Date(), TIMESTAMP);
-
-  function log(...args: unknown[]) {
-    if (canLog()) {
-      console.error(
-        yellow(timestamp()),
-        magenta(context),
-        ...args,
-      );
-    }
-  }
-
-  Object.defineProperty(log, "error", {
-    enumerable: false,
-    writable: false,
-    value: function error(...args: unknown[]) {
-      if (canLog()) {
-        console.error(
-          yellow(timestamp()),
-          red(context),
-          ...args,
-        );
-      }
-    },
-  });
-
-  // log.error = (...args: unknown[]) => {
-  //   if (canLog()) {
-  //     console.error(
-  //       yellow(timestamp()),
-  //       red(context),
-  //       ...args,
-  //     );
-  //   }
-  // };
-
-  log.start = () => {
-    // log the elapsed time since start
-    const now = Date.now();
-    return (...args: unknown[]) => {
-      if (canLog()) {
-        const diff = Date.now() - now;
-        console.error(
-          yellow(timestamp()),
-          cyan(context),
-          ...args,
-          gray(duration(diff, { ignoreZero: true }) || "+0ms"),
-        );
-      }
-    };
-  };
-
-  return log as Debuglog;
+  return (env("CHO_DEBUGLOG") ?? "")
+    .split(",")
+    .map((pattern) => pattern.trim())
+    .some((pattern) =>
+      pattern === "*" || pattern === context ||
+      (pattern.endsWith("*") && context.startsWith(pattern.slice(0, -1)))
+    );
 }
 
+/** `HH:MM:SS.mmm` of the current local time. */
+function timestamp(): string {
+  const now = new Date();
+  const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${
+    pad(now.getSeconds())
+  }.${pad(now.getMilliseconds(), 3)}`;
+}
+
+/** The logger of a disabled context, and all its methods. */
+const noop = () => {};
+
 /**
- * Hic Sunt Dracones
+ * Create a logger for a context. When the context is disabled, every method is
+ * a no-op.
  *
- * ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⣤⣤⣤⣤⡼⠀⢀⡀⣀⢱⡄⡀⠀⠀⠀⢲⣤⣤⣤⣤⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
- * ⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣾⣿⣿⣿⣿⣿⡿⠛⠋⠁⣤⣿⣿⣿⣧⣷⠀⠀⠘⠉⠛⢻⣷⣿⣽⣿⣿⣷⣦⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀
- * ⠀⠀⠀⠀⠀⠀⢀⣴⣞⣽⣿⣿⣿⣿⣿⣿⣿⠁⠀⠀⠠⣿⣿⡟⢻⣿⣿⣇⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣟⢦⡀⠀⠀⠀⠀⠀⠀
- * ⠀⠀⠀⠀⠀⣠⣿⡾⣿⣿⣿⣿⣿⠿⣻⣿⣿⡀⠀⠀⠀⢻⣿⣷⡀⠻⣧⣿⠆⠀⠀⠀⠀⣿⣿⣿⡻⣿⣿⣿⣿⣿⠿⣽⣦⡀⠀⠀⠀⠀
- * ⠀⠀⠀⠀⣼⠟⣩⣾⣿⣿⣿⢟⣵⣾⣿⣿⣿⣧⠀⠀⠀⠈⠿⣿⣿⣷⣈⠁⠀⠀⠀⠀⣰⣿⣿⣿⣿⣮⣟⢯⣿⣿⣷⣬⡻⣷⡄⠀⠀⠀
- * ⠀⠀⢀⡜⣡⣾⣿⢿⣿⣿⣿⣿⣿⢟⣵⣿⣿⣿⣷⣄⠀⣰⣿⣿⣿⣿⣿⣷⣄⠀⢀⣼⣿⣿⣿⣷⡹⣿⣿⣿⣿⣿⣿⢿⣿⣮⡳⡄⠀⠀
- * ⠀⢠⢟⣿⡿⠋⣠⣾⢿⣿⣿⠟⢃⣾⢟⣿⢿⣿⣿⣿⣾⡿⠟⠻⣿⣻⣿⣏⠻⣿⣾⣿⣿⣿⣿⡛⣿⡌⠻⣿⣿⡿⣿⣦⡙⢿⣿⡝⣆⠀
- * ⠀⢯⣿⠏⣠⠞⠋⠀⣠⡿⠋⢀⣿⠁⢸⡏⣿⠿⣿⣿⠃⢠⣴⣾⣿⣿⣿⡟⠀⠘⢹⣿⠟⣿⣾⣷⠈⣿⡄⠘⢿⣦⠀⠈⠻⣆⠙⣿⣜⠆
- * ⢀⣿⠃⡴⠃⢀⡠⠞⠋⠀⠀⠼⠋⠀⠸⡇⠻⠀⠈⠃⠀⣧⢋⣼⣿⣿⣿⣷⣆⠀⠈⠁⠀⠟⠁⡟⠀⠈⠻⠀⠀⠉⠳⢦⡀⠈⢣⠈⢿⡄
- * ⣸⠇⢠⣷⠞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⠻⠿⠿⠋⠀⢻⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⢾⣆⠈⣷
- * ⡟⠀⡿⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⣶⣤⡀⢸⣿⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⡄⢹
- * ⡇⠀⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡇⠀⠈⣿⣼⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠃⢸
- * ⢡⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⠶⣶⡟⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡼
- * ⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡾⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁
- * ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡁⢠⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
- * ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣿⣿⣼⣀⣠⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+ * @param context name of the logging context, e.g. `di:injector`
  */
+export function debuglog(context: string): Debuglog {
+  if (!is_enabled(context)) {
+    return Object.assign(noop, {
+      error: noop,
+      start: () => noop,
+      enabled: false,
+    });
+  }
+  const log = (...args: unknown[]) =>
+    console.error(timestamp(), context, ...args);
+  return Object.assign(log, {
+    error: (...args: unknown[]) =>
+      console.error(timestamp(), context, "ERROR", ...args),
+    start: () => {
+      const started = performance.now();
+      return (...args: unknown[]) =>
+        log(...args, `+${Math.round(performance.now() - started)}ms`);
+    },
+    enabled: true,
+  });
+}

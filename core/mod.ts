@@ -1,26 +1,43 @@
 /**
- * # @chojs/core
+ * @chojs/core — core building blocks of the CHO framework.
  *
- * Core modules for the **_CHO_** framework.
+ * @example
+ * ```ts
+ * import { Injectable, Module } from "@chojs/core";
  *
- * The CHO core module provides the fundamental building blocks for the **CHO**
- * framework, including dependency injection, metadata handling, and application
- * lifecycle management.
+ * @Injectable()
+ * class Logger {}
  *
- * ## Public API
- *
- * | Feature                   | Description                                    |
- * |---------------------------|------------------------------------------------|
- * | Decorators               | `@Injectable`, `@Module`, `@Controller`, etc.   |
- *
- * ## Submodules
- *
- * | Submodule                 | Description                                    |
- * |---------------------------|------------------------------------------------|
- * | `@chojs/core/internals`   | Chojs engine, DI, etc.                         |
- * | `@chojs/core/testing`     | Tests runner                                   |
- * | `@chojs/core/utils`       | Core utilities
- *
+ * @Module({ providers: [Logger] })
+ * class AppModule {}
+ * ```
  * @module
  */
-export * from "./decorators.ts";
+
+export * from "./di/decorators.ts";
+export * from "./di/injector.ts";
+export { provider, token } from "./di/tokens.ts";
+export type { Any, Ctr, Target } from "./di/types.ts";
+// The types the exports above refer to, so that each of them can be named
+// from this entry point.
+export type { InjectableOptions } from "./di/decorations.ts";
+export type {
+  ControllerMetadata,
+  HandlersMetadata,
+  InjectableMetadata,
+  MethodMetadata,
+  ModuleMetadata,
+  OptionsMetadata,
+  ProviderMetadata,
+} from "./di/metadata-graph.ts";
+export type {
+  ChoClassOrMethodDecorator,
+  ChoErrorHandler,
+  ChoInjectableDecorator,
+  ChoMiddleware,
+  Dependency,
+  InjectedArgs,
+  InjectionToken,
+  Provider,
+  Token,
+} from "./di/types.ts";

@@ -1,18 +1,16 @@
 {
   "name": "@chojs/web",
-  "version": "2.5.1",
+  "version": "3.0.0",
   "license": "MIT",
   "exports": {
-    ".": "./mod.ts"
-  },
-  "imports": {
-    "@chojs/core": "jsr:@chojs/core@^2.5.1",
-    "@hono/hono": "jsr:@hono/hono@^4.9.4"
+    ".": "./mod.ts",
+    "./linker": "./linker.ts",
+    "./graph": "./graph.ts"
   },
   "publish": {
     "exclude": [
       "./**/*_test.ts",
-      "./*.mjs"
+      "./testing.ts"
     ]
   }
 }

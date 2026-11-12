@@ -1,39 +1,87 @@
-import type { Context } from "@hono/hono";
+/**
+ * The functions an application gives to `@chojs/web`: route handlers,
+ * middlewares and error handlers.
+ *
+ * @module
+ */
 
-export type ChoWebContext = Context;
-export type InputFactory = (c: ChoWebContext) => Promise<unknown>;
-
-// types for middleware and guards
-
-// compiled types
+import type { Ctr } from "@chojs/core/di";
+import type { ChoWebContext } from "./context.ts";
 
 /**
- * Interface for input validators that can safely parse and validate data.
+ * A route handler: a controller method marked with `@Get`, `@Post`, ...
+ *
+ * What it returns (or resolves to) is the response: a `Response` is sent as
+ * is, `undefined` answers `204 No Content`, a body the platform knows (a
+ * string, bytes, a `Blob`, a `ReadableStream`, a form) is sent as it is, and
+ * anything else is sent as JSON.
  */
-export type Validator = {
-  safeParse: (
-    data: unknown,
-  ) => { success: boolean; data: unknown; error: unknown };
-};
+export type ChoWebHandler = (ctx: ChoWebContext) => unknown;
+
+/** Runs the rest of the chain, and resolves to its response. */
+export type ChoWebNext = () => Promise<Response>;
 
 /**
- * Validator interface for method arguments with safe parsing capabilities.
+ * A middleware function. It wraps the rest of the chain (the next
+ * middlewares, then the handler):
+ *
+ * - `next()` runs the rest of the chain and resolves to its `Response`;
+ * - returning a `Response` answers the request with it, whether `next()` was
+ *   called (to replace the response) or not (to answer early);
+ * - returning nothing after calling `next()` passes the response on.
+ *
+ * @example
+ * ```ts
+ * const timing: ChoWebMiddlewareFn = async (ctx, next) => {
+ *   const start = Date.now();
+ *   const res = await next();
+ *   res.headers.set("x-time", `${Date.now() - start}ms`);
+ *   return res;
+ * };
+ *
+ * const auth: ChoWebMiddlewareFn = (ctx, next) =>
+ *   ctx.req.headers.has("authorization")
+ *     ? next()
+ *     : new Response("unauthorized", { status: 401 });
+ * ```
  */
-export type ArgValidator = {
-  safeParse: (
-    data: unknown,
-  ) => { success: boolean; data: unknown; error: unknown };
-};
-/**
- * Types of arguments that can be extracted from HTTP requests.
- */
-export type ArgType = "param" | "query" | "header" | "body" | "cookie";
+export type ChoWebMiddlewareFn = (
+  ctx: ChoWebContext,
+  next: ChoWebNext,
+) => Response | void | Promise<Response | void>;
 
 /**
- * Configuration for a method argument, specifying how to extract and validate data from the request.
+ * A middleware, as given to `@Middlewares`: a function, or a class with a
+ * `handle(ctx, next)` method, created by the injector in the scope of the
+ * feature module.
  */
-export type MethodArgType<AT = ArgType> = {
-  type: AT;
-  key?: string;
-  validator?: ArgValidator;
-};
+export type ChoWebMiddleware =
+  | ChoWebMiddlewareFn
+  | Ctr<{ handle: ChoWebMiddlewareFn }>;
+
+/**
+ * An error handler function. What it returns is the response, converted like
+ * a handler's result, with one difference: returning nothing is not a
+ * response. The error is then still unhandled, and goes on to the HTTP
+ * runtime (a `500`), so a handler that only logs does not turn a failed
+ * request into a success.
+ *
+ * @example
+ * ```ts
+ * const on_error: ChoWebErrorHandlerFn = (error, ctx) =>
+ *   Response.json({ error: String(error), path: ctx.url.pathname }, { status: 500 });
+ * ```
+ */
+export type ChoWebErrorHandlerFn = (
+  error: unknown,
+  ctx: ChoWebContext,
+) => unknown;
+
+/**
+ * An error handler, as given to `@Catch`: a function, or a class with a
+ * `handle(error, ctx)` method, created by the injector in the scope of the
+ * feature module.
+ */
+export type ChoWebErrorHandler =
+  | ChoWebErrorHandlerFn
+  | Ctr<{ handle: ChoWebErrorHandlerFn }>;

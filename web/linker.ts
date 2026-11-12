@@ -1,358 +1,104 @@
-import type {
-  CompiledGateway,
-  CompiledMethod,
-  CompiledModule,
-} from "@chojs/core/application";
-import type { Any, Target } from "@chojs/core/meta";
-import type { ChoEndpointFn, ChoMiddlewareFn } from "@chojs/core/di";
-import type { ChoWebAdapter } from "./adapter.ts";
-import type { ChoWebContext } from "./context.ts";
-import type { InputFactory } from "./types.ts";
-import { debuglog } from "@chojs/core/utils";
-import { SSEMessage, SSEStreamingApi } from "./stream-api.ts";
+/**
+ * Linkers register the routes of an application on an HTTP runtime, such as
+ * Hono. Each runtime adapter, such as `@chojs/vendor-hono`, implements
+ * {@link Linker} and {@link Linked}.
+ *
+ * A linker does no plumbing: every {@link Route} is ready to call.
+ * `@chojs/web` creates the request context and runs the middlewares, the
+ * handler and the error handler; the adapter only matches the request to a
+ * route and passes on the path parameters.
+ *
+ * `@chojs/web` does not depend on any adapter: the application passes the
+ * linker to `ChoWeb.create`, and the adapters depend on `@chojs/web`.
+ *
+ * @module
+ */
 
-const log = debuglog("web:linker");
+/** A route of the application, ready to register on an HTTP runtime. */
+export type Route = {
+  /** The HTTP method, upper case, such as `"GET"`. */
+  readonly method: string;
+  /**
+   * The full path, global prefix included, starting with `/`. Parameters are
+   * written `:name` and match one segment (`"/api/users/:id"`).
+   */
+  readonly path: string;
+  /** Where the route is declared, for logs: `"UsersController.get"`. */
+  readonly name: string;
+  /**
+   * Answer a request that matches the route. It runs the route's
+   * middlewares, its handler and, on an error, its error handler.
+   *
+   * @param req The request.
+   * @param params The path parameters of the match, decoded.
+   * @param native The runtime's own request context, if any; handlers see it
+   *   as `ctx.native`.
+   * @returns The response. It rejects when the route fails and has no error
+   *   handler, or when its error handler fails: the runtime answers `500`.
+   */
+  handle(
+    req: Request,
+    params?: Readonly<Record<string, string>>,
+    native?: unknown,
+  ): Promise<Response>;
+};
 
 /**
- * Where the magic happens: linking a compiled module to an application instance using the provided adapter.
+ * An HTTP application linked by a {@link Linker}: the runtime's own
+ * application object, and its request handler.
+ *
+ * @typeParam T The application object of the HTTP runtime, such as `Hono`.
+ *
+ * Adapters can return a plain object, or an instance of their own class.
+ *
+ * @example
+ * ```ts
+ * const app = new Hono();
+ * const linked: Linked<Hono> = {
+ *   instance: app,
+ *   handler: (req) => Promise.resolve(app.fetch(req)),
+ * };
+ * ```
  */
-export class Linker {
-  constructor(readonly adapter: ChoWebAdapter) {
-  }
+export interface Linked<T> {
+  /** The application object of the HTTP runtime. */
+  readonly instance: T;
 
   /**
-   * Link a compiled module to an application instance using the provided adapter.
-   * @param cm
+   * The request handler: a `fetch`-style function that takes a `Request` and
+   * resolves to a `Response`.
    */
-  link<T>(cm: CompiledModule): T {
-    const end = log.start();
-    const app = this.feature(cm);
-    if (!app) {
-      throw new Error("Cannot link an empty module");
-    }
-    end("module linked");
-    return app as T;
-  }
+  readonly handler: (req: Request) => Promise<Response>;
+}
 
-  protected feature<T>(
-    cm: CompiledModule,
-  ): T | null {
-    let mounted = false;
-
-    const feat = this.adapter.createFeature(
-      this.adapter.createMiddlewares(
-        (cm.meta.middlewares ?? []) as ChoMiddlewareFn[],
-      ),
-      cm.errorHandler,
-    );
-
-    for (const cf of cm.imports) {
-      const sub = this.feature(cf);
-      if (!sub) {
-        continue;
-      }
-      mounted = true;
-      log(`mounting sub-feature: /${cf.meta.route ?? ""}`);
-      this.adapter.mountFeature(
-        feat,
-        sub,
-        cf.meta.route ?? "",
-      );
-    }
-
-    for (const cc of cm.controllers) {
-      const ctrl = this.controller(cc);
-      if (!ctrl) {
-        continue;
-      }
-      mounted = true;
-      log(`mounting controller: /${cc.meta.route ?? ""}`);
-      this.adapter.mountController(
-        feat,
-        ctrl,
-        cc.meta.route ?? "",
-      );
-    }
-
-    if (!mounted) {
-      return null;
-    }
-    return feat;
-  }
-
-  protected controller<T>(
-    cg: CompiledGateway,
-  ): T | null {
-    if (0 === cg.methods.length) {
-      // no methods, no controller
-      return null;
-    }
-    let mounted = false;
-    const controller = this.adapter.createController(
-      this.adapter.createMiddlewares(
-        (cg.meta.middlewares ?? []) as ChoMiddlewareFn[],
-      ),
-      cg.errorHandler,
-    );
-
-    for (const cm of cg.methods) {
-      const endpoint = this.method(cm);
-      if (!endpoint) {
-        continue;
-      }
-      mounted = true;
-      log(
-        `mounting endpoint: [${cm.meta.type}] ${cg.meta.route ?? ""}${
-          cm.meta.route ?? ""
-        }`,
-      );
-      this.adapter.mountEndpoint(
-        controller,
-        this.adapter.createMiddlewares(
-          (cm.meta.middlewares ?? []) as ChoMiddlewareFn[],
-        ),
-        endpoint,
-        cm.meta.route ?? "",
-        cm.meta.type,
-      );
-    }
-    if (!mounted) {
-      return null;
-    }
-    return controller;
-  }
-
+/**
+ * Registers the routes of an application on a new application object of an
+ * HTTP runtime.
+ *
+ * @typeParam T The application object of the HTTP runtime, such as `Hono`.
+ *
+ * @example
+ * ```ts
+ * class MyLinker implements Linker<MyServer> {
+ *   link(routes: readonly Route[]): Linked<MyServer> {
+ *     const server = new MyServer();
+ *     for (const route of routes) {
+ *       server.on(route.method, route.path, (req, params) =>
+ *         route.handle(req, params));
+ *     }
+ *     return { instance: server, handler: (req) => server.fetch(req) };
+ *   }
+ * }
+ *
+ * const app = await ChoWeb.create(AppModule, { linker: new MyLinker() });
+ * ```
+ */
+export interface Linker<T> {
   /**
-   * Return an endpoint for the given compiled method, or null if the method is not an endpoint.
-   * todo add extended endpoint support (e.g. websockets, graphql, etc.)
-   * @param cm
-   */
-  protected method(
-    cm: CompiledMethod,
-  ): Target | null {
-    const type = cm.meta.type.toLocaleLowerCase();
-    switch (type) {
-      /**
-       * Standard HTTP methods
-       */
-
-      case "get":
-      case "post":
-      case "put":
-      case "delete":
-      case "patch":
-        return this.adapter.createEndpoint(
-          this.linkHttp(cm),
-        );
-
-      /**
-       * Extended HTTP methods
-       */
-
-      case "stream":
-        if (!this.adapter.createStreamEndpoint) {
-          throw new Error(
-            "Adapter does not support stream endpoints",
-          );
-        }
-        return this.adapter.createStreamEndpoint(
-          this.linkStream(cm),
-        );
-
-      case "stream_text":
-        if (!this.adapter.createTextStreamEndpoint) {
-          throw new Error(
-            "Adapter does not support text stream endpoints",
-          );
-        }
-        return this.adapter.createTextStreamEndpoint(
-          this.linkStream(cm),
-        );
-
-      case "sse":
-        if (!this.adapter.createSseEndpoint) {
-          throw new Error(
-            "Adapter does not support SSE endpoints",
-          );
-        }
-        return this.adapter.createSseEndpoint(
-          this.linkStream(cm),
-        );
-
-      case "stream_async":
-        if (!this.adapter.createStreamEndpoint) {
-          throw new Error(
-            "Adapter does not support stream endpoints",
-          );
-        }
-        return this.adapter.createStreamEndpoint(
-          this.linkAsyncStream(cm, "raw"),
-        );
-
-      case "steam_text_async":
-        if (!this.adapter.createTextStreamEndpoint) {
-          throw new Error(
-            "Adapter does not support text stream endpoints",
-          );
-        }
-        return this.adapter.createTextStreamEndpoint(
-          this.linkAsyncStream(cm, "string"),
-        );
-
-      case "sse_async":
-        if (!this.adapter.createSseEndpoint) {
-          throw new Error(
-            "Adapter does not support SSE endpoints",
-          );
-        }
-        return this.adapter.createSseEndpoint(
-          this.linkAsyncStream(cm, "sse"),
-        );
-
-      /**
-       * todo how to handle other types of endpoints (error?!)
-       */
-      default:
-        return null;
-    }
-  }
-
-  protected linkHttp(
-    cm: CompiledMethod,
-  ): ChoEndpointFn {
-    const main = cm.handle as Target;
-    const context = this.adapter.createContext.bind(this.adapter);
-    const getArgs = this.createMethodArgFactory(cm.meta.args);
-    const handler = cm.errorHandler;
-
-    return async function (raw: Any) {
-      const ctx = context(raw);
-      try {
-        // creating arguments from args factories
-        // based on decorators used by the user
-        // the data is extracted from the context
-        const args = await getArgs(ctx);
-        // this is the actual method call
-        // with all arguments already prepared
-        // including the context as the last argument
-        const res = await main(...args, ctx);
-        // on Response just return it
-        // otherwise convert to JSON response
-        if (res instanceof Response) {
-          return res;
-        }
-        return ctx.json(res);
-      } catch (err) {
-        // if there is an error handler, use it
-        if (handler) {
-          return handler(err as Error, ctx);
-        }
-        throw err;
-      }
-    };
-  }
-
-  /**
-   * Link a streaming endpoint.
-   * The endpoint method should accept the streaming API as one before last argument.
-   * The last argument is always the context.
+   * Register the routes on a new application object of the runtime.
    *
-   * The streaming API is dependent on the decorator selected by the user (e.g. Stream, SseAsync, etc.)
-   *
-   * @param cm
-   * @protected
+   * @param routes The routes of the application, in declaration order.
+   * @returns The linked application.
    */
-  protected linkStream(
-    cm: CompiledMethod,
-  ): ChoEndpointFn {
-    const main = cm.handle as Target;
-    const context = this.adapter.createContext.bind(this.adapter);
-    const getArgs = this.createMethodArgFactory(cm.meta.args);
-    const handler = cm.errorHandler;
-
-    return async function (raw: Any, stream: SSEStreamingApi) {
-      const ctx = context(raw);
-      try {
-        const args = await getArgs(ctx);
-        await main(...args, stream, ctx);
-      } catch (err) {
-        // todo should we close the stream on error?
-        if (handler) {
-          // todo is the error handler compatible with streaming?
-          return handler(err as Error, ctx);
-        }
-        throw err;
-      }
-    } as ChoEndpointFn;
-  }
-
-  protected linkAsyncStream(
-    cm: CompiledMethod,
-    type: "sse" | "string" | "raw",
-  ): ChoEndpointFn {
-    const main = cm.handle as Target;
-    const context = this.adapter.createContext.bind(this.adapter);
-    const getArgs = this.createMethodArgFactory(cm.meta.args);
-    const handler = cm.errorHandler;
-
-    return async function (raw: Any, stream: SSEStreamingApi) {
-      const ctx = context(raw);
-      try {
-        const args = await getArgs(ctx);
-        const it = await main(...args, ctx);
-        if (it[Symbol.asyncIterator] == null) {
-          throw new Error(
-            `Method "${cm.meta.name}" not return an async generator`,
-          );
-        }
-        for await (const next of it) {
-          switch (type) {
-            case "raw":
-              await stream.write(next as Uint8Array);
-              break;
-            case "string":
-              await stream.writeln(next as string);
-              break;
-            case "sse":
-              await stream.writeSSE(next as SSEMessage);
-              break;
-          }
-        }
-      } catch (err) {
-        if (handler) {
-          return handler(err as Error, ctx);
-        }
-        throw err;
-      }
-    } as ChoEndpointFn;
-  }
-
-  /**
-   * Return an array of middlewares for the given metadata.
-   * @param meta
-   * @protected
-   */
-  // protected middlewares(
-  //     meta: Compiled<unknown, Any>,
-  // ): Target[] {
-  //     return (meta.middlewares ?? []).map(this.adapter.createMiddleware);
-  // }
-
-  /**
-   * Create a factory function that generates method arguments based on the provided input factories.
-   * @param args
-   * @protected
-   */
-  protected createMethodArgFactory(
-    args: InputFactory[],
-  ): (ctx: ChoWebContext) => Promise<unknown[]> {
-    return async function (ctx: ChoWebContext): Promise<unknown[]> {
-      const ret: unknown[] = [];
-      for (const argFactory of args) {
-        const value = await argFactory(ctx);
-        ret.push(value);
-      }
-      return ret;
-    };
-  }
+  link(routes: readonly Route[]): Linked<T>;
 }

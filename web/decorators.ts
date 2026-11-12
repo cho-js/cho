@@ -1,328 +1,490 @@
-import type { Any, ClassMethodDecorator, Target } from "@chojs/core";
-import { addToMetadataObject } from "@chojs/core/meta";
-import { InputFactory } from "./types.ts";
-
 /**
- * Function signature for method decorators that define HTTP endpoints.
- */
-export type MethodDecoratorFn<R = string> = (
-  route: R,
-  args?: InputFactory[],
-) => Any; // ClassMethodDecorator;
-
-export type MethodExtendedDecoratorFn<R = string> = (
-  route: R,
-  method?: string,
-) => Any; // ClassMethodDecorator;
-/**
- * Extracts the name from the decorator context.
- * Supports both TC39 stage 3 and TS experimental decorators.
+ * The decorators of `@chojs/web`.
  *
- * @param context
+ * - `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Head` and `@Options` mark
+ *   the route handlers of a controller. They write the handler's method and route on the decorated
+ *   method, under the private `HTTP` key (`keys.ts`), which the web graph
+ *   builder reads (see `build-graph.ts`).
+ * - `@Module` and `@Controller` are the core's decorators, with the `route`
+ *   option of `@chojs/web`. They accept no other option.
+ * - `@Middlewares` and `@Catch` declare the middlewares and the error handler
+ *   of a feature module, a controller or a handler. They are the core's
+ *   decorators, typed for `@chojs/web`.
+ *
+ * @module
  */
-function nameFromContext(context: unknown): string {
-  if (
-    typeof context === "string"
-  ) {
-    return context;
-  } else if (
-    typeof context === "object" && null !== context && "name" in context
-  ) {
-    return (context as any).name;
-  }
-  throw new Error("Unsupported decorator context");
+
+import {
+  add_to_metadata_object,
+  assert_known_options,
+  type ChoClassOrMethodDecorator,
+  type ChoInjectableDecorator,
+  type ChoMethodDecorator,
+  Controller as CoreController,
+  type ControllerOptions,
+  decorated_method,
+  decorated_target,
+  type Dependency,
+  Module as CoreModule,
+  type ModuleOptions,
+  read_metadata_object,
+  set_error_handler,
+  set_middlewares,
+  type WithDependencies,
+} from "@chojs/core/di";
+import { HTTP, http_route, type HttpRoute } from "./keys.ts";
+import { normalize_route } from "./path.ts";
+import type { ChoWebErrorHandler, ChoWebMiddleware } from "./types.ts";
+
+/** The option `@chojs/web` adds to `@Module` and `@Controller`. */
+export type RouteOption = {
+  /**
+   * The route of the feature module or of the controller, without leading or
+   * trailing `/` (`"users"`, `"api/v1"`). Default: none.
+   */
+  route?: string;
+};
+
+/**
+ * Options of `@Module` in a web application: the module options of the core,
+ * and the `route` of the feature.
+ */
+export type WebModuleOptions<
+  D extends readonly Dependency[] = readonly Dependency[],
+> = WithDependencies<Partial<ModuleOptions>, D> & RouteOption;
+
+/**
+ * Options of `@Controller` in a web application: its `dependencies`, and its
+ * `route`.
+ */
+export type WebControllerOptions<
+  D extends readonly Dependency[] = readonly Dependency[],
+> = WithDependencies<Partial<ControllerOptions>, D> & RouteOption;
+
+/**
+ * Mark a class as a module (see `@Module` of `@chojs/core`). A module that
+ * declares controllers is a feature: its `route` comes before the routes of
+ * its controllers.
+ *
+ * @param options What the module imports, declares and exports, and its
+ *   `route`.
+ * @returns The class decorator.
+ * @throws {Error} When an option is unknown or invalid, or when the class
+ *   already has a DI decorator.
+ *
+ * @example
+ * ```ts
+ * @Module({ route: "v1", providers: [UserStore], controllers: [UsersController] })
+ * class App {}
+ * ```
+ */
+export function Module<const D extends readonly Dependency[] = []>(
+  options: WebModuleOptions<D> = {},
+): ChoInjectableDecorator<NoInfer<D>> {
+  assert_known_options("@Module()", options, [
+    "dependencies",
+    "imports",
+    "providers",
+    "controllers",
+    "exports",
+    "route",
+  ]);
+  return CoreModule<RouteOption, D>(options);
 }
 
 /**
- * Creates a method decorator for the given HTTP method.
+ * Mark a class as a controller (see `@Controller` of `@chojs/core`): its
+ * methods marked with `@Get`, `@Post`, ... are route handlers, under its
+ * `route`.
  *
- * Why the decorator function check the context type?
- * Because there are two different decorator proposals:
- * - TC39 stage 3 proposal (ESM/Deno/TS > 5.0)
- * - TS experimental decorators (Bun, Experimental TS decorators, reflect-metadata, etc.)
+ * @param options The controller's `dependencies` and its `route`.
+ * @returns The class decorator.
+ * @throws {Error} When an option is unknown or invalid, or when the class
+ *   already has a DI decorator.
  *
- * They have different context types.
- *
- * @param type HTTP method type (GET, POST, etc.)
- * @return {MethodDecoratorFn}
+ * @example
+ * ```ts
+ * @Controller({ route: "users", dependencies: [UserStore] })
+ * class UsersController {
+ *   constructor(readonly store: UserStore) {}
+ * }
+ * ```
  */
-function createMethodDecorator<R = string>(
-  type: string,
-): MethodDecoratorFn<R> {
-  return function (
-    route: R,
-    args: InputFactory[] = [],
-  ): ClassMethodDecorator {
-    return function (target, context) {
-      const name = nameFromContext(context);
-      addToMetadataObject(target, { name, route, type, args });
-    };
+export function Controller<const D extends readonly Dependency[] = []>(
+  options: WebControllerOptions<D> = {},
+): ChoInjectableDecorator<NoInfer<D>> {
+  assert_known_options("@Controller()", options, ["dependencies", "route"]);
+  return CoreController<RouteOption, D>(options);
+}
+
+/**
+ * Create the decorator of one HTTP method. It works with both decorator
+ * implementations (TC39, and legacy / Bun).
+ *
+ * The decorator checks, when the class is defined, what would otherwise be
+ * silently lost: the route must be valid, the method must be one the graph
+ * builder collects (public, not static, with a string name), and it can have
+ * only one HTTP method decorator.
+ *
+ * @param name The decorator's name, for error messages (`"Get"`).
+ * @param route The route of the handler, relative to its controller.
+ * @param method The HTTP method.
+ * @returns A method decorator.
+ */
+function create_http_decorator(
+  name: string,
+  route: string,
+  method: string,
+): ChoMethodDecorator {
+  return function (target, context, descriptor) {
+    const decorator = `@${name}()`;
+    const decorated = decorated_method(decorator, target, context, descriptor);
+    const of = `method ${String(decorated.name)}`;
+    if (typeof decorated.name !== "string") {
+      throw new TypeError(
+        `${decorator} cannot decorate ${of}: a handler must have a string name`,
+      );
+    }
+    if (decorated.private) {
+      throw new TypeError(
+        `${decorator} cannot decorate private ${of}: a handler must be public`,
+      );
+    }
+    if (decorated.static) {
+      throw new TypeError(
+        `${decorator} cannot decorate static ${of}: a handler must not be static`,
+      );
+    }
+    normalize_route(route, `${decorator} on ${of}`);
+    const previous = http_route(read_metadata_object(decorated.meta) ?? {});
+    if (previous) {
+      throw new Error(
+        `Cannot add ${decorator} to ${of}: it already handles ${previous.method} ${
+          JSON.stringify(previous.route)
+        }. A method can have one HTTP method decorator.`,
+      );
+    }
+    add_to_metadata_object(decorated.meta, {
+      [HTTP]: { method, route } satisfies HttpRoute,
+    });
   };
 }
 
 /**
- * Creates a method decorator for extended HTTP methods like WebSocket, SSE, Stream, etc.
- * The method defaults to GET but can be overridden if needed.
+ * Declare middlewares for a feature module, a controller or a handler.
  *
- * @param type
- */
-function createExtendedMethodDecorator(
-  type: string,
-): MethodExtendedDecoratorFn<string> {
-  return function (route: string, method = "GET"): ClassMethodDecorator {
-    return function (target, context) {
-      const name = nameFromContext(context);
-      addToMetadataObject(target, { name, route, type, method });
-    };
-  };
-}
-
-/**
- * Define a method arguments list.
- * Used instead of calling the second argument of HTTP method decorators.
+ * A request runs the feature's middlewares, then the controller's, then the
+ * handler's. The decorator can be applied several times: the middlewares are
+ * kept in source order, top decorator first.
  *
- * @example without Args:
- * ```ts
- * class MyController {
- *  @Get("items", [
- *   Query("page"),
- *   Query("limit"),
- *  ])
- *  getItems(page: number, limit: number) { ... }
- *  }
- * ```
- *
- * @example with Args:
- * ```ts
- * class MyController {
- * @Get("items")
- * @Args(Query("page"), Query("limit"))
- * getItems(page: number, limit: number) { ... }
- * }
- * ```
- * @param args
- * @constructor
- */
-export function Args(...args: InputFactory[]): ClassMethodDecorator & Any {
-  return (target: Target) => {
-    addToMetadataObject(target, { args });
-  };
-}
-
-// HTTP Method decorators
-
-/**
- * Method decorator for HTTP GET requests.
+ * @param middlewares The middlewares, in the order they run: functions
+ *   `(ctx, next)`, or classes with a `handle(ctx, next)` method, created by
+ *   the injector in the feature module's scope.
+ * @returns A class or method decorator.
+ * @throws {TypeError} When applied to anything other than a class or a method.
+ * @throws {Error} When a middleware is not a function or a class.
  *
  * @example
  * ```ts
- * class MyController {
- *   @Get("items")
- *   getItems() { ... }
- * }
- * ```
- */
-export const Get: MethodDecoratorFn = createMethodDecorator("GET");
-/**
- * Method decorator for HTTP POST requests.
+ * const auth: ChoWebMiddlewareFn = (ctx, next) =>
+ *   ctx.req.headers.has("authorization")
+ *     ? next()
+ *     : new Response("unauthorized", { status: 401 });
  *
- * @example
- * ```ts
- * class UserController {
- *   @Post("users", [
- *      Body()
- *   ])
- *   createUser(userData: CreateUserDto) { ... }
- * }
- * ```
- */
-export const Post: MethodDecoratorFn = createMethodDecorator("POST");
-
-/**
- * Method decorator for HTTP PUT requests.
- *
- * @example
- * ```ts
- * class UserController {
- *   @Put("users/:id", [
- *      Params("id"),
- *      Body(),
- *   ])
- *   updateUser(id: string, userData: UpdateUserDto) { ... }
- * }
- * ```
- */
-export const Put: MethodDecoratorFn = createMethodDecorator("PUT");
-
-/**
- * Method decorator for HTTP DELETE requests.
- *
- * @example
- * ```ts
- * class UserController {
- *   @Delete("users/:id", [
- *      Params("id"),
- *   ])
- *   deleteUser(id: string) { ... }
- * }
- * ```
- */
-export const Delete: MethodDecoratorFn = createMethodDecorator("DELETE");
-
-/**
- * Method decorator for HTTP PATCH requests.
- *
- * @example
- * ```ts
- * class UserController {
- *   @Patch("users/:id", [Params("id"), Body()])
- *   patchUser(id: string, patches: Partial<User>) { ... }
- * }
- * ```
- */
-export const Patch: MethodDecoratorFn = createMethodDecorator("PATCH");
-
-// Other HTTP decorators
-
-/**
- * Method decorator for WebSocket endpoints.
- *
- * todo temporary removed until implementation is ready
- *   should be implemented as a transport layer module
- * @example
- * ```ts
- * class ChatController {
- *   @WebSocket("chat/:room", [Params("room")])
- *   handleChat(socket: WebSocket, roomId: string) { ... }
- * }
- * ```
- */
-// export const WebSocket: MethodDecoratorFn = createExtendedMethodDecorator("WS");
-
-/**
- * Method decorator for Server-Sent Events (SSE) endpoints.
- *
- * @example
- * ```ts
- * class MyController {
- *   @Sse("events")
- *   streamEvents(stream, context) { ... }
- * }
- * ```
- */
-export const Sse: MethodExtendedDecoratorFn = createExtendedMethodDecorator(
-  "SSE",
-);
-
-/**
- * Method decorator for Server-Sent Events (SSE) endpoints.
- *
- * @example
- * ```ts
- * class MyController {
- *   @Sse("events")
- *   streamEvents(stream, context) { ... }
- * }
- * ```
- */
-export const SseAsync: MethodExtendedDecoratorFn =
-  createExtendedMethodDecorator(
-    "SSE_ASYNC",
-  );
-
-/**
- * Method decorator for streaming endpoints.
- * This stream method take Unit8Array chunks and writes them to the response as they are produced.
- *
- * @example
- * ```ts
- * class DataController {
- *   @Stream("data/export")
- *   exportData(stream: WritableStream) { ... }
- * }
- * ```
- */
-export const Stream: MethodExtendedDecoratorFn = createExtendedMethodDecorator(
-  "STREAM",
-);
-
-/**
- * Method decorator for streaming endpoints.
- * This stream should return an async iterator that yields Unit8Array chunks to be written to the response.
- *
- * @example
- * ```ts
- * class DataController {
- *  @StreamAsync("data/async")
- *   async *streamAsyncData() {
- *     for (let i = 0; i < 10; i++) {
- *       yield new TextEncoder().encode(`Chunk ${i}\n`);
- *       await new Promise((res) => setTimeout(res, 1000));
- *     }
- *   }
- * }
- *       ```
- */
-export const StreamAsync: MethodExtendedDecoratorFn =
-  createExtendedMethodDecorator(
-    "STREAM_ASYNC",
-  );
-
-/**
- * Method decorator for text streaming endpoints.
- * This stream method take string chunks and writes them to the response as they are produced.
- *
- * @example
- * ```ts
- * class DataController {
- *   @StreamText("data/logs")
- *   streamLogs(stream: WritableStream) { ... }
- * }
- * ```
- */
-export const StreamText: MethodExtendedDecoratorFn =
-  createExtendedMethodDecorator(
-    "STREAM_TEXT",
-  );
-
-/**
- * Method decorator for text streaming endpoints.
- * This stream should return an async iterator that yields string chunks to be written to the response.
- *
- * @example
- * ```ts
- * class DataController {
- *   @StreamAsyncText("data/async-text")
- *     async *streamAsyncTextData() {
- *       for (let i = 0; i < 10; i++) {
- *         yield `Line ${i}\n`;
- *         await new Promise((res) => setTimeout(res, 1000));
- *       }
- *    }
- * }
- * ```
- */
-export const StreamTextAsync: MethodExtendedDecoratorFn =
-  createExtendedMethodDecorator(
-    "STREAM_TEXT_ASYNC",
-  );
-
-/**
- * Method decorator for streaming endpoints that pipe from a ReadableStream.
- * This method should return a ReadableStream to be piped to the response.
- *
- * @example
- * ```ts
- * class FileController {
- *   @StreamPipe("files/download")
- *   downloadFile(): ReadableStream {
- *     const fileStream = getFileStreamSomehow();
- *     return fileStream;
+ * @Middlewares(auth)
+ * @Controller({ route: "admin" })
+ * class Admin {
+ *   @Get("stats")
+ *   stats() {
+ *     return { users: 3 };
  *   }
  * }
  * ```
  */
-export const StreamPipe: MethodExtendedDecoratorFn =
-  createExtendedMethodDecorator(
-    "STREAM_PIPE",
-  );
+export function Middlewares(
+  ...middlewares: ChoWebMiddleware[]
+): ChoClassOrMethodDecorator {
+  return (target, context, descriptor) => {
+    const meta = decorated_target(
+      "@Middlewares()",
+      target,
+      context,
+      descriptor,
+    );
+    set_middlewares(meta, middlewares);
+  };
+}
+
+/**
+ * Declare the error handler of a feature module, a controller or a handler.
+ *
+ * An error thrown by a handler or a middleware goes to the nearest one: the
+ * handler's, else the controller's, else the feature's. What it returns is
+ * the response, converted like a handler's result; when it returns nothing,
+ * the error is still unhandled and goes on to the HTTP runtime (a `500`). A
+ * class or method has at most one `@Catch`.
+ *
+ * @param handler A function `(error, ctx)`, or a class with a
+ *   `handle(error, ctx)` method, created by the injector in the feature
+ *   module's scope.
+ * @returns A class or method decorator.
+ * @throws {TypeError} When applied to anything other than a class or a method.
+ * @throws {Error} When `handler` is not a function or a class, or when the
+ *   class or method already has an error handler.
+ *
+ * @example
+ * ```ts
+ * @Catch((error, ctx) =>
+ *   Response.json({ error: String(error), path: ctx.url.pathname }, { status: 500 })
+ * )
+ * @Controller({ route: "users" })
+ * class UsersController {}
+ * ```
+ */
+export function Catch(handler: ChoWebErrorHandler): ChoClassOrMethodDecorator {
+  return (target, context, descriptor) => {
+    const meta = decorated_target("@Catch()", target, context, descriptor);
+    set_error_handler(meta, handler);
+  };
+}
+
+/**
+ * Mark a method as the handler of `GET route`.
+ *
+ * The method receives the request's `ChoWebContext`. What it returns is the
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @returns A method decorator.
+ * @throws {Error} When the route is invalid, or when the method already has
+ *   an HTTP method decorator.
+ * @throws {TypeError} When the decorated member is not a public, non-static,
+ *   string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   // GET /users
+ *   @Get("")
+ *   list() {
+ *     return [{ id: 1 }, { id: 2 }];
+ *   }
+ *
+ *   // GET /users/42
+ *   @Get(":id")
+ *   get(ctx: ChoWebContext) {
+ *     return { id: ctx.params.id };
+ *   }
+ * }
+ * ```
+ */
+export function Get(route: string): ChoMethodDecorator {
+  return create_http_decorator("Get", route, "GET");
+}
+
+/**
+ * Mark a method as the handler of `POST route`.
+ *
+ * The method receives the request's `ChoWebContext`. What it returns is the
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @returns A method decorator.
+ * @throws {Error} When the route is invalid, or when the method already has
+ *   an HTTP method decorator.
+ * @throws {TypeError} When the decorated member is not a public, non-static,
+ *   string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   // POST /users
+ *   @Post("")
+ *   async create(ctx: ChoWebContext) {
+ *     const user = await ctx.req.json();
+ *     return new Response(JSON.stringify(user), { status: 201 });
+ *   }
+ * }
+ * ```
+ */
+export function Post(route: string): ChoMethodDecorator {
+  return create_http_decorator("Post", route, "POST");
+}
+
+/**
+ * Mark a method as the handler of `PUT route`.
+ *
+ * The method receives the request's `ChoWebContext`. What it returns is the
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @returns A method decorator.
+ * @throws {Error} When the route is invalid, or when the method already has
+ *   an HTTP method decorator.
+ * @throws {TypeError} When the decorated member is not a public, non-static,
+ *   string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   // PUT /users/42
+ *   @Put(":id")
+ *   async update(ctx: ChoWebContext) {
+ *     const changes = await ctx.req.json();
+ *     return { id: ctx.params.id, ...changes };
+ *   }
+ * }
+ * ```
+ */
+export function Put(route: string): ChoMethodDecorator {
+  return create_http_decorator("Put", route, "PUT");
+}
+
+/**
+ * Mark a method as the handler of `PATCH route`.
+ *
+ * The method receives the request's `ChoWebContext`. What it returns is the
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @returns A method decorator.
+ * @throws {Error} When the route is invalid, or when the method already has
+ *   an HTTP method decorator.
+ * @throws {TypeError} When the decorated member is not a public, non-static,
+ *   string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   // PATCH /users/42
+ *   @Patch(":id")
+ *   async update(ctx: ChoWebContext) {
+ *     const changes = await ctx.req.json();
+ *     return { id: ctx.params.id, ...changes };
+ *   }
+ * }
+ * ```
+ */
+export function Patch(route: string): ChoMethodDecorator {
+  return create_http_decorator("Patch", route, "PATCH");
+}
+
+/**
+ * Mark a method as the handler of `HEAD route`.
+ *
+ * The method receives the request's `ChoWebContext`. A `HEAD` response has no
+ * body: only the status and the headers of what the method returns are sent,
+ * so return a `Response` to set them.
+ *
+ * Without a `@Head` handler, what a `HEAD` request gets is up to the adapter:
+ * Hono answers it from the `@Get` handler of the same route, without the
+ * body.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @returns A method decorator.
+ * @throws {Error} When the route is invalid, or when the method already has
+ *   an HTTP method decorator.
+ * @throws {TypeError} When the decorated member is not a public, non-static,
+ *   string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "files" })
+ * class FilesController {
+ *   // HEAD /files/report.pdf
+ *   @Head(":name")
+ *   async stat(ctx: ChoWebContext) {
+ *     const size = await this.files.size(ctx.params.name);
+ *     return new Response(null, { headers: { "content-length": `${size}` } });
+ *   }
+ * }
+ * ```
+ */
+export function Head(route: string): ChoMethodDecorator {
+  return create_http_decorator("Head", route, "HEAD");
+}
+
+/**
+ * Mark a method as the handler of `OPTIONS route`.
+ *
+ * The method receives the request's `ChoWebContext`. What it returns is the
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @returns A method decorator.
+ * @throws {Error} When the route is invalid, or when the method already has
+ *   an HTTP method decorator.
+ * @throws {TypeError} When the decorated member is not a public, non-static,
+ *   string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   // OPTIONS /users
+ *   @Options("")
+ *   options() {
+ *     return new Response(null, {
+ *       status: 204,
+ *       headers: { allow: "GET, POST, OPTIONS" },
+ *     });
+ *   }
+ * }
+ * ```
+ */
+export function Options(route: string): ChoMethodDecorator {
+  return create_http_decorator("Options", route, "OPTIONS");
+}
+
+/**
+ * Mark a method as the handler of `DELETE route`.
+ *
+ * The method receives the request's `ChoWebContext`. What it returns is the
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @returns A method decorator.
+ * @throws {Error} When the route is invalid, or when the method already has
+ *   an HTTP method decorator.
+ * @throws {TypeError} When the decorated member is not a public, non-static,
+ *   string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   // DELETE /users/42
+ *   @Delete(":id")
+ *   remove(ctx: ChoWebContext) {
+ *     return new Response(null, { status: 204 });
+ *   }
+ * }
+ * ```
+ */
+export function Delete(route: string): ChoMethodDecorator {
+  return create_http_decorator("Delete", route, "DELETE");
+}

@@ -1,4 +1,4 @@
-import { Ctr } from "../internals/mod.ts";
+import type { Ctr } from "../di/types.ts";
 
 /**
  * Check if a value is a class constructor.
@@ -8,16 +8,16 @@ import { Ctr } from "../internals/mod.ts";
  * class MyClass {}
  * function myFunction() {}
  *
- * console.log(isClass(MyClass));
+ * console.log(is_class(MyClass));
  * // true
- * console.log(isClass(myFunction));
+ * console.log(is_class(myFunction));
  * // false
- * console.log(isClass({}));
+ * console.log(is_class({}));
  * // false
  * ```
  * @param v
  */
-export function isClass(v: unknown): v is Ctr {
+export function is_class(v: unknown): v is Ctr {
   if (typeof v !== "function") {
     return false;
   }
@@ -25,7 +25,12 @@ export function isClass(v: unknown): v is Ctr {
   return !!descriptor && descriptor.writable === false;
 }
 
-export function isClassImplement<T>(ctr: Ctr, method: string): ctr is Ctr<T> {
-  return isClass(ctr) &&
-    (typeof ctr.prototype[method as keyof typeof ctr.prototype] === "function");
+/**
+ * Check if a value is a class whose prototype has a given method.
+ *
+ * @param v The value to check.
+ * @param method The method name.
+ */
+export function is_class_implement<T>(v: unknown, method: string): v is Ctr<T> {
+  return is_class(v) && typeof v.prototype?.[method] === "function";
 }
