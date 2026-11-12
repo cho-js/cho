@@ -41,7 +41,7 @@ Bugs and limitations of the current code, found while writing
 - **The command is found before the line is parsed** (section 3.4 of the
   specification). `-v ls` used to give `v: "ls"` and no command.
 - `@Main` and `@Action` take the flags of their command, listed in its `--help`.
-- **A command receives a context**, `ChoCliContext`, not the parsed command
+- **A command receives a context**, `ChoCommandContext`, not the parsed command
   line: `args.force` is now `ctx.args.force`.
 - **An error handler receives `(error, ctx)`**, not `(error, args)`.
 - **`@Middlewares` runs.** It was accepted and ignored.

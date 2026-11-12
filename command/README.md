@@ -33,8 +33,8 @@ bunx jsr add @chojs/command    # Bun
 ```ts
 import {
   Action,
-  type ChoCliContext,
   ChoCommand,
+  type ChoCommandContext,
   Controller,
   Help,
   Injectable,
@@ -53,13 +53,13 @@ class FileSystem {
 
   @Help("Copy a file")
   @Action("copy")
-  copy(ctx: ChoCliContext) {
+  copy(ctx: ChoCommandContext) {
     this.disk.copy(String(ctx.args._[0]), String(ctx.args._[1]));
   }
 
   @Help("Delete a file")
   @Action("rm")
-  remove(ctx: ChoCliContext) {
+  remove(ctx: ChoCommandContext) {
     return ctx.args.force ? 0 : 3; // the exit code
   }
 }
@@ -98,7 +98,7 @@ command declares the flags it accepts, which are also listed in its `--help`:
   alias: { f: "force" },
   describe: { force: "Overwrite existing files" },
 })
-copy(ctx: ChoCliContext) {/* ./fs copy a b -f --mode 0755 */}
+copy(ctx: ChoCommandContext) {/* ./fs copy a b -f --mode 0755 */}
 ```
 
 Positionals are always strings, as typed. Flags for every command go in the

@@ -1,8 +1,8 @@
 #!/usr/bin/env -S deno run --allow-all
 import {
-  type ChoCliContext,
-  type ChoCliNext,
   ChoCommand,
+  type ChoCommandContext,
+  type ChoCommandNext,
   Controller,
   Help,
   Injectable,
@@ -14,7 +14,7 @@ import {
 /** A middleware class: reports how long the command took, on stderr. */
 @Injectable()
 export class Timing {
-  async handle(ctx: ChoCliContext, next: ChoCliNext) {
+  async handle(ctx: ChoCommandContext, next: ChoCommandNext) {
     const start = performance.now();
     const code = await next();
     const ms = Math.round(performance.now() - start);
@@ -29,7 +29,7 @@ export class Timing {
 export class HelloController {
   @Help("Hello world CLI")
   @Main({ string: ["name"], describe: { name: "Who to greet" } })
-  sayHello(ctx: ChoCliContext) {
+  sayHello(ctx: ChoCommandContext) {
     console.log(`Hello, ${ctx.args.name ?? "world"}!`);
     console.log("arguments used in this run:", ctx.args);
   }

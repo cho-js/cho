@@ -28,8 +28,8 @@ A single command:
 
 ```ts
 import {
-  type ChoCliContext,
   ChoCommand,
+  type ChoCommandContext,
   Controller,
   Help,
   Main,
@@ -41,7 +41,7 @@ import {
 class ListFiles {
   @Help("List the files of a directory")
   @Main()
-  main(ctx: ChoCliContext) {
+  main(ctx: ChoCommandContext) {
     if (ctx.args._.length !== 1) {
       throw new Error("expected one directory");
     }
@@ -62,8 +62,8 @@ Multiple actions, with a dependency injected into the controller:
 ```ts
 import {
   Action,
-  type ChoCliContext,
   ChoCommand,
+  type ChoCommandContext,
   Controller,
   Help,
   Injectable,
@@ -82,13 +82,13 @@ class FileSystem {
 
   @Help("Copy a file")
   @Action("copy")
-  copy(ctx: ChoCliContext) {
+  copy(ctx: ChoCommandContext) {
     this.disk.copy(String(ctx.args._[0]), String(ctx.args._[1]));
   }
 
   @Help("Delete a file")
   @Action("rm")
-  remove(ctx: ChoCliContext) {
+  remove(ctx: ChoCommandContext) {
     return ctx.args.force ? 0 : 3; // the exit code
   }
 }
@@ -167,7 +167,7 @@ line fits (a group heading, the list of commands), the first line is used.
 
 ### 3.1 What a command receives: the context
 
-A command method receives the **context** of the run, a `ChoCliContext`:
+A command method receives the **context** of the run, a `ChoCommandContext`:
 
 | Property  | Holds                                                                        |
 | --------- | ---------------------------------------------------------------------------- |
@@ -183,7 +183,7 @@ each run has its own.
 
 ```ts
 // ./fs copy a.txt 007 --force --mode=644 -v
-copy(ctx: ChoCliContext) {
+copy(ctx: ChoCommandContext) {
   ctx.args._;     // ["a.txt", "007"]  positionals, always as typed
   ctx.args.force; // true
   ctx.args.mode;  // 644: not declared, so typed from its look
@@ -221,7 +221,7 @@ first of `@Main`), of type `CommandFlags`:
   default: { mode: "644" }, // when the flag is not given
   describe: { force: "Overwrite existing files" }, // for --help
 })
-copy(ctx: ChoCliContext) {
+copy(ctx: ChoCommandContext) {
   // ./fs copy a b -f --mode 0755 --exclude x --exclude y
   // { _: ["a", "b"], f: true, force: true, mode: "0755", exclude: ["x", "y"] }
 }
@@ -357,12 +357,13 @@ where web has a `Response`:
   `await next();` alone is enough.
 
 ```ts
-const confirm: ChoCliMiddlewareFn = (ctx, next) => ctx.args.yes ? next() : 1; // stops, with exit code 1
+const confirm: ChoCommandMiddlewareFn = (ctx, next) =>
+  ctx.args.yes ? next() : 1; // stops, with exit code 1
 
 @Injectable([Config])
 class LoadProfile {
   constructor(readonly config: Config) {}
-  async handle(ctx: ChoCliContext, next: ChoCliNext) {
+  async handle(ctx: ChoCommandContext, next: ChoCommandNext) {
     ctx.state.set("profile", await this.config.profile(ctx.args.profile));
     return await next();
   }
@@ -373,7 +374,7 @@ class LoadProfile {
 class FileSystem {
   @Middlewares(confirm) // this command only
   @Action("rm")
-  remove(ctx: ChoCliContext) {
+  remove(ctx: ChoCommandContext) {
     const profile = ctx.state.get("profile");
     /* ... */
   }
@@ -407,7 +408,7 @@ controller's, else the module's, else the application's.
 @Injectable([Logger])
 class ReportError {
   constructor(readonly logger: Logger) {}
-  handle(error: unknown, ctx: ChoCliContext) {
+  handle(error: unknown, ctx: ChoCommandContext) {
     this.logger.error(ctx.command, error);
     return 3;
   }
@@ -418,11 +419,11 @@ class ReportError {
 class FileSystem {
   @Catch((error) => (error instanceof NotFound ? 4 : 1)) // for `rm` only
   @Action("rm")
-  remove(ctx: ChoCliContext) {/* ... */}
+  remove(ctx: ChoCommandContext) {/* ... */}
 
   @Catch(ReportError) // a class, created by the injector
   @Action("sync")
-  sync(ctx: ChoCliContext) {/* ... */}
+  sync(ctx: ChoCommandContext) {/* ... */}
 }
 ```
 
@@ -547,18 +548,18 @@ Run 'fs <command> --help' for help on a command.
 
 ## 6. Public API
 
-| Export                                                                            | Kind     | Section  |
-| --------------------------------------------------------------------------------- | -------- | -------- |
-| `ChoCommand`, `ChoCommandOptions`                                                 | class    | 4        |
-| `Main`, `Action`, `Help`                                                          | function | 2        |
-| `Middlewares`, `Catch` (the core's, typed for `@chojs/command`)                   | function | 4.3, 4.4 |
-| `ChoCliContext`                                                                   | type     | 3.1      |
-| `ChoArgs`, `CommandFlags`, `ParserOptions`                                        | type     | 3        |
-| `ChoCliHandler`, `ChoCliNext`, `ChoCliMiddlewareFn`, `ChoCliMiddleware`           | type     | 4.3      |
-| `ChoCliErrorHandlerFn`, `ChoCliErrorHandler`                                      | type     | 4.4      |
-| `Controller`, `Module` (the core's, with no extra option)                         | function | 2.1      |
-| `Injectable` (re-exported from `@chojs/core`)                                     | function | 2.1      |
-| `ControllerOptions`, `ModuleOptions`, `InjectableOptions` (re-exported, see core) | type     | 2.1      |
+| Export                                                                                  | Kind     | Section  |
+| --------------------------------------------------------------------------------------- | -------- | -------- |
+| `ChoCommand`, `ChoCommandOptions`                                                       | class    | 4        |
+| `Main`, `Action`, `Help`                                                                | function | 2        |
+| `Middlewares`, `Catch` (the core's, typed for `@chojs/command`)                         | function | 4.3, 4.4 |
+| `ChoCommandContext`                                                                     | type     | 3.1      |
+| `ChoArgs`, `CommandFlags`, `ParserOptions`                                              | type     | 3        |
+| `ChoCommandHandler`, `ChoCommandNext`, `ChoCommandMiddlewareFn`, `ChoCommandMiddleware` | type     | 4.3      |
+| `ChoCommandErrorHandlerFn`, `ChoCommandErrorHandler`                                    | type     | 4.4      |
+| `Controller`, `Module` (the core's, with no extra option)                               | function | 2.1      |
+| `Injectable` (re-exported from `@chojs/core`)                                           | function | 2.1      |
+| `ControllerOptions`, `ModuleOptions`, `InjectableOptions` (re-exported, see core)       | type     | 2.1      |
 
 ## 7. Errors
 

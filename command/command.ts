@@ -28,7 +28,7 @@ import { create_context } from "./context.ts";
 import { format_help } from "./help.ts";
 import { ALIAS, command_record, FLAGS } from "./keys.ts";
 import { command_pipeline, type CommandPipeline } from "./pipeline.ts";
-import type { ChoCliErrorHandler } from "./types.ts";
+import type { ChoCommandErrorHandler } from "./types.ts";
 
 /**
  * Options of {@link ChoCommand.create}. Every option is optional.
@@ -73,7 +73,7 @@ export type ChoCommandOptions = {
    * It handles the errors of commands only: an unknown command is reported
    * by the application.
    */
-  onError: ChoCliErrorHandler;
+  onError: ChoCommandErrorHandler;
 };
 
 /**
@@ -203,7 +203,7 @@ export class ChoCommand {
    * - an unknown command in multi-command mode: prints an error and resolves
    *   to `1`;
    * - otherwise: runs the command through its middlewares, with the context
-   *   of the run (`ChoCliContext`). A non-negative integer the command (or a
+   *   of the run (`ChoCommandContext`). A non-negative integer the command (or a
    *   middleware) returns is the exit code; anything else gives `0`.
    *
    * An error while creating the controller or a middleware class, in a

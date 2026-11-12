@@ -22,7 +22,7 @@ import {
 } from "@chojs/core/di";
 import type { Ctr } from "@chojs/core/di";
 import type { ChoArgs } from "./args.ts";
-import type { ChoCliContext } from "./context.ts";
+import type { ChoCommandContext } from "./context.ts";
 import { ChoCommand } from "./command.ts";
 import { Action, Main } from "./decorators.ts";
 import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
@@ -46,13 +46,13 @@ function actions_app(calls: Calls, created: unknown[] = []): Ctr {
       this.service = service;
       created.push(this);
     }
-    copy(ctx: ChoCliContext) {
+    copy(ctx: ChoCommandContext) {
       calls.push([`copy:${this.service.label}`, ctx.args]);
     }
     fail() {
       throw new Error("copy failed");
     }
-    code(ctx: ChoCliContext) {
+    code(ctx: ChoCommandContext) {
       return Number(ctx.args._[0]); // positionals are strings
     }
   }
@@ -69,7 +69,7 @@ function actions_app(calls: Calls, created: unknown[] = []): Ctr {
 /** A single-command app whose main handler records its arguments. */
 function main_app(calls: Calls): Ctr {
   class Cli {
-    run(ctx: ChoCliContext) {
+    run(ctx: ChoCommandContext) {
       calls.push(["run", ctx.args]);
     }
   }
@@ -373,8 +373,8 @@ describe("ChoCommand.run, error handler", () => {
     const app = ChoCommand.create(error_app(new Error("boom"), (err, ctx) => {
       seen.push(
         err,
-        (ctx as ChoCliContext).args,
-        (ctx as ChoCliContext).command,
+        (ctx as ChoCommandContext).args,
+        (ctx as ChoCommandContext).command,
       );
       return 4;
     }));
@@ -515,7 +515,7 @@ describe("ChoCommand.run, failures without a usable handler", () => {
   it("calls a class error handler's handle with the error and the context", async () => {
     const seen: unknown[] = [];
     class OnError {
-      handle(error: unknown, ctx: ChoCliContext) {
+      handle(error: unknown, ctx: ChoCommandContext) {
         seen.push(error, ctx.args);
         return 5;
       }
@@ -854,10 +854,10 @@ describe("ChoCommand, declared flags", () => {
   /** `copy` declares flags; `ls` does not. Both report their args. */
   function app(seen: ChoArgs[]) {
     class Files {
-      copy(ctx: ChoCliContext) {
+      copy(ctx: ChoCommandContext) {
         seen.push(ctx.args);
       }
-      list(ctx: ChoCliContext) {
+      list(ctx: ChoCommandContext) {
         seen.push(ctx.args);
       }
     }

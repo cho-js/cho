@@ -2,8 +2,8 @@
 import {
   Action,
   Catch,
-  type ChoCliContext,
   ChoCommand,
+  type ChoCommandContext,
   Controller,
   Help,
   Middlewares,
@@ -25,7 +25,7 @@ import {
 export class MultiActionController {
   @Help("Hello world action")
   @Action("hello")
-  sayHello(ctx: ChoCliContext) {
+  sayHello(ctx: ChoCommandContext) {
     console.log("Hello");
     console.log("arguments used in this run:", ctx.args);
   }
@@ -37,7 +37,7 @@ export class MultiActionController {
     alias: { l: "loud" },
     describe: { loud: "Say it louder", to: "Who to say goodbye to" },
   })
-  sayGoodbye(ctx: ChoCliContext) {
+  sayGoodbye(ctx: ChoCommandContext) {
     if (!ctx.args.to) {
       throw new Error("--to is required");
     }

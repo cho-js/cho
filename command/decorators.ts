@@ -35,7 +35,7 @@ import {
 } from "@chojs/core/di";
 import { COMMAND_FLAG_KEYS, type CommandFlags, is_reserved } from "./args.ts";
 import { ACTION, ALIAS, command_record, FLAGS, HELP, MAIN } from "./keys.ts";
-import type { ChoCliErrorHandler, ChoCliMiddleware } from "./types.ts";
+import type { ChoCommandErrorHandler, ChoCommandMiddleware } from "./types.ts";
 
 /**
  * Assert that a decorator argument is a non-empty string.
@@ -246,12 +246,12 @@ export function Controller<const D extends readonly Dependency[] = []>(
  *
  * @example
  * ```ts
- * import { type ChoCliContext, ChoCommand, Controller, Main, Module } from "@chojs/command";
+ * import { type ChoCommandContext, ChoCommand, Controller, Main, Module } from "@chojs/command";
  *
  * @Controller()
  * class Greet {
  *   @Main()
- *   main(ctx: ChoCliContext) {
+ *   main(ctx: ChoCommandContext) {
  *     console.log(`Hello, ${ctx.args._[0] ?? "world"}!`);
  *   }
  * }
@@ -292,20 +292,20 @@ export function Main(flags?: CommandFlags): ChoMethodDecorator {
  *
  * @example
  * ```ts
- * import { type ChoCliContext, ChoCommand, Controller, Action, Module } from "@chojs/command";
+ * import { type ChoCommandContext, ChoCommand, Controller, Action, Module } from "@chojs/command";
  *
  * @Controller()
  * class Files {
  *   // ./fs copy a.txt b.txt
  *   @Action("copy")
- *   copy(ctx: ChoCliContext) {
+ *   copy(ctx: ChoCommandContext) {
  *     const [from, to] = ctx.args._;
  *     console.log(`copy ${from} to ${to}`);
  *   }
  *
  *   // ./fs remove a.txt --force
  *   @Action("remove")
- *   remove(ctx: ChoCliContext) {
+ *   remove(ctx: ChoCommandContext) {
  *     return ctx.args.force ? 0 : 1; // the exit code
  *   }
  * }
@@ -392,7 +392,7 @@ export function Help(help: string): ChoClassOrMethodDecorator {
  *
  * @example
  * ```ts
- * const timing: ChoCliMiddlewareFn = async (ctx, next) => {
+ * const timing: ChoCommandMiddlewareFn = async (ctx, next) => {
  *   const start = performance.now();
  *   await next();
  *   console.error(`${ctx.command}: ${Math.round(performance.now() - start)}ms`);
@@ -402,12 +402,12 @@ export function Help(help: string): ChoClassOrMethodDecorator {
  * @Controller()
  * class Files {
  *   @Action("copy")
- *   copy(ctx: ChoCliContext) {}
+ *   copy(ctx: ChoCommandContext) {}
  * }
  * ```
  */
 export function Middlewares(
-  ...middlewares: ChoCliMiddleware[]
+  ...middlewares: ChoCommandMiddleware[]
 ): ChoClassOrMethodDecorator {
   return (target, context, descriptor) => {
     const meta = decorated_target(
@@ -449,7 +449,9 @@ export function Middlewares(
  * class Files {}
  * ```
  */
-export function Catch(handler: ChoCliErrorHandler): ChoClassOrMethodDecorator {
+export function Catch(
+  handler: ChoCommandErrorHandler,
+): ChoClassOrMethodDecorator {
   return (target, context, descriptor) => {
     const meta = decorated_target("@Catch()", target, context, descriptor);
     set_error_handler(meta, handler);
