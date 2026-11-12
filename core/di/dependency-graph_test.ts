@@ -364,6 +364,14 @@ describe("build_dependency_graph", () => {
       assert.equal(graph(App).root.visible.has(T), false);
     });
 
+    it("records an ambiguous token, with the modules that export it", () => {
+      const { T, X1, X2 } = two_exporters();
+      class App {}
+      Module({ imports: [X1, X2] })(App);
+
+      assert.deepEqual([...graph(App).root.ambiguous], [[T, [X1, X2]]]);
+    });
+
     it("lets the module settle it by declaring the token itself", () => {
       const { T, X1, X2 } = two_exporters();
       class NeedsT {}
@@ -374,6 +382,7 @@ describe("build_dependency_graph", () => {
       const { root } = graph(App);
       assert.equal(root.visible.get(NeedsT)!.deps[0], root.visible.get(T));
       assert.equal(root.visible.get(T)!.owner, App);
+      assert.equal(root.ambiguous.has(T), false);
     });
 
     it("does not treat the same node exported by two imports as ambiguous", () => {
@@ -391,6 +400,7 @@ describe("build_dependency_graph", () => {
 
       const { root, modules } = graph(App);
       assert.equal(root.visible.get(T), modules.get(Shared)!.visible.get(T));
+      assert.equal(root.ambiguous.size, 0);
     });
   });
 

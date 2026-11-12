@@ -39,12 +39,18 @@ reproduced with a probe script against the current code.
    its name. `@Controller({ isModule: true })` is just an option. This replaced
    an earlier fix that rejected the three flag names. See `tasks.md`.
 
-3. **`resolve()` reports an ambiguous token as "not visible".** Injecting it
-   gives the clear
+3. **[FIXED] `resolve()` reports an ambiguous token as "not visible".**
+   Injecting it gives the clear
    `X is ambiguous in module M: A, B export different
    instances of it…`
    message, but `injector.resolve(X)` rejects with
    `X is not visible in module M`, which suggests a missing import instead.
+
+   **Fix:** each `ModuleScope` now keeps its ambiguous tokens (`ambiguous`, with
+   the modules that export each one), and one function, `ambiguity_error`
+   (`di/dependency-graph.ts`), builds the message for both the graph build and
+   `Injector.resolve`. `resolve(X)` now rejects with the ambiguity message.
+   Tests in `di/injector_test.ts` and `di/dependency-graph_test.ts`.
 
 4. **`resolve()` can throw synchronously.** It returns a rejected promise for
    every failure, but builds the message first. A token whose `String()` throws

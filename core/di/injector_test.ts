@@ -336,6 +336,37 @@ describe("Injector", () => {
       });
     });
 
+    it("reports an ambiguous token as ambiguous, not as not visible", async () => {
+      const T = token<string>("T");
+      class X1 {}
+      Module({
+        providers: [
+          provider({ provide: T, factory: () => Promise.resolve("1") }),
+        ],
+        exports: [T],
+      })(X1);
+      class X2 {}
+      Module({
+        providers: [
+          provider({ provide: T, factory: () => Promise.resolve("2") }),
+        ],
+        exports: [T],
+      })(X2);
+      class App {}
+      Module({ imports: [X1, X2] })(App);
+
+      const injector = new Injector(App); // nothing injects T: no error yet
+      let result: Promise<unknown> | undefined;
+      assert.doesNotThrow(() => {
+        result = injector.resolve(T);
+      });
+      await assert.rejects(result!, {
+        message:
+          "InjectionToken(T) is ambiguous in module App: X1, X2 export different instances of it. " +
+          "Provide InjectionToken(T) in App to choose which one to use.",
+      });
+    });
+
     it("rejects when the module is not part of the application", async () => {
       class Db {}
       Injectable()(Db);

@@ -164,9 +164,9 @@ no option can change what a class is or what it declares.
   controllers included) or one it imports (a re-export). Exporting a whole
   imported module is not supported: export its tokens instead.
 - If two imports export **different** instances of the same token, the token is
-  ambiguous. Injecting or exporting it throws; declaring the token in the module
-  itself settles it. Two imports that re-export the **same** instance are not
-  ambiguous.
+  ambiguous. Injecting or exporting it throws, and `resolve()` rejects with the
+  same message; declaring the token in the module itself settles it. Two imports
+  that re-export the **same** instance are not ambiguous.
 
 ```ts
 @Module({ providers: [DbConn], exports: [DbConn] })
@@ -315,11 +315,12 @@ from zero.
 
 **Rejected by `resolve()` and `init()`:**
 
-| Problem                            | Message                                        |
-| ---------------------------------- | ---------------------------------------------- |
-| The module is not in the graph     | `M is not part of this application`            |
-| The token is not in module's scope | `X is not visible in module M`                 |
-| A factory or constructor failed    | `Failed to create X in module M`, with `cause` |
+| Problem                            | Message                                                                                                         |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| The module is not in the graph     | `M is not part of this application`                                                                             |
+| The token is not in module's scope | `X is not visible in module M`                                                                                  |
+| The token is ambiguous there       | `X is ambiguous in module M: A, B export different instances of it. Provide X in M to choose which one to use.` |
+| A factory or constructor failed    | `Failed to create X in module M`, with `cause`                                                                  |
 
 ## 3. Public API
 
@@ -459,7 +460,8 @@ creates nothing.
    metadata is collected here. Modules are listed imported-first, the root last;
    a module imported through several paths appears once.
 2. **The dependency graph** (`injector.graph`). One `ModuleScope` per module,
-   with a `visible` table of every token the module can inject (section 2.4),
+   with a `visible` table of every token the module can inject (section 2.4) and
+   an `ambiguous` table of the tokens two imports export as different instances,
    and one `DependencyNode` per declaration, holding its token, its owner module
    and the nodes of its dependencies, in argument order. Modules are linked
    imported-first, so the checks of section 2.8 run module by module.

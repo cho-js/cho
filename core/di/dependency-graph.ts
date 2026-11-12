@@ -120,6 +120,16 @@ export class ModuleScope {
    * Filled while the graph is built; read-only afterwards.
    */
   readonly visible: Map<Token, DependencyNode> = new Map();
+  /**
+   * The ambiguous tokens of this module: tokens that two or more imports
+   * export as different instances, and that the module does not declare
+   * itself. Each is mapped to the modules that export it. They are not in
+   * {@link visible}: injecting, exporting or resolving one throws (see
+   * {@link ambiguity_error}).
+   *
+   * Filled while the graph is built; read-only afterwards.
+   */
+  readonly ambiguous: Map<Token, readonly Ctr[]> = new Map();
 
   /**
    * Create a module scope with an empty `visible` table. The table is filled
@@ -133,6 +143,35 @@ export class ModuleScope {
     this.meta = meta;
     this.imports = imports;
   }
+}
+
+/**
+ * The error for using an ambiguous token of a module, or `undefined` when the
+ * token is not ambiguous there.
+ *
+ * Used both when the graph is built (injecting or exporting the token) and by
+ * `Injector.resolve`, so the two report it the same way.
+ *
+ * @param scope The module the token is looked up in.
+ * @param token The token.
+ * @returns The error to throw, naming the modules that export the token.
+ */
+export function ambiguity_error(
+  scope: ModuleScope,
+  token: Token,
+): Error | undefined {
+  const exporters = scope.ambiguous.get(token);
+  if (!exporters) {
+    return undefined;
+  }
+  const name = describe(token);
+  return new Error(
+    `${name} is ambiguous in module ${scope.ctr.name}: ` +
+      `${
+        exporters.map(describe).join(", ")
+      } export different instances of it. ` +
+      `Provide ${name} in ${scope.ctr.name} to choose which one to use.`,
+  );
 }
 
 /** The dependency graph of an application. */
@@ -241,8 +280,9 @@ function build_module_scope(
   //   module): it is one instance, there is nothing to choose.
   // - They pass on different nodes: picking one would silently depend on the
   //   order of `imports`. The token is ambiguous instead: it is left out of
-  //   `visible`, and injecting or exporting it throws (see `lookup`), unless
-  //   this module declares the token itself (step 3).
+  //   `visible` and kept in `ambiguous`, and injecting, exporting or
+  //   resolving it throws (see `ambiguity_error`), unless this module
+  //   declares the token itself (step 3).
   const candidates = new Map<Token, Map<DependencyNode, Ctr>>(); // token → node → exporting module
   for (const imported of imports) {
     for (const token of imported.meta.exports) {
@@ -252,12 +292,11 @@ function build_module_scope(
     }
   }
 
-  const ambiguous = new Map<Token, Ctr[]>(); // token → the modules exporting different nodes for it
   for (const [token, nodes] of candidates) {
     if (nodes.size === 1) {
       scope.visible.set(token, nodes.keys().next().value!);
     } else {
-      ambiguous.set(token, [...nodes.values()]);
+      scope.ambiguous.set(token, [...nodes.values()]);
     }
   }
 
@@ -299,7 +338,7 @@ function build_module_scope(
   // A token this module declares shadows the imported ones, so declaring it
   // is how a module settles an ambiguous token.
   for (const node of declared) {
-    ambiguous.delete(node.token);
+    scope.ambiguous.delete(node.token);
   }
 
   /**
@@ -307,17 +346,9 @@ function build_module_scope(
    * it is actually injected or exported, rather than resolving to a guess.
    */
   const lookup = (token: Token): DependencyNode | undefined => {
-    const exporters = ambiguous.get(token);
-    if (exporters) {
-      throw new Error(
-        `${describe(token)} is ambiguous in module ${ctr.name}: ` +
-          `${
-            exporters.map(describe).join(", ")
-          } export different instances of it. ` +
-          `Provide ${
-            describe(token)
-          } in ${ctr.name} to choose which one to use.`,
-      );
+    const error = ambiguity_error(scope, token);
+    if (error) {
+      throw error;
     }
     return scope.visible.get(token);
   };

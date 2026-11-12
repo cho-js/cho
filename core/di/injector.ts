@@ -23,6 +23,7 @@ import {
   type MetadataGraph,
 } from "./metadata-graph.ts";
 import {
+  ambiguity_error,
   build_dependency_graph,
   type DependencyGraph,
   type DependencyNode,
@@ -116,8 +117,9 @@ export class Injector {
    * @param module The module whose scope is searched. Defaults to the root.
    * @returns The value of the token. The same value for every call.
    * @throws {Error} (as a rejection) When `module` is not part of the
-   *   application, when the token is not visible in its scope, or when a
-   *   factory fails (`Failed to create X in module M`, with `cause`).
+   *   application, when the token is not visible in its scope, when it is
+   *   ambiguous there (two imports export different instances of it), or
+   *   when a factory fails (`Failed to create X in module M`, with `cause`).
    *
    * @example
    * ```ts
@@ -136,9 +138,12 @@ export class Injector {
     const node = scope.visible.get(token);
     if (!node) {
       return Promise.reject(
-        new Error(
-          `${describe(token)} is not visible in module ${describe(scope.ctr)}`,
-        ),
+        ambiguity_error(scope, token) ??
+          new Error(
+            `${describe(token)} is not visible in module ${
+              describe(scope.ctr)
+            }`,
+          ),
       );
     }
     return this.#instantiate(node) as Promise<T>;
