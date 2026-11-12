@@ -46,4 +46,19 @@ describe("engine", () => {
       delete g.EdgeRuntime;
     }
   });
+
+  it("detects Cloudflare Workers by its user agent, as workerd", () => {
+    const saved = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    Object.defineProperty(globalThis, "navigator", {
+      value: { userAgent: "Cloudflare-Workers" },
+      configurable: true,
+    });
+    try {
+      assert.equal(isCloudflareRt(), true);
+      assert.equal(engine(), "workerd");
+    } finally {
+      if (saved) Object.defineProperty(globalThis, "navigator", saved);
+      else delete (globalThis as { navigator?: unknown }).navigator;
+    }
+  });
 });

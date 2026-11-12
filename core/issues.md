@@ -106,18 +106,35 @@ reproduced with a probe script against the current code.
 
 ## Utilities
 
-8. **`engine()` is not exported** from `@chojs/core/utils` (nor are the
+8. **[FIXED] `engine()` is not exported** from `@chojs/core/utils` (nor are the
    `is*Rt()` checks), although the project docs list it as a utility. Its type
    is misspelled `EngineTpe`, and the Cloudflare Workers value is `"worked"`.
-9. **`env()` reads only `globalThis.process.env`.** It works on Deno 2, Node and
-   Bun, but returns `undefined` on runtimes without `process` (Cloudflare
-   Workers without Node compatibility, browsers), with no way to pass the
-   environment in.
+
+   **Fix:** `engine()` and its type, renamed `EngineType`, are exported from
+   `@chojs/core/utils`. Cloudflare Workers is now `"workerd"`, its WinterCG
+   runtime key, next to `"deno"`, `"node"`, `"bun"`, `"edge"` and `"unknown"`.
+   The `is*Rt()` checks stay internal: `engine()` covers them. Tests in
+   `utils/engine_test.ts`.
+
+9. **[FIXED] `env()` reads only `globalThis.process.env`.** It works on Deno 2,
+   Node and Bun, but returns `undefined` on runtimes without `process`
+   (Cloudflare Workers without Node compatibility, browsers), with no way to
+   pass the environment in.
+
+   **Fix:** `set_env(source)` (`utils/env.ts`, exported from
+   `@chojs/core/utils`) gives `env()` an environment to read first: a record,
+   such as a Cloudflare Workers `env`, or a function. Only string values count,
+   and `process.env` stays the fallback. `env_bool`, `env_num` and `debuglog`
+   read through `env()`, so they follow it. Tests in `utils/env_test.ts` and
+   `utils/debuglog_test.ts`.
 
 ## Open questions
 
 10. **Should controllers be ordinary declarations?** Today a provider can depend
     on a controller, `resolve()` can create one, and a module can export one.
     Nothing in the CHO modules needs this.
-11. **`core/readme.md` is out of date.** It mentions "application lifecycle
-    management", which the core does not have.
+11. **[FIXED] `core/readme.md` is out of date.** It mentions "application
+    lifecycle management", which the core does not have.
+
+    **Fix:** replaced by a new `core/README.md`, written for CHO module authors,
+    with the features, an example, the entry points and links to the spec.

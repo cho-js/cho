@@ -1,19 +1,31 @@
 /**
- * Utility functions to detect the JavaScript runtime engine.
+ * Detecting the JavaScript runtime the code runs on.
+ *
+ * The values follow the WinterCG runtime keys where one exists.
+ *
  * @see https://runtime-keys.proposal.wintercg.org/
+ * @module
  */
 
 /**
- * Type representing different JavaScript runtime engines.
+ * A JavaScript runtime that {@link engine} can detect:
+ *
+ * - `"node"`: Node.js;
+ * - `"deno"`: Deno;
+ * - `"bun"`: Bun;
+ * - `"workerd"`: Cloudflare Workers;
+ * - `"edge"`: an edge runtime, such as Vercel Edge Functions;
+ * - `"unknown"`: anything else, such as a browser.
  */
-export type EngineTpe =
+export type EngineType =
   | "node"
   | "deno"
   | "bun"
-  | "worked" // cloudflare workers
-  | "edge" // Vercel Edge Functions
+  | "workerd"
+  | "edge"
   | "unknown";
 
+/** Whether `navigator.userAgent` mentions the given platform. */
 function checkUserAgent(platform: string): boolean {
   const userAgent = globalThis?.navigator?.userAgent;
   return typeof userAgent === "string" && userAgent.includes(platform);
@@ -60,12 +72,25 @@ export function isNodeRt(): boolean {
 }
 
 /**
- * Detect the current JavaScript runtime engine.
- * @returns {EngineTpe} The detected engine type.
+ * Detect the JavaScript runtime the code runs on.
+ *
+ * Runtimes that emulate others are checked first: Cloudflare Workers and edge
+ * runtimes can expose Node.js globals, and Bun and Deno expose `process`.
+ *
+ * @returns The detected runtime, or `"unknown"`.
+ *
+ * @example
+ * ```ts
+ * import { engine } from "@chojs/core/utils";
+ *
+ * if (engine() === "deno") {
+ *   // ...
+ * }
+ * ```
  */
-export function engine(): EngineTpe {
+export function engine(): EngineType {
   if (isCloudflareRt()) {
-    return "worked";
+    return "workerd";
   }
 
   if (isEdgeRt()) {

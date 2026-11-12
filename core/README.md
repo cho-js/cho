@@ -105,7 +105,7 @@ for (const node of injector.controllers()) {
 | ------------------------------ | ------------------------------------------------------------------------ |
 | `@chojs/core`                  | the DI essentials: decorators, `Injector`, `token`, `provider`           |
 | `@chojs/core/di`               | everything above, plus the metadata helpers for CHO module authors       |
-| `@chojs/core/utils`            | runtime helpers: `env`, `debuglog`, `describe`, `isClass`, …             |
+| `@chojs/core/utils`            | runtime helpers: `env`, `set_env`, `engine`, `debuglog`, `describe`, …   |
 | `@chojs/core/utils/test_utils` | test helpers for CHO packages: apply decorators without decorator syntax |
 
 ## Documentation

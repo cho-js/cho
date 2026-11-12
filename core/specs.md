@@ -408,7 +408,15 @@ Runtime helpers that work on every runtime:
 
 - `env(key)`, `env_bool(key)`, `env_num(key)`: read an environment variable
   (`undefined`, `false` or `NaN` when it is missing or cannot be read).
-  `env_bool` accepts `1`, `true`, `yes` and `on`, in any case.
+  `env_bool` accepts `1`, `true`, `yes` and `on`, in any case. Variables come
+  from the source given to `set_env`, then from `process.env`.
+- `set_env(source)`: give the environment to read first, as a record (such as a
+  Cloudflare Workers `env`) or a function; only string values count. It applies
+  to the whole program, and is needed on runtimes without `process`. Call it at
+  startup: `debuglog()` reads the environment when a logger is created.
+- `engine()`: the runtime the code runs on: `"deno"`, `"node"`, `"bun"`,
+  `"workerd"` (Cloudflare Workers), `"edge"` (edge runtimes, such as Vercel Edge
+  Functions) or `"unknown"` (type `EngineType`).
 - `debuglog(context)`: a logger to stderr for one context, enabled by
   `CHO_DEBUG=1` (every context) or `CHO_DEBUGLOG=ctx1,prefix*`. When disabled it
   does nothing. It has `.error()`, `.start()` (returns a logger that adds the

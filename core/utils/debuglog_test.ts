@@ -10,6 +10,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { debuglog, isEnabled } from "./debuglog.ts";
 import { capture, with_env } from "./test_utils.ts";
+import { set_env } from "./env.ts";
 
 /** Neither variable set. */
 const OFF = { CHO_DEBUG: undefined, CHO_DEBUGLOG: undefined };
@@ -43,6 +44,17 @@ describe("isEnabled", () => {
     });
     with_env({ ...OFF, CHO_DEBUGLOG: "*" }, () => {
       assert.equal(isEnabled("cho"), true);
+    });
+  });
+
+  it("reads the environment given to set_env", () => {
+    with_env(OFF, () => {
+      set_env({ CHO_DEBUGLOG: "cho" });
+      try {
+        assert.equal(isEnabled("cho"), true);
+      } finally {
+        set_env(undefined);
+      }
     });
   });
 
