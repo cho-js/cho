@@ -251,22 +251,40 @@ An error thrown by a command, or while creating its controller, goes to the
 command's `@Catch` handler: the method's, or else the controller's.
 
 ```ts
+@Injectable([Logger])
+class ReportError {
+  constructor(readonly logger: Logger) {}
+  handle(error: unknown, args: ChoArgs) {
+    this.logger.error(error, args);
+    return 3;
+  }
+}
+
 @Catch((error) => 2) // for every command of the controller
 @Controller()
 class FileSystem {
   @Catch((error) => (error instanceof NotFound ? 4 : 1)) // for `rm` only
   @Action("rm")
   remove(args: ChoArgs) {/* ... */}
+
+  @Catch(ReportError) // a class, created by the injector
+  @Action("sync")
+  sync(args: ChoArgs) {/* ... */}
 }
 ```
 
-- A function handler is called with the error, as thrown, and awaited. Its
-  result gives the exit code (section 4.2). If the handler itself throws,
-  `run()` rejects with that error.
+A handler is called with the error, as thrown, and the parsed arguments, and
+awaited. Its result gives the exit code (section 4.2).
+
+- **A function** is called as `(error, args)`. If it throws, `run()` rejects
+  with that error.
+- **A class** is created by the injector, in the scope of the module that
+  declares the controller (so it must be a provider visible there, and can have
+  dependencies), and its `handle(error, args)` method is called. If the class
+  cannot be created, or `handle` throws, `run()` prints the original error and
+  resolves to `2`.
 - Without a handler, `run()` prints `Error: <message>` to stderr and resolves to
   `1`. An unknown action is reported the same way.
-- A class given to `@Catch` does not work yet: the error is printed and the exit
-  code is `2` (`command/issues.md`).
 
 `@Middlewares` is accepted on controllers and methods, but the command module
 does not run middlewares.

@@ -150,20 +150,21 @@ handler is a function, or a class with a `handle` method created by the injector
 like a middleware class. It should return a `Response`.
 
 The nearest one handles the error: the handler's, else the controller's, else
-the feature's. Without any, the Hono adapter answers
-`500 Internal Server
-Error`.
+the feature's. Without any, the Hono adapter logs the error and answers `500`.
+
+At every level, a handler is called **error first**: a function as
+`(error, ctx)`, a class through `handle(error, ctx)`, where `ctx` is the request
+context of the runtime (Hono's `Context` with the Hono adapter).
 
 ```ts
 @Catch((error) => Response.json({ error: String(error) }, { status: 500 }))
 @Controller({ route: "users" })
-class UsersController {/* ... */}
+class UsersController {
+  @Catch((error, ctx) => (ctx as Context).text("not found", 404))
+  @Get(":id")
+  get(ctx: Context) {/* ... */}
+}
 ```
-
-The arguments differ by level today: a handler-level `@Catch` receives
-`(ctx, error)`, a controller- or feature-level one receives `(error, ctx)`.
-`@Catch` is also typed for one argument only, so a handler that uses the context
-needs a cast (`web/issues.md`).
 
 ## 6. The application: `ChoWeb`
 

@@ -302,11 +302,13 @@ export class ChoCommand {
       // error handler as a resolvable class
       if (action && action[0] && isClass(errorHandler)) {
         try {
-          const handler = await this.#injector.resolve(
+          const handler = await this.#injector.resolve<
+            { handle: (error: unknown, ctx?: unknown) => unknown }
+          >(
             errorHandler,
             action![0].owner,
           );
-          const ret = await handler(args);
+          const ret = await handler.handle(err, args);
           return is_positive_integer(ret) ? ret : 1;
         } catch (_handlerErr) {
           console.error(
@@ -318,7 +320,11 @@ export class ChoCommand {
 
       // error handler as a function
       if (typeof errorHandler === "function") {
-        const ret = await (errorHandler as (error: unknown) => unknown)(err);
+        const ret =
+          await (errorHandler as (error: unknown, ctx?: unknown) => unknown)(
+            err,
+            args,
+          );
         return is_positive_integer(ret) ? ret : 1;
       }
 

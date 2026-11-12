@@ -23,6 +23,11 @@ import { AppRef, ControllerRef, FeatureRef, MethodRef } from "@chojs/web/graph";
 import { capture, legacy } from "@chojs/core/utils/test_utils";
 import { HonoLinked, HonoLinker } from "./mod.ts";
 
+/** Whether a value looks like Hono's request context. */
+function is_context(value: unknown): boolean {
+  return typeof (value as { req?: { url?: unknown } })?.req?.url === "string";
+}
+
 /** Send a request to an application, by method and path. */
 function send(app: ChoWeb<unknown>, path: string, method = "GET") {
   return app.handler(new Request(`http://localhost${path}`, { method }));
@@ -125,7 +130,7 @@ describe("HonoLinker", () => {
     assert.equal(called, false);
   });
 
-  it("uses the handler's error handler, called with (ctx, error)", async () => {
+  it("uses the handler's error handler, called with (error, ctx)", async () => {
     const seen: unknown[] = [];
     class Users {
       list() {
@@ -134,12 +139,10 @@ describe("HonoLinker", () => {
     }
     legacy(Get(""), Users, "list");
     legacy(
-      Catch(
-        ((ctx: unknown, error: unknown) => {
-          seen.push(ctx instanceof Error, error);
-          return new Response("method", { status: 418 });
-        }) as () => unknown,
-      ),
+      Catch((error, ctx) => {
+        seen.push(error, ctx);
+        return new Response("method", { status: 418 });
+      }),
       Users,
       "list",
     );
@@ -150,14 +153,14 @@ describe("HonoLinker", () => {
 
     const response = await send(app, "/");
     assert.equal(response.status, 418);
-    assert.equal(seen[0], false);
-    assert.equal((seen[1] as Error).message, "boom");
+    assert.equal((seen[0] as Error).message, "boom");
+    assert.equal(is_context(seen[1]), true);
   });
 
   it("falls back to the controller's error handler, then the feature's", async () => {
     // The controller's and feature's handlers go to Hono's onError, which
-    // calls them with (error, ctx), unlike the handler-level ones: a known
-    // bug (web/issues.md #2). Update this test when it is fixed.
+    // calls them with (error, ctx), as the handler-level ones are.
+    let controller_ctx: unknown;
     const failing = (route: string) => {
       class Failing {
         run() {
@@ -169,9 +172,12 @@ describe("HonoLinker", () => {
       return Failing;
     };
     const Caught = failing("caught");
-    Catch((error) =>
-      new Response(`controller: ${(error as Error).message}`, { status: 503 })
-    )(Caught);
+    Catch((error, ctx) => {
+      controller_ctx = ctx;
+      return new Response(`controller: ${(error as Error).message}`, {
+        status: 503,
+      });
+    })(Caught);
     const Uncaught = failing("uncaught");
     class App {}
     Module({ controllers: [Caught, Uncaught] })(App);
@@ -183,6 +189,7 @@ describe("HonoLinker", () => {
     const caught = await send(app, "/caught");
     assert.equal(caught.status, 503);
     assert.equal(await caught.text(), "controller: caught");
+    assert.equal(is_context(controller_ctx), true);
     const uncaught = await send(app, "/uncaught");
     assert.equal(uncaught.status, 502);
     assert.equal(await uncaught.text(), "feature: uncaught");

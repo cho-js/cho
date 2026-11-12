@@ -223,7 +223,12 @@ method decides how and when to call them.
 - `@Middlewares` can be applied several times. The middlewares are kept in
   source order: top decorator first, and within one decorator, argument order.
   Each one must be a function (a middleware function or a class).
-- `@Catch` takes a function or a class. A class or method has at most one.
+- `@Catch` takes a function or a class. A class or method has at most one. By
+  convention, a handler is called **error first**: a function as
+  `(error, ctx?)`, a class through its `handle(error, ctx?)` method, where `ctx`
+  is whatever the CHO module passes (the parsed args for `@chojs/command`, the
+  request context for `@chojs/web`). The type is `ChoErrorHandler`: a
+  `ChoErrorHandlerFn`, `(error, ctx?) => unknown`, or a class.
 
 ```ts
 @Middlewares(auth)

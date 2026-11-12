@@ -88,12 +88,21 @@ reproduced with a probe script against the current code.
    it in its own decorators; any other CHO module would lose the method without
    a word.
 
-7. **`@Catch` does not accept the handler type CHO modules call.** `@Catch`
-   takes `ChoErrorHandler` (`(error) => unknown`), but `@chojs/web` calls
-   handlers as `ChoErrorHandlerFn` (`(ctx, error) => unknown`). So
+7. **[FIXED] `@Catch` does not accept the handler type CHO modules call.**
+   `@Catch` takes `ChoErrorHandler` (`(error) => unknown`), but `@chojs/web`
+   calls handlers as `ChoErrorHandlerFn` (`(ctx, error) => unknown`). So
    `@Catch((ctx, error) => …)` does not type-check (TS2345), and a handler
    written as `(error) => …` receives the context as its `error`. The core types
    should let each CHO module say what its handlers receive.
+
+   **Fix:** handlers are now called error first. `ChoErrorHandlerFn` is
+   `(error, ctx?) => unknown` and `ChoErrorHandler` is a `ChoErrorHandlerFn` or
+   a class (`di/types.ts`), so `@Catch((error) => …)` and
+   `@Catch((error, ctx) => …)` both type-check. `@chojs/web` calls every level
+   as `(error, ctx)` (which also fixed `web/issues.md` #2 and #4), and
+   `@chojs/command` as `(error, args)`, for functions and for a class's
+   `handle`. This swaps the parameters of `ChoErrorHandlerFn`: a breaking change
+   for handlers written as `(ctx, error)`.
 
 ## Utilities
 

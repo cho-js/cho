@@ -315,7 +315,10 @@ describe("ChoCommand.run, --version and --help", () => {
  * A multi-command app whose `fail` action throws `error` and has `handler` as
  * its error handler. `ok` has no error handler and throws too.
  */
-function error_app(error: unknown, handler: (err: unknown) => unknown): Ctr {
+function error_app(
+  error: unknown,
+  handler: (err: unknown, args?: unknown) => unknown,
+): Ctr {
   class Cli {
     fail() {
       throw error;
@@ -360,6 +363,19 @@ describe("ChoCommand.run, error handler", () => {
       const { result } = await capture(() => app.run(["fail"]));
       assert.equal(result, 1, `error handler returned ${String(ret)}`);
     }
+  });
+
+  it("passes the parsed args as the second argument", async () => {
+    const seen: unknown[] = [];
+    const app = ChoCommand.create(error_app(new Error("boom"), (err, args) => {
+      seen.push(err, args);
+      return 4;
+    }));
+
+    const { result } = await capture(() => app.run(["fail", "--force"]));
+    assert.equal(result, 4);
+    assert.equal((seen[0] as Error).message, "boom");
+    assert.deepEqual(seen[1], { _: [], force: true });
   });
 
   it("passes a non-Error throw as is", async () => {
@@ -488,10 +504,38 @@ describe("ChoCommand.run, failures without a usable handler", () => {
     ]);
   });
 
-  it("prints the error and exits 2 with a class error handler", async () => {
-    // Current behavior, a known bug (command/issues.md #1): the handler
-    // instance is called as a function, which throws. Update this test when
-    // class error handlers are fixed.
+  it("calls a class error handler's handle with the error and the args", async () => {
+    const seen: unknown[] = [];
+    class OnError {
+      handle(error: unknown, args: unknown) {
+        seen.push(error, args);
+        return 5;
+      }
+    }
+    Injectable()(OnError);
+    class Cli {
+      run() {
+        throw new Error("boom");
+      }
+    }
+    legacy(Main(), Cli, "run");
+    legacy(Catch(OnError), Cli, "run");
+    Controller()(Cli);
+    class App {}
+    Module({ providers: [OnError], controllers: [Cli] })(App);
+
+    const { result, output } = await capture(() =>
+      ChoCommand.create(App).run(["x", "--flag"])
+    );
+    assert.equal(result, 5);
+    assert.deepEqual(output.error, []);
+    assert.equal((seen[0] as Error).message, "boom");
+    assert.deepEqual(seen[1], { _: ["x"], flag: true });
+  });
+
+  it("prints the error and exits 2 when a class error handler fails", async () => {
+    // The class is not a provider of the controller's module, so the
+    // injector cannot create it.
     class OnError {
       handle() {
         return 5;
@@ -507,7 +551,7 @@ describe("ChoCommand.run, failures without a usable handler", () => {
     legacy(Catch(OnError), Cli, "run");
     Controller()(Cli);
     class App {}
-    Module({ providers: [OnError], controllers: [Cli] })(App);
+    Module({ controllers: [Cli] })(App);
 
     const { result, output } = await capture(() =>
       ChoCommand.create(App).run([])

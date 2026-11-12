@@ -134,7 +134,7 @@ export class HonoLinker implements Linker<Hono> {
         return ctx.json(result);
       } catch (error) {
         if (ref.errorHandler) {
-          return ref.errorHandler(ctx, error);
+          return ref.errorHandler(error, ctx);
         }
         throw error;
       }

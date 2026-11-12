@@ -214,22 +214,22 @@ export type ChoMiddlewareFn = (
 export type ChoMiddleware = ChoMiddlewareFn | Ctr;
 
 /**
- * An error handler, declared with `@Catch`: a function called with the error,
- * or an injectable class that handles it. The application module that runs
- * the decorated class or method decides how it is invoked.
- */
-export type ChoErrorHandler = ((error: unknown) => unknown) | Ctr;
-
-/**
  * An error handler function that also receives the request context of the
  * application module that runs it, such as an HTTP context. Used by
  * application modules that call handlers with a context (`@chojs/web`).
  *
- * @param ctx The context of the request that failed.
  * @param error The error.
+ * @param ctx The context of the request that failed.
  * @returns What the application module expects, such as a response.
  */
-export type ChoErrorHandlerFn = (ctx: unknown, error: unknown) => unknown;
+export type ChoErrorHandlerFn = (error: unknown, ctx?: unknown) => unknown;
+
+/**
+ * An error handler, declared with `@Catch`: a function called with the error,
+ * or an injectable class that handles it. The application module that runs
+ * the decorated class or method decides how it is invoked.
+ */
+export type ChoErrorHandler = ChoErrorHandlerFn | Ctr;
 
 /**
  * A method decorator that works with both decorator implementations:

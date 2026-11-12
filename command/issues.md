@@ -5,12 +5,18 @@ Bugs and limitations of the current code, found while writing
 
 ## Bugs
 
-1. **Class error handlers don't work.** A class given to `@Catch` is resolved
-   with the injector, then the instance is called as a function, with the parsed
-   `args` instead of the error (`ChoCommand.run`, `command.ts`). An instance is
-   not callable, so the call throws: the original error is printed and the exit
-   code is `2`, whatever the class does. A class that is not a provider in the
-   controller's module fails the same way.
+1. **[FIXED] Class error handlers don't work.** A class given to `@Catch` is
+   resolved with the injector, then the instance is called as a function, with
+   the parsed `args` instead of the error (`ChoCommand.run`, `command.ts`). An
+   instance is not callable, so the call throws: the original error is printed
+   and the exit code is `2`, whatever the class does. A class that is not a
+   provider in the controller's module fails the same way.
+
+   **Fix:** `run()` now calls the instance's `handle(error, args)`, and its
+   result gives the exit code, as a function handler's does. Function handlers
+   receive the args too, `(error, args)`. A class that cannot be created, or
+   whose `handle` throws, still prints the error and exits `2`. Tests in
+   `command_test.ts`.
 
 2. **A function error handler that throws makes `run()` reject** instead of
    resolving to an exit code, unlike every other failure.

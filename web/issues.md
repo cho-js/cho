@@ -11,11 +11,15 @@ writing `web/specs.md`. Each was reproduced against the current code.
    `GET /api/v1/users/42` is `404` and `GET /v1/users/42` answers. The JSDoc
    examples of `ChoWeb` and `@chojs/web` show the prefix working.
 
-2. **Error handlers receive their arguments in a different order by level.** A
-   handler-level `@Catch` is called as `(ctx, error)` (the adapter calls it
-   itself), while controller- and feature-level ones are passed to Hono's
-   `onError`, which calls them as `(error, ctx)`. The graph types them all as
-   `ChoErrorHandlerFn`, `(ctx, error)`.
+2. **[FIXED] Error handlers receive their arguments in a different order by
+   level.** A handler-level `@Catch` is called as `(ctx, error)` (the adapter
+   calls it itself), while controller- and feature-level ones are passed to
+   Hono's `onError`, which calls them as `(error, ctx)`. The graph types them
+   all as `ChoErrorHandlerFn`, `(ctx, error)`.
+
+   **Fix:** handlers are called error first everywhere: `ChoErrorHandlerFn` is
+   now `(error, ctx?)`, and the adapter calls handler-level ones as
+   `(error, ctx)`, like Hono's `onError` (see `core/issues.md` #7).
 
 3. **A handler-level error handler that does not return a `Response` breaks the
    response.** Its result is returned to Hono as is: returning
@@ -23,10 +27,13 @@ writing `web/specs.md`. Each was reproduced against the current code.
    `Response`. A handler's own result is sent as JSON; the error handler's
    should be too, or be required to be a `Response`.
 
-4. **`@Catch` is typed for one argument.** Core's `@Catch` takes
+4. **[FIXED] `@Catch` is typed for one argument.** Core's `@Catch` takes
    `ChoErrorHandler`, `(error) => unknown`, so `@Catch((ctx, error) => …)` does
    not type-check (TS2345), although web calls handlers with the context (see
    also the root `issues.md`, B3, and `core/issues.md`).
+
+   **Fix:** `ChoErrorHandler` now accepts `(error, ctx?) => unknown`, so
+   `@Catch((error, ctx) => …)` type-checks (`core/issues.md` #7).
 
 ## Limitations
 

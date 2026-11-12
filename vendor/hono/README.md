@@ -40,7 +40,8 @@ app.linked.instance; // the Hono app itself
 - Middlewares are Hono middlewares, `(ctx, next) => Promise`. They run in order:
   the feature's, the controller's, then the handler's.
 - An error goes to the nearest `@Catch` handler (the handler's, the
-  controller's, then the feature's); without one, Hono answers `500`.
+  controller's, then the feature's), called as `(error, ctx)`; without one, Hono
+  logs it and answers `500`.
 - Routes are matched in declaration order: declare static routes before
   parameter routes (`@Get("me")` before `@Get(":id")`).
 - Supported HTTP methods: GET, POST, PUT, DELETE and PATCH.
@@ -48,8 +49,6 @@ app.linked.instance; // the Hono app itself
 ## Known issues
 
 - The global `prefix` of `ChoWeb.create` is not applied yet.
-- Handler-level error handlers receive `(ctx, error)`, controller- and
-  feature-level ones `(error, ctx)`.
 
 See [`web/issues.md`](../../web/issues.md) for details, and the
 [`@chojs/web` specification](../../web/specs.md) for the full behavior.
