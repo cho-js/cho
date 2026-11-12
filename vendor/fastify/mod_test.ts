@@ -419,9 +419,11 @@ suite("FastifyLinker, HEAD and OPTIONS with ChoWeb", () => {
     );
     // no @Head for the list: @Get answers, with its headers and no body
     const list = await send(app, "/files", "HEAD");
+    const type = (await send(app, "/files")).headers.get("content-type");
+    assert.match(type ?? "", /^application\/json/);
     assert.deepEqual(
       [list.status, list.headers.get("content-type"), await list.text()],
-      [200, "application/json", ""],
+      [200, type, ""],
     );
   });
 });
