@@ -129,6 +129,15 @@ describe("HonoLinker.link", () => {
     assert.equal(await route("/other", "HEAD"), "get-other");
   });
 
+  it("serves one application: a second link() throws", () => {
+    const linker = new HonoLinker();
+    linker.link([echo("GET", "/x")]);
+    assert.throws(() => linker.link([echo("GET", "/y")]), {
+      message:
+        "HonoLinker.link() was already called: use one linker for one application",
+    });
+  });
+
   it("answers 500 when a route rejects, and logs the error", async () => {
     const linked = new HonoLinker().link([{
       ...echo("GET", "/x"),

@@ -33,8 +33,9 @@ import type { Any } from "./types.ts";
 /** A middleware as a CHO module could define it. */
 type ChoMiddlewareFn = (ctx: Any, next: () => unknown) => unknown;
 
+/** The message, with or without the name of the class. */
 const ALREADY_DECORATED =
-  "class is already decorated with @Injectable, @Module or @Controller";
+  /^class( \w+)? is already decorated with @Injectable, @Module or @Controller$/;
 const BAD_DEPENDENCY =
   "all dependencies must be classes, symbols or injection tokens";
 
@@ -674,6 +675,55 @@ describe("decorated_target", () => {
     assert.equal(
       decorated_target("@X()", ...legacy_args(Cli, "run")),
       method_metadata(Cli, "run"),
+    );
+  });
+
+  it("rejects a method whose record is never read", () => {
+    function run() {}
+    class Cli {
+      static run() {}
+    }
+    const unsupported =
+      "only public, non-static methods with a string name are supported";
+    for (
+      const [args, kind, name] of [
+        [[run, context_of("method", "run", { static: true })], "static", "run"],
+        [
+          [run, context_of("method", "#run", { private: true })],
+          "private",
+          "#run",
+        ],
+        [
+          [run, context_of("method", Symbol("run"))],
+          "symbol-named",
+          "Symbol(run)",
+        ],
+        // legacy: the target of a static method is the class
+        [
+          [Cli, "run", Object.getOwnPropertyDescriptor(Cli, "run")],
+          "static",
+          "run",
+        ],
+      ] as const
+    ) {
+      assert.throws(
+        () => decorated_target("@X()", ...loose(args) as [object, string]),
+        {
+          name: "TypeError",
+          message:
+            `@X() cannot decorate ${kind} method ${name}: ${unsupported}`,
+        },
+      );
+    }
+    // decorated_method itself still finds them, for decorators that want to
+    assert.equal(
+      decorated_method(
+        "@X()",
+        run,
+        context_of("method", "run", { static: true }),
+      )
+        .static,
+      true,
     );
   });
 

@@ -119,19 +119,19 @@ export type InjectableOptions = {
  */
 export type ModuleOptions = InjectableOptions & {
   /** Modules whose exported tokens this module can inject. */
-  imports: Ctr[];
+  imports: readonly Ctr[];
   /**
    * What this module declares: `@Injectable` classes, and provider objects
    * (see `provider()`).
    */
-  providers: (Provider | Ctr)[];
+  providers: readonly (Provider | Ctr)[];
   /** `@Controller` classes this module declares. */
-  controllers: Ctr[];
+  controllers: readonly Ctr[];
   /**
    * Tokens that modules importing this module can inject. Each token must be
    * declared by this module or exported by one of its imports.
    */
-  exports: Token[];
+  exports: readonly Token[];
 };
 
 /**
@@ -217,13 +217,18 @@ export function assert_known_options(
  * a decorated class can be decorated.
  *
  * @param target The class, or its decorator metadata object.
+ * @param name The class's name, for the message, when the target is its
+ *   metadata object. A class target names itself.
  * @throws {Error} When the target is already decorated with `@Injectable`,
  *   `@Module` or `@Controller`.
  */
-function assert_decorated(target: MetaTarget): void {
+function assert_decorated(target: MetaTarget, name?: string): void {
   if (read_metadata_object<Partial<InjectableRecord>>(target)?.[INJECTABLE]) {
+    const of = name ?? (typeof target === "function" ? describe(target) : "");
     throw new Error(
-      `class is already decorated with @Injectable, @Module or @Controller`,
+      `class${
+        of && ` ${of}`
+      } is already decorated with @Injectable, @Module or @Controller`,
     );
   }
 }
@@ -435,8 +440,11 @@ function assert_provider(provider: unknown): asserts provider is Provider {
  * @param target The class, or its decorator metadata object
  *   (`context.metadata` with TC39 decorators).
  * @param options The constructor's dependencies, in argument order.
- * @throws {Error} When the target already has a DI decorator. This is checked
- *   first, before the dependencies.
+ * @param name The class's name, for the error message, when `target` is its
+ *   metadata object.
+ * @throws {Error} When the target already has a DI decorator
+ *   (`class X is already decorated with …`). This is checked first, before
+ *   the dependencies.
  * @throws {Error} When `dependencies` is not an array, or a dependency is not
  *   a class, symbol or injection token.
  *   Nothing is written.
@@ -453,8 +461,9 @@ function assert_provider(provider: unknown): asserts provider is Provider {
 export function set_injectable(
   target: MetaTarget,
   options: InjectableOptions,
+  name?: string,
 ): void {
-  assert_decorated(target);
+  assert_decorated(target, name);
   assert_array("dependencies", options.dependencies);
   options.dependencies.forEach(
     assert_dependency(
@@ -743,6 +752,8 @@ export function decorated_method(
  *   the DI decorators do;
  * - on a class with legacy / Bun decorators (no `context`): the class itself;
  * - on a method: the method's metadata object (see {@link decorated_method}).
+ *   The method must be one whose record is read: public, not static, with a
+ *   string name.
  *
  * @param decorator The decorator's name, for the error message (`"@Help()"`).
  * @param target The decorator's first argument.
@@ -750,7 +761,7 @@ export function decorated_method(
  * @param descriptor The decorator's third argument (legacy / Bun methods only).
  * @returns Where to write the record, for `add_to_metadata_object`.
  * @throws {TypeError} When the decorated member is neither a class nor a
- *   method.
+ *   method, or is a static, private or symbol-named method.
  *
  * @example
  * ```ts
@@ -781,7 +792,25 @@ export function decorated_target(
       return target;
     }
   } else {
-    return decorated_method(decorator, target, context, descriptor).meta;
+    const method = decorated_method(decorator, target, context, descriptor);
+    // The records of static, private and symbol-named methods are never
+    // collected (see `method_records` and the metadata graph): writing one
+    // would be silently ignored.
+    const kind = method.static
+      ? "static"
+      : method.private
+      ? "private"
+      : typeof method.name !== "string"
+      ? "symbol-named"
+      : undefined;
+    if (kind) {
+      throw new TypeError(
+        `${decorator} cannot decorate ${kind} method ${
+          String(method.name)
+        }: only public, non-static methods with a string name are supported`,
+      );
+    }
+    return method.meta;
   }
   throw new TypeError(`${decorator} can only decorate a class or a method`);
 }

@@ -48,8 +48,9 @@ function tc39_context(): ClassDecoratorContext {
   };
 }
 
+/** The message, with or without the name of the class. */
 const ALREADY_DECORATED =
-  "class is already decorated with @Injectable, @Module or @Controller";
+  /^class( \w+)? is already decorated with @Injectable, @Module or @Controller$/;
 
 describe("@Injectable", () => {
   it("marks a class injectable, with no dependencies by default", () => {
@@ -522,5 +523,42 @@ describe("option types", () => {
       // @ts-expect-error still closed, with the declared options
       Controller<{ route?: string }>({ rout: "users" });
     };
+  });
+});
+
+describe("@Middlewares and @Catch, on a method whose record is never read", () => {
+  it("throw instead of being silently ignored", () => {
+    class Cli {
+      static build() {}
+    }
+    const mw = () => {};
+    assert.throws(
+      () => legacy(Middlewares(mw), Cli, "build", { isStatic: true }),
+      {
+        name: "TypeError",
+        message: /^@Middlewares\(\) cannot decorate static/,
+      },
+    );
+    assert.throws(
+      () => tc39(Catch(mw), () => {}, "#run", { isPrivate: true }),
+      { name: "TypeError", message: /^@Catch\(\) cannot decorate private/ },
+    );
+  });
+
+  it("names the class in the already-decorated message", () => {
+    class Twice {}
+    Injectable()(Twice);
+    assert.throws(() => Controller()(Twice), {
+      message:
+        "class Twice is already decorated with @Injectable, @Module or @Controller",
+    });
+    // through a TC39 context too, where the record is on the metadata object
+    class Tc39 {}
+    const context = tc39_context();
+    Injectable()(Tc39, context);
+    assert.throws(() => Module()(Tc39, context), {
+      message:
+        "class Tc39 is already decorated with @Injectable, @Module or @Controller",
+    });
   });
 });

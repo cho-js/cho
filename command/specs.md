@@ -6,8 +6,7 @@ dependency injection of `@chojs/core` (see `core/specs.md`), and runs on Deno,
 Node.js and Bun.
 
 This document describes what an application gets. The source code is the
-reference: when this document and the code disagree, the code wins. Known bugs
-are tracked in `command/issues.md`.
+reference: when this document and the code disagree, the code wins.
 
 ## 1. Overview
 
@@ -338,9 +337,10 @@ handler runs for them.
 | the command fails, and its error handler returns other | `1`                       |
 | the command fails, without an error handler            | `1`                       |
 | the command fails, and its error handler fails too     | `2`                       |
+| an unknown action (multiple actions)                   | `1`                       |
 
 An exit code above `255` is capped at `255`: a process reports exit codes modulo
-256, so `256` would read as success. | an unknown action | `1` |
+256, so `256` would read as success.
 
 ### 4.3 Middlewares
 
@@ -573,6 +573,10 @@ Run 'fs <command> --help' for help on a command.
 
 ## 7. Errors
 
+The messages below are the current wording, for people to read: they are not
+part of the API and can change in any release (`core/specs.md`, section 2.8). Do
+not match on their text. Exit codes are part of the API (section 4.2).
+
 **When a class is defined** (the decorators):
 
 | Mistake                                      | Message                                                                                                                 |
@@ -621,6 +625,8 @@ section 2.8), and:
 - `Mixing @Main and @Action methods in the same application is not allowed`
 - `Multiple @Main methods in the same application is not allowed`
 - `Duplicate @Action("<name>"): declared on <Controller>.<method> and <Controller>.<method>`
+  (when it is one controller declared by two modules, followed by
+  `Controller <Controller> is declared in modules <A> and <B>: declare it in one.`)
 
 **Printed by `run()`** (exit code `1`), besides the command's own errors:
 

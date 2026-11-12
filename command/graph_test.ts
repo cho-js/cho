@@ -21,6 +21,26 @@ function names(app: Ctr): [string, string, unknown][] {
   ]);
 }
 
+describe("command_graph, a controller declared by two modules", () => {
+  it("says so, instead of naming one method twice", () => {
+    class Files {
+      copy() {}
+    }
+    legacy(Action("copy"), Files, "copy");
+    Controller()(Files);
+    class Feature {}
+    Module({ controllers: [Files] })(Feature);
+    class App {}
+    Module({ imports: [Feature], controllers: [Files] })(App);
+
+    assert.throws(() => command_graph(new Injector(App)), {
+      message:
+        'Duplicate @Action("copy"): declared on Files.copy and Files.copy. ' +
+        "Controller Files is declared in modules Feature and App: declare it in one.",
+    });
+  });
+});
+
 describe("command_graph", () => {
   it("is in main mode with exactly one @Main", () => {
     class Cli {

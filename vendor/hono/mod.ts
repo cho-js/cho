@@ -19,6 +19,10 @@
 import { Hono } from "hono";
 import type { Linked, Linker, Route } from "@chojs/web/linker";
 
+// The `@chojs/web` types `HonoLinker` and `HonoLinked` refer to. (`Hono` is
+// the class of the `hono` package: import it from there.)
+export type { Linked, Linker, Route };
+
 /**
  * A Hono application linked by {@link HonoLinker}.
  *
@@ -89,6 +93,8 @@ export class HonoLinked implements Linked<Hono> {
 export class HonoLinker implements Linker<Hono> {
   /** The Hono application the routes are registered on. */
   readonly #app: Hono;
+  /** Whether {@link link} was called: a linker serves one application. */
+  #linked = false;
 
   /**
    * Create a linker.
@@ -106,8 +112,17 @@ export class HonoLinker implements Linker<Hono> {
    *
    * @param routes The routes of the application.
    * @returns The linked Hono application.
+   * @throws {Error} When the linker was already used: its Hono application
+   *   holds the routes of the first application.
    */
   link(routes: readonly Route[]): HonoLinked {
+    // A second application would add its routes to the first one's.
+    if (this.#linked) {
+      throw new Error(
+        "HonoLinker.link() was already called: use one linker for one application",
+      );
+    }
+    this.#linked = true;
     const app = this.#app;
     // Hono answers a HEAD request by running the GET routes, so a HEAD
     // route is registered as a GET route that only answers HEAD requests,

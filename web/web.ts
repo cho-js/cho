@@ -127,6 +127,26 @@ export class ChoWeb<T = unknown> {
   readonly routes: readonly Route[];
   /** Holds the instances of the application; disposed by {@link close}. */
   readonly #injector: Injector;
+  /** Whether {@link close} was called: requests are then refused. */
+  #closed = false;
+  /**
+   * The request handler of the application: a `fetch`-style function that
+   * takes a `Request` and resolves to a `Response`. It is the handler of the
+   * linked runtime (`linked.handler`), with whatever other arguments the
+   * server gives it, until the application is closed: after {@link close}, it
+   * answers `503 Service Unavailable` without running any route.
+   *
+   * @example Deno
+   * ```ts
+   * Deno.serve(app.handler);
+   * ```
+   *
+   * @example Bun
+   * ```ts
+   * Bun.serve({ fetch: app.handler });
+   * ```
+   */
+  readonly handler: (req: Request) => Promise<Response>;
 
   /**
    * Create the web application of a root module.
@@ -210,6 +230,18 @@ export class ChoWeb<T = unknown> {
     this.graph = graph;
     this.routes = routes;
     this.#injector = injector;
+    // Servers call the handler with more than the request (Deno's connection
+    // info, Bun's server, a Workers' env and context): pass everything on.
+    // The request is a declared parameter on purpose: `Deno.serve` reads the
+    // handler's `length`, and gives no request to a function that declares
+    // no parameter.
+    type Fetch = (req: Request, ...rest: unknown[]) => Promise<Response>;
+    this.handler = (req: Request, ...rest: unknown[]) =>
+      this.#closed
+        ? Promise.resolve(
+          new Response("Service Unavailable", { status: 503 }),
+        )
+        : (linked.handler as Fetch).call(linked, req, ...rest);
   }
 
   /**
@@ -219,7 +251,9 @@ export class ChoWeb<T = unknown> {
    *
    * Call it when the server has stopped: `@chojs/web` does not run the
    * server, so it cannot know. Requests still in flight keep the instances
-   * they hold, disposed or not. Calling it again does nothing more.
+   * they hold, disposed or not; a request that arrives afterwards is answered
+   * `503 Service Unavailable` by {@link handler}, and runs no route. Calling
+   * it again does nothing more.
    *
    * @returns A promise that resolves when everything is disposed.
    * @throws {AggregateError} (as a rejection) When instances failed to
@@ -236,29 +270,12 @@ export class ChoWeb<T = unknown> {
    * ```
    */
   close(): Promise<void> {
+    this.#closed = true;
     return this.#injector.dispose();
   }
 
   /** Close the application at the end of an `await using` block. */
   [Symbol.asyncDispose](): Promise<void> {
     return this.close();
-  }
-
-  /**
-   * The request handler of the application: a `fetch`-style function that
-   * takes a `Request` and resolves to a `Response`.
-   *
-   * @example Deno
-   * ```ts
-   * Deno.serve(app.handler);
-   * ```
-   *
-   * @example Bun
-   * ```ts
-   * Bun.serve({ fetch: app.handler });
-   * ```
-   */
-  get handler(): (req: Request) => Promise<Response> {
-    return this.linked.handler;
   }
 }

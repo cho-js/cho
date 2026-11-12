@@ -6,6 +6,9 @@
 
 import { describe } from "@chojs/core/utils";
 
+/** A parameter segment: `:` and a name (letters, digits, `_`; no leading digit). */
+const ROUTE_PARAMETER = /^:[A-Za-z_][A-Za-z0-9_]*$/;
+
 /**
  * One path segment: RFC 3986 `pchar` characters (unreserved, sub-delims, `:`
  * and `@`) or percent-encoded bytes. `:` keeps route parameters (`:id`) valid.
@@ -20,7 +23,10 @@ const ROUTE_SEGMENT = /^(?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2})+$/;
  * - the route does not start or end with `/`;
  * - no segment is empty (`a//b`), `.` or `..`;
  * - every segment contains only characters a URL path allows, or
- *   percent-encoded bytes (no spaces, `?` or `#`).
+ *   percent-encoded bytes (no spaces, `?` or `#`);
+ * - a segment that starts with `:` is a parameter, `:name`, and matches one
+ *   segment. It is the only pattern: there are no wildcards (`*`), so a route
+ *   means the same on every adapter.
  *
  * @param route The route to check.
  * @param where Where the route is declared, for the error message.
@@ -54,6 +60,20 @@ export function assert_route(
     if (!ROUTE_SEGMENT.test(segment)) {
       throw invalid(
         `${describe(segment)} is not a valid URL path segment`,
+      );
+    }
+    if (segment.includes("*")) {
+      throw invalid(
+        `${
+          describe(segment)
+        } has a "*": wildcards are not part of the route syntax`,
+      );
+    }
+    if (segment.startsWith(":") && !ROUTE_PARAMETER.test(segment)) {
+      throw invalid(
+        `${
+          describe(segment)
+        } is not a valid parameter: write ":name", with letters, digits and "_"`,
       );
     }
   }

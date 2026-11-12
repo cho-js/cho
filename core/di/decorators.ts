@@ -44,6 +44,7 @@ import {
   set_middlewares,
   set_module,
 } from "./decorations.ts";
+import { describe } from "../utils/describe.ts";
 
 /**
  * Options whose `dependencies` are the tuple `D`, so the decorator can check
@@ -102,7 +103,7 @@ export function Injectable<const D extends readonly Dependency[] = []>(
 ): ChoInjectableDecorator<NoInfer<D>> {
   return (target, context) => {
     const meta = context?.metadata ?? target;
-    set_injectable(meta, { dependencies });
+    set_injectable(meta, { dependencies }, describe(target));
   };
 }
 
@@ -158,7 +159,11 @@ export function Module<
     // Checked first, so a bad option leaves the class undecorated instead of
     // half-decorated (injectable, but not a module).
     assert_module_options(options);
-    set_injectable(meta, { dependencies: options.dependencies ?? [] });
+    set_injectable(
+      meta,
+      { dependencies: options.dependencies ?? [] },
+      describe(target),
+    );
     set_module(meta, options);
   };
 }
@@ -209,7 +214,11 @@ export function Controller<
 ): ChoInjectableDecorator<NoInfer<D>> {
   return (target, context) => {
     const meta = context?.metadata ?? target;
-    set_injectable(meta, { dependencies: options.dependencies ?? [] });
+    set_injectable(
+      meta,
+      { dependencies: options.dependencies ?? [] },
+      describe(target),
+    );
     set_controller(meta, options);
   };
 }

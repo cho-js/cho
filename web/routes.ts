@@ -45,7 +45,11 @@ export function assert_no_duplicate_routes(routes: readonly Route[]): void {
       throw new Error(
         `Duplicate route ${
           describe(`${previous.method} ${previous.path}`)
-        }: declared by ${previous.name} and ${route.name}`,
+        }: declared by ${previous.name} and ${route.name}` +
+          // one handler, twice: its controller is declared by two modules
+          (previous.name === route.name
+            ? ". Its controller is declared in more than one module: declare it in one."
+            : ""),
       );
     }
     seen.set(key, route);

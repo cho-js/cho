@@ -73,10 +73,6 @@ const MetadataSymbol: symbol = Symbol.metadata ??
 const MetaKey: symbol = Symbol.for("chojs.meta");
 
 /**
- * Where metadata can be stored: a class (or any function), or a TC39
- * decorator metadata object (`context.metadata` inside a decorator).
- */
-/**
  * The format of the records this copy of the package writes and reads: how
  * they are stored, and the keys and shapes of what the core writes in them.
  *
@@ -97,6 +93,10 @@ export const METADATA_FORMAT = 1;
  */
 const FormatKey: symbol = Symbol.for("chojs.meta.format");
 
+/**
+ * Where metadata can be stored: a class (or any function), or a TC39
+ * decorator metadata object (`context.metadata` inside a decorator).
+ */
 export type MetaTarget = Target | DecoratorMetadataObject;
 
 /** A decorator metadata object, seen as a plain key-value bag. */
@@ -129,7 +129,7 @@ function own_bag(target: MetaTarget, create: boolean): Bag | undefined {
   Object.defineProperty(target, MetadataSymbol, {
     value: bag,
     writable: false,
-    enumerable: true,
+    enumerable: false,
     configurable: true,
   });
   return bag;

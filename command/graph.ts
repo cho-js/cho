@@ -60,10 +60,19 @@ export function command_graph(inj: Injector): CommandGraph {
       } else if (record[ACTION]) {
         const prev = actionsByName.get(record[ALIAS]);
         if (prev) {
+          // The same controller declared by two modules is two declarations,
+          // so each of its actions exists twice: say so, or the message
+          // names one method twice.
+          const same = prev[0].token === c.token && prev[1].name === m.name;
           throw new Error(
             `Duplicate @Action("${record[ALIAS]}"): declared on ${
               describe(prev[0].token)
-            }.${prev[1].name} and ${describe(c.token)}.${m.name}`,
+            }.${prev[1].name} and ${describe(c.token)}.${m.name}` +
+              (same
+                ? `. Controller ${describe(c.token)} is declared in modules ${
+                  describe(prev[0].owner)
+                } and ${describe(c.owner)}: declare it in one.`
+                : ""),
           );
         }
         actionsByName.set(record[ALIAS], [c, m]);

@@ -172,18 +172,6 @@ export type Provider<T = Any> = {
 };
 
 /**
- * A class decorator that works with both decorator implementations:
- *
- * - TC39 standard decorators, which pass a `context` object;
- * - legacy (`experimentalDecorators`) and Bun decorators, which pass the class
- *   only, so `context` is `undefined`.
- */
-export type ChoClassDecorator = (
-  target: Target,
-  context?: ClassDecoratorContext,
-) => void;
-
-/**
  * The constructor arguments a list of dependencies provides, in the same
  * order: what a class decorated with that list must accept.
  *
@@ -225,8 +213,9 @@ export type InjectedArgs<D extends readonly unknown[]> =
  * the decorator is. A list typed `Dependency[]` (built elsewhere, or kept in
  * a variable) is not checked.
  *
- * Like {@link ChoClassDecorator}, it works with both decorator
- * implementations.
+ * It works with both decorator implementations: TC39 standard decorators,
+ * which pass a `context` object, and legacy (`experimentalDecorators`) and Bun
+ * decorators, which pass the class only, so `context` is `undefined`.
  *
  * @typeParam D The dependencies the decorator declares.
  */
@@ -273,7 +262,8 @@ export type ChoMethodDecorator = (
 
 /**
  * A decorator for a class or a method, in both decorator implementations: the
- * calls of {@link ChoMethodDecorator}, plus those of {@link ChoClassDecorator}.
+ * calls of {@link ChoMethodDecorator}, plus those of a class decorator
+ * (`(target, context?)`).
  *
  * Use `decorated_target` to find where to write the record from these
  * arguments.

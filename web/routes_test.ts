@@ -646,9 +646,9 @@ describe("routes, the application's error handler", () => {
     await assert.rejects(
       ChoWeb.create(App, { linker, onError: loose("handler") }),
       {
-        name: "TypeError",
+        // the same message as @chojs/command, from the core
         message:
-          'The application\'s error handler must be a function or a class, got "handler"',
+          "Invalid error handler \"handler\": must be a function or a class with a 'handle' method.",
       },
     );
     class NoHandle {}
@@ -697,6 +697,18 @@ describe("routes, duplicates", () => {
     Module({ imports: [feature([A]), feature([B])] })(App);
     await assert.rejects(create(App), {
       message: 'Duplicate route "GET /items/:id": declared by A.get and B.find',
+    });
+  });
+
+  it("explains a controller declared by two modules", async () => {
+    const Users = controller("users", () => []);
+    const Feature = feature([Users]);
+    class App {}
+    Module({ imports: [Feature], controllers: [Users] })(App);
+    await assert.rejects(create(App), {
+      message:
+        'Duplicate route "GET /users": declared by Ctrl.run and Ctrl.run. ' +
+        "Its controller is declared in more than one module: declare it in one.",
     });
   });
 

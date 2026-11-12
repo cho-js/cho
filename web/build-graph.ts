@@ -6,14 +6,16 @@
  * @module
  */
 
-import type {
-  ControllerMetadata,
-  Ctr,
-  Injector,
-  MethodMetadata,
-  ModuleMetadata,
+import {
+  assert_handle,
+  type ControllerMetadata,
+  type Ctr,
+  type Injector,
+  type MethodMetadata,
+  type ModuleMetadata,
+  resolve_handle,
 } from "@chojs/core/di";
-import { describe, is_class, is_class_implement } from "@chojs/core/utils";
+import { describe } from "@chojs/core/utils";
 import {
   AppRef,
   ControllerRef,
@@ -61,21 +63,10 @@ function http_methods(
 }
 
 /**
- * The `handle` method of an instance, bound to it and named after its class
- * (`Auth.handle`), for error messages.
- */
-function bound_handle<F>(instance: { handle: F }, ctr: Ctr): F {
-  const handle = (instance.handle as (...args: unknown[]) => unknown)
-    .bind(instance);
-  Object.defineProperty(handle, "name", { value: `${describe(ctr)}.handle` });
-  return handle as F;
-}
-
-/**
  * Make the function that creates the error handler of a node: a function is
  * kept as is, a class with a `handle` method is created by the injector.
  *
- * @param mdl The feature module: classes are resolved in its scope.
+ * @param mdl The module in whose scope a class is resolved.
  * @param injector The injector of the application.
  */
 function error_handler_factory(
@@ -83,31 +74,20 @@ function error_handler_factory(
   injector: Injector,
 ): (handler: unknown) => Promise<ErrorHandlerRef> {
   return async function (handler: unknown): Promise<ErrorHandlerRef> {
-    if (
-      is_class_implement<{ handle: ChoWebErrorHandlerFn }>(handler, "handle")
-    ) {
-      try {
-        return bound_handle(await injector.resolve(handler, mdl), handler);
-      } catch (error) {
-        throw new Error(
-          `Failed to create error handler ${describe(handler)} in module ${
-            describe(mdl)
-          }`,
-          { cause: error },
-        );
-      }
+    if (handler === undefined) {
+      return null;
     }
-    if (is_class(handler)) {
+    assert_handle(handler, "Error handler");
+    try {
+      return await resolve_handle<ChoWebErrorHandlerFn>(injector, handler, mdl);
+    } catch (error) {
       throw new Error(
-        `Error handler class ${
-          describe(handler)
-        } must implement 'handle' method.`,
+        `Failed to create error handler ${describe(handler)} in module ${
+          describe(mdl)
+        }`,
+        { cause: error },
       );
     }
-    if (typeof handler === "function") {
-      return handler as ChoWebErrorHandlerFn;
-    }
-    return null;
   };
 }
 
@@ -125,28 +105,15 @@ function create_middleware_factory(
   return async function (mws: readonly unknown[]) {
     const fns: ChoWebMiddlewareFn[] = [];
     for (const mw of mws) {
-      if (is_class_implement<{ handle: ChoWebMiddlewareFn }>(mw, "handle")) {
-        try {
-          fns.push(bound_handle(await injector.resolve(mw, mdl), mw));
-        } catch (error) {
-          throw new Error(
-            `Failed to create middleware ${describe(mw)} in module ${
-              describe(mdl)
-            }`,
-            { cause: error },
-          );
-        }
-      } else if (is_class(mw)) {
+      assert_handle(mw, "Middleware");
+      try {
+        fns.push(await resolve_handle<ChoWebMiddlewareFn>(injector, mw, mdl));
+      } catch (error) {
         throw new Error(
-          `Middleware class ${describe(mw)} must implement 'handle' method.`,
-        );
-      } else if (typeof mw === "function") {
-        fns.push(mw as ChoWebMiddlewareFn);
-      } else {
-        throw new Error(
-          `Invalid middleware ${
-            describe(mw)
-          }: must be a function or a class with a 'handle' method.`,
+          `Failed to create middleware ${describe(mw)} in module ${
+            describe(mdl)
+          }`,
+          { cause: error },
         );
       }
     }
@@ -183,13 +150,6 @@ export async function build_http_graph(
   on_error?: unknown,
 ): Promise<AppRef> {
   const route = normalize_route(prefix, "the global prefix");
-  if (on_error !== undefined && typeof on_error !== "function") {
-    throw new TypeError(
-      `The application's error handler must be a function or a class, got ${
-        describe(on_error)
-      }`,
-    );
-  }
   // A handler class is created in the scope of the root module.
   const root = injector.graph.root.ctr;
   const graph = new AppRef(

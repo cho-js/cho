@@ -9,7 +9,7 @@
  */
 
 import { describe, it } from "node:test";
-import type { Injector } from "./injector.ts";
+import type { DependencyNode, Injector } from "./injector.ts";
 import { Controller, Injectable, Module } from "./decorators.ts";
 import { provider, token } from "./tokens.ts";
 import type {
@@ -224,6 +224,37 @@ describe("DI decorators, constructor check", () => {
       Controller()(Server);
       // @ts-expect-error the same check, for @Module
       Module({ dependencies: [Logger] })(Server);
+    };
+  });
+});
+
+describe("module options", () => {
+  it("accept read-only lists", () => {
+    class A {}
+    class Db {}
+    const TOKEN = token<string>("T");
+    // Type-only: never called.
+    const _check = () => {
+      const imports = [A] as const;
+      const providers = [Db] as const;
+      const exports = [Db, TOKEN] as const;
+      Module({ imports, providers, controllers: [A] as const, exports });
+    };
+  });
+});
+
+describe("the graphs of an injector", () => {
+  it("are read-only", () => {
+    // Type-only: never called.
+    const _check = (injector: Injector, node: DependencyNode) => {
+      // @ts-expect-error the module table cannot be changed
+      injector.graph.modules.clear();
+      // @ts-expect-error nor the scope of a module
+      injector.graph.root.visible.delete(node.token);
+      // @ts-expect-error nor the dependencies of a node
+      node.deps = [];
+      // @ts-expect-error nor the metadata graph
+      injector.meta.modules.clear();
     };
   });
 });

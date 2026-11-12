@@ -357,3 +357,25 @@ describe("finding the command", () => {
     assert.equal(actions.parse(["--force"]).route, "");
   });
 });
+
+describe("a flag right before the command name", () => {
+  const actions = new ChoActionsParser(
+    new Map([["copy", { string: ["mode"], alias: { m: "mode" } }]]),
+  );
+
+  it("is a boolean when nothing declares it", () => {
+    const { args, route } = actions.parse(["--dry", "copy", "a"]);
+    assert.equal(route, "copy");
+    assert.deepEqual(args, { _: ["a"], dry: true });
+  });
+
+  it("keeps its value when the command declares it with one", () => {
+    // `copy` is both the value of --mode and the command: one of each
+    for (const argv of [["--mode", "copy", "copy"], ["-m", "copy", "copy"]]) {
+      const { args, route } = actions.parse(argv);
+      assert.equal(route, "copy");
+      assert.equal(args.mode, "copy");
+      assert.deepEqual(args._, []);
+    }
+  });
+});

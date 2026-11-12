@@ -13,14 +13,15 @@
  * @module
  */
 
-import type { Ctr, Injector, MethodMetadata } from "@chojs/core/di";
 import {
-  compose,
-  type Debuglog,
-  describe,
-  is_class,
-  is_class_implement,
-} from "@chojs/core/utils";
+  assert_handle,
+  type Ctr,
+  type Injector,
+  is_handle_class,
+  type MethodMetadata,
+  resolve_handle,
+} from "@chojs/core/di";
+import { compose, type Debuglog, describe } from "@chojs/core/utils";
 import type { ChoCommandContext } from "./context.ts";
 import type { ControllerNode } from "./graph.ts";
 import type {
@@ -84,21 +85,10 @@ function assert_usable(
   { value, scope }: Declared,
   what: string,
 ): void {
-  if (is_class(value) && !is_class_implement(value, "handle")) {
-    throw new Error(
-      `${what} class ${describe(value)} must implement 'handle' method.`,
-    );
-  }
-  if (typeof value !== "function") {
-    throw new Error(
-      `Invalid ${what.toLowerCase()} ${
-        describe(value)
-      }: must be a function or a class with a 'handle' method.`,
-    );
-  }
+  assert_handle(value, what);
   // A class is created by the injector, later. Whether it can be found is a
   // wiring question, answered by the graph, now.
-  if (is_class(value)) {
+  if (is_handle_class(value)) {
     const module = injector.graph.modules.get(scope)!;
     if (module.ambiguous.has(value)) {
       throw new Error(
@@ -117,35 +107,8 @@ function assert_usable(
   }
 }
 
-/**
- * The function to call for a middleware or an error handler: the function
- * itself, or the `handle` method of an instance the injector creates, bound
- * to it and named after its class (`Auth.handle`).
- *
- * @param injector The injector of the application.
- * @param declared The function or class, and the scope to create a class in.
- * @returns The function to call.
- */
-async function callable<F>(
-  injector: Injector,
-  { value, scope }: Declared,
-): Promise<F> {
-  if (!is_class_implement<{ handle: F }>(value, "handle")) {
-    return value as F;
-  }
-  const instance = await injector.resolve(value, scope);
-  const handle = (instance.handle as (...args: unknown[]) => unknown)
-    .bind(instance);
-  Object.defineProperty(handle, "name", {
-    value: `${describe(value)}.handle`,
-  });
-  return handle as F;
-}
-
 /** The pipeline of one command. */
 export type CommandPipeline = {
-  /** The middlewares that run around the command, in order, as declared. */
-  readonly middlewares: readonly unknown[];
   /**
    * Run the command for one command line. It never rejects: an error is
    * handled, or printed.
@@ -234,7 +197,7 @@ export function command_pipeline(
     }
     const fns: ChoCommandMiddlewareFn[] = [];
     for (const value of middlewares) {
-      fns.push(await callable(injector, { value, scope: owner }));
+      fns.push(await resolve_handle(injector, value, owner));
     }
     return compose<ChoCommandContext, number>(
       fns,
@@ -244,7 +207,6 @@ export function command_pipeline(
   };
 
   return {
-    middlewares,
     async run(ctx) {
       const done = log.start();
       try {
@@ -259,9 +221,10 @@ export function command_pipeline(
         }
         log(`handled by ${describe(handler.value)}`);
         try {
-          const handle = await callable<ChoCommandErrorHandlerFn>(
+          const handle = await resolve_handle<ChoCommandErrorHandlerFn>(
             injector,
-            handler,
+            handler.value,
+            handler.scope,
           );
           return exit_code(await handle(error, ctx), 1);
         } catch (handler_error) {

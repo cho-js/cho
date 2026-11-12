@@ -76,7 +76,7 @@ export class DependencyNode<M extends ProviderMetadata = ProviderMetadata> {
    * The nodes that provide the dependencies, in the order the factory
    * receives them. Set while the graph is built.
    */
-  deps: DependencyNode[] = [];
+  readonly deps: readonly DependencyNode[] = [];
 
   /**
    * Create an unlinked node. Its `deps` are set when the graph is built.
@@ -119,7 +119,7 @@ export class ModuleScope {
    *
    * Filled while the graph is built; read-only afterwards.
    */
-  readonly visible: Map<Token, DependencyNode> = new Map();
+  readonly visible: ReadonlyMap<Token, DependencyNode>;
   /**
    * The ambiguous tokens of this module: tokens that two or more imports
    * export as different instances, and that the module does not declare
@@ -129,7 +129,7 @@ export class ModuleScope {
    *
    * Filled while the graph is built; read-only afterwards.
    */
-  readonly ambiguous: Map<Token, readonly Ctr[]> = new Map();
+  readonly ambiguous: ReadonlyMap<Token, readonly Ctr[]>;
 
   /**
    * Create a module scope with an empty `visible` table. The table is filled
@@ -138,10 +138,17 @@ export class ModuleScope {
    * @param meta The module's normalized metadata.
    * @param imports The scopes of the imported modules, already built.
    */
-  constructor(meta: ModuleMetadata, imports: readonly ModuleScope[]) {
+  constructor(
+    meta: ModuleMetadata,
+    imports: readonly ModuleScope[],
+    visible: ReadonlyMap<Token, DependencyNode>,
+    ambiguous: ReadonlyMap<Token, readonly Ctr[]>,
+  ) {
     this.ctr = meta.provider.provide as Ctr;
     this.meta = meta;
     this.imports = imports;
+    this.visible = visible;
+    this.ambiguous = ambiguous;
   }
 }
 
@@ -182,7 +189,7 @@ export type DependencyGraph = {
    * Every module of the application, by class. Imported modules come before
    * the modules that import them, and the root comes last.
    */
-  modules: Map<Ctr, ModuleScope>;
+  modules: ReadonlyMap<Ctr, ModuleScope>;
 };
 
 // Build
@@ -268,7 +275,11 @@ function build_module_scope(
   const imports = meta.imports.map((imp) =>
     build_module_scope(imp, scopes, [...path, ctr])
   );
-  const scope = new ModuleScope(meta, imports);
+  // The two tables of the scope. The builder fills them; the scope, and
+  // everything that reads the graph afterwards, only sees them read-only.
+  const visible = new Map<Token, DependencyNode>();
+  const ambiguous = new Map<Token, readonly Ctr[]>();
+  const scope = new ModuleScope(meta, imports, visible, ambiguous);
 
   // 2. Imported tokens
   // ---------------------------------------------------------------------------
@@ -294,9 +305,9 @@ function build_module_scope(
 
   for (const [token, nodes] of candidates) {
     if (nodes.size === 1) {
-      scope.visible.set(token, nodes.keys().next().value!);
+      visible.set(token, nodes.keys().next().value!);
     } else {
-      scope.ambiguous.set(token, [...nodes.values()]);
+      ambiguous.set(token, [...nodes.values()]);
     }
   }
 
@@ -322,7 +333,7 @@ function build_module_scope(
       );
     }
     declaredAs.set(node.token, as);
-    scope.visible.set(node.token, node);
+    visible.set(node.token, node);
     declared.push(node);
   };
 
@@ -338,7 +349,7 @@ function build_module_scope(
   // A token this module declares shadows the imported ones, so declaring it
   // is how a module settles an ambiguous token.
   for (const node of declared) {
-    scope.ambiguous.delete(node.token);
+    ambiguous.delete(node.token);
   }
 
   /**
@@ -350,7 +361,7 @@ function build_module_scope(
     if (error) {
       throw error;
     }
-    return scope.visible.get(token);
+    return visible.get(token);
   };
 
   // 4. Exports
@@ -381,7 +392,11 @@ function build_module_scope(
   // the wrong scope.
   for (const node of declared) {
     // `deps` can be missing on a provider object written in plain JavaScript.
-    node.deps = (node.meta.provider.deps ?? []).map((dep, i) => {
+    // The one place a node's dependencies are set: `deps` is read-only for
+    // everything else.
+    (node as { deps: readonly DependencyNode[] }).deps = (
+      node.meta.provider.deps ?? []
+    ).map((dep, i) => {
       const resolved = lookup(dep);
       if (!resolved) {
         throw new Error(

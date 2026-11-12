@@ -365,11 +365,15 @@ export class ChoActionsParser implements ChoArgsParser {
       let flags = this.#commands.get(route);
       // A flag right before the command name did not take it as its value,
       // so it has none: it must not take the word that now follows it.
+      // Unless the command declares that flag with a value (`--mode copy
+      // copy`, where `copy` declares `mode` as a string): then the word that
+      // follows is its value, as declared.
       const before = at > 0 ? argv[at - 1]! : "";
       if (before.startsWith("-") && before !== "-" && !before.includes("=")) {
         const name = before.replace(/^-+/, "");
         const last = before.startsWith("--") ? name : name.slice(-1);
-        if (last && !before.startsWith("--no-")) {
+        const declared = value_flags(with_flags(options, flags));
+        if (last && !before.startsWith("--no-") && !declared.has(last)) {
           flags = { ...flags, boolean: [...(flags?.boolean ?? []), last] };
         }
       }

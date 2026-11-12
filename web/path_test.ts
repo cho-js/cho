@@ -44,6 +44,32 @@ describe("assert_route", () => {
   });
 });
 
+describe("assert_route, the route syntax", () => {
+  it("has no wildcards", () => {
+    for (const route of ["*", "files/*", "a*b"]) {
+      assert.throws(() => assert_route(route, "test"), {
+        message: new RegExp(
+          'has a "\\*": wildcards are not part of the route syntax$',
+        ),
+      });
+    }
+  });
+
+  it("accepts :name parameters only", () => {
+    for (const route of [":id", "users/:user_id/posts/:postId", ":_x1"]) {
+      assert.doesNotThrow(() => assert_route(route, "test"));
+    }
+    for (const route of [":", ":1id", ":a:b", ":id.json", "users/:"]) {
+      assert.throws(() => assert_route(route, "test"), {
+        message:
+          /is not a valid parameter: write ":name", with letters, digits and "_"$/,
+      });
+    }
+    // a ":" that does not start the segment is a plain character
+    assert.doesNotThrow(() => assert_route("a:b", "test"));
+  });
+});
+
 describe("normalize_route", () => {
   it("trims the route, then validates it", () => {
     assert.equal(normalize_route(" users/:id ", "test"), "users/:id");

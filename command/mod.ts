@@ -52,6 +52,7 @@ export {
   type Provider,
   provider,
   token,
+  type WithDependencies,
 } from "@chojs/core/di";
 export { ChoCommand, type ChoCommandOptions } from "./command.ts";
 export type { ChoArgs, CommandFlags, ParserOptions } from "./args.ts";

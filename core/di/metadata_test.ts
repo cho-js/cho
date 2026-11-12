@@ -375,3 +375,14 @@ describe("metadata format", () => {
     assert.equal(read_metadata_object(Foo), undefined);
   });
 });
+
+describe("the metadata object of a class", () => {
+  it("is not enumerable, as the TC39 property is not", () => {
+    class Foo {}
+    write_metadata_object(Foo, { a: 1 });
+    const key = Symbol.metadata ?? Symbol.for("Symbol.metadata");
+    assert.equal(Object.getOwnPropertyDescriptor(Foo, key)?.enumerable, false);
+    assert.deepEqual(Object.keys({ ...Foo }), []);
+    assert.equal(key in { ...Foo }, false);
+  });
+});

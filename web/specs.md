@@ -5,9 +5,8 @@ HTTP applications built with decorators: controllers declare route handlers, and
 server can call. It is built on the dependency injection of `@chojs/core` (see
 `core/specs.md`), and runs on Deno, Node.js and Bun.
 
-**Early stage.** The API may change. This document describes what an application
-gets today. The source code is the reference: when this document and the code
-disagree, the code wins. Known bugs are tracked in `web/issues.md`.
+This document describes what an application gets. The source code is the
+reference: when this document and the code disagree, the code wins.
 
 ## 1. Overview
 
@@ -115,8 +114,11 @@ the others when the application is created.
 
 - no leading or trailing `/`: write `"users/:id"`, not `"/users/:id/"`;
 - no empty segment (`a//b`), and no `.` or `..` segment;
-- only characters a URL path allows, or percent-encoded bytes. `:` is allowed,
-  for parameters (`":id"`).
+- only characters a URL path allows, or percent-encoded bytes;
+- a segment that starts with `:` is a **parameter**, `:name` (letters, digits
+  and `_`), and matches one segment. It is the only pattern: there are no
+  wildcards (`*` is rejected) and no optional or regular-expression segments, so
+  a route means the same on every adapter.
 
 Two handlers with the same HTTP method and the same full path are an error.
 Parameter names do not count: `users/:id` and `users/:name` are the same path.
@@ -308,7 +310,9 @@ until then is disposed.
 creation order: every provider, controller or module with a
 `[Symbol.asyncDispose]()` or `[Symbol.dispose]()` method (`core/specs.md`,
 section 2.7). `@chojs/web` does not run the server, so it never closes on its
-own: stop the server first, then close.
+own: stop the server first, then close. A request that still reaches
+`app.handler` after `close()` is answered `503 Service Unavailable`, and runs no
+route.
 
 ```ts
 const server = Deno.serve(app.handler);
@@ -410,6 +414,10 @@ instance, middleware and error handler already created:
 
 ## 9. Errors
 
+The messages below are the current wording, for people to read: they are not
+part of the API and can change in any release (`core/specs.md`, section 2.8). Do
+not match on their text.
+
 **Thrown by the decorators**, when the class is defined:
 
 | Mistake                                        | Message                                                                                                                     |
@@ -422,16 +430,19 @@ instance, middleware and error handler already created:
 **Rejected by `ChoWeb.create`**: any module graph error of the core
 (`core/specs.md`, section 2.8), and:
 
-| Mistake                                       | Message                                                                                      |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| A route is not a string                       | `TypeError: Invalid route of <where>: expected a string, got <v>`                            |
-| A route breaks a rule (section 2.3)           | `Invalid route "<route>" of <where>: <reason>`                                               |
-| Two handlers with the same method and path    | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>` |
-| `onError` is not a function or a class        | `TypeError: The application's error handler must be a function or a class, got <v>`          |
-| A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                    |
-| A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause  |
-| An error handler class has no `handle` method | `Error handler class <Name> must implement 'handle' method.`                                 |
-| An error handler class cannot be created      | `Failed to create error handler <Name> in module <Module>`, with `cause`                     |
+| Mistake                                       | Message                                                                                                                 |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| A route is not a string                       | `TypeError: Invalid route of <where>: expected a string, got <v>`                                                       |
+| A route breaks a rule (section 2.3)           | `Invalid route "<route>" of <where>: <reason>`                                                                          |
+| Two handlers with the same method and path    | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>`                            |
+| The same controller declared by two modules   | the message above, followed by `Its controller is declared in more than one module: declare it in one.`                 |
+| A wildcard in a route                         | `Invalid route "<route>" of <where>: "<segment>" has a "*": wildcards are not part of the route syntax`                 |
+| A malformed parameter (`:`, `:1id`, `:a:b`)   | `Invalid route "<route>" of <where>: "<segment>" is not a valid parameter: write ":name", with letters, digits and "_"` |
+| `onError` is not a function or a class        | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                      |
+| A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                                               |
+| A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                             |
+| An error handler class has no `handle` method | `Error handler class <Name> must implement 'handle' method.`                                                            |
+| An error handler class cannot be created      | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                |
 
 `<where>` names the declaration: `the global prefix`, `feature <Module>`,
 `controller <Controller>` or `method <name> of controller <Controller>`.

@@ -159,7 +159,7 @@ export type ModuleMetadata =
 /** The normalized metadata of an application, from its root module. */
 export type MetadataGraph = {
   /** Every module reachable from the root, each read once. */
-  modules: Map<Ctr, ModuleMetadata>;
+  modules: ReadonlyMap<Ctr, ModuleMetadata>;
   /** The root module. */
   root: ModuleMetadata;
 };

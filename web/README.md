@@ -1,33 +1,51 @@
 # @chojs/web
 
 [![JSR](https://jsr.io/badges/@chojs/web)](https://jsr.io/@chojs/web)
+[![JSR score](https://jsr.io/badges/@chojs/web/score)](https://jsr.io/@chojs/web)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-> **Early stage.** The API may change.
+HTTP applications built with decorators, on the dependency injection of the
+[CHO](../README.md) framework. Controllers declare route handlers; `ChoWeb`
+turns the application into a `fetch`-style request handler that any server can
+call.
 
-HTTP applications built with decorators, on top of the [CHO](../README.md)
-dependency injection. Controllers declare route handlers; `ChoWeb` turns the
-application into a `fetch`-style request handler that any server can call.
+## Contents
 
-## Features
+- [Highlights](#highlights)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Guide](#guide)
+  - [Routes](#routes)
+  - [The request context](#the-request-context)
+  - [Responses](#responses)
+  - [Middlewares](#middlewares)
+  - [Error handling](#error-handling)
+  - [Dependency injection and shutdown](#dependency-injection-and-shutdown)
+  - [Testing](#testing)
+- [Options](#options)
+- [Runtime adapters](#runtime-adapters)
+- [Runtime support](#runtime-support)
+- [Documentation](#documentation)
 
-- **Portable application code.** Handlers, middlewares and error handlers
-  receive a `ChoWebContext` built on the standard `Request`, and answer with a
-  standard `Response`: nothing in a controller depends on the HTTP library.
-- **Runtime adapters.** `@chojs/web` does not depend on an HTTP library: an
-  adapter only matches requests to routes. Today:
-  [`@chojs/vendor-hono`](../vendor/hono/README.md) (Hono).
+## Highlights
+
+- **Built on web standards.** Handlers receive the standard `Request` and answer
+  with a standard `Response`. Nothing in a controller depends on the HTTP
+  library underneath.
+- **Portable.** `app.handler` is a plain `(req: Request) => Promise<Response>`
+  that Deno, Bun, Node.js and edge runtimes can serve.
+- **Bring your own router.** `@chojs/web` depends on no HTTP library. A small
+  adapter matches requests to routes; one for [Hono](https://hono.dev) is
+  available as [`@chojs/vendor-hono`](../vendor/hono/README.md).
+- **Same behavior on every adapter.** Middlewares, error handling and the
+  conversion of results are done by `@chojs/web` itself.
 - **Dependency injection.** Controllers, middlewares and error handlers receive
-  their dependencies from the module graph. Everything is created and checked
-  when the application starts.
-- **Four route levels.** A global prefix, the feature module, the controller and
-  the handler.
-- **Middlewares and error handlers** on modules, controllers and handlers, as
-  functions or injectable classes, and one error handler for the whole
-  application (`onError`).
-- **Every runtime.** Deno, Node.js and Bun: `app.handler` is a plain
-  `(req: Request) => Promise<Response>`.
+  their dependencies. Everything is created and checked before the server
+  starts.
+- **Fails early.** A bad route, a duplicate route or a missing provider is
+  reported when the application is created, not on the first request.
 
-## Install
+## Installation
 
 ```sh
 deno add jsr:@chojs/web jsr:@chojs/vendor-hono    # Deno
@@ -35,7 +53,7 @@ npx jsr add @chojs/web @chojs/vendor-hono         # Node.js
 bunx jsr add @chojs/web @chojs/vendor-hono        # Bun
 ```
 
-## Example
+## Quick start
 
 ```ts
 import {
@@ -76,13 +94,197 @@ class UsersController {
 class App {}
 
 const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-Deno.serve(app.handler); // or Bun.serve({ fetch: app.handler })
+Deno.serve(app.handler); // Bun: Bun.serve({ fetch: app.handler })
 ```
 
-See also [`examples/hello-world-http.ts`](../examples/hello-world-http.ts).
+## Guide
+
+### Routes
+
+A handler is a controller method marked with `@Get`, `@Post`, `@Put`, `@Patch`,
+`@Delete`, `@Head` or `@Options`. Its path joins up to four levels, each
+optional:
+
+| Level         | Declared by                             |
+| ------------- | --------------------------------------- |
+| Global prefix | The `prefix` option of `ChoWeb.create`  |
+| Feature       | The `route` option of the `@Module`     |
+| Controller    | The `route` option of the `@Controller` |
+| Handler       | The argument of `@Get`, `@Post`, …      |
+
+Routes are written without leading or trailing `/`. A segment that starts with
+`:` is a parameter (`"users/:id"`); it is the only pattern, so a route means the
+same on every adapter. An invalid route, or two handlers with the same method
+and path, is an error when the application is created.
+
+### The request context
+
+Handlers, middlewares and error handlers of a request share one `ChoWebContext`:
+
+| Property | Holds                                                                         |
+| -------- | ----------------------------------------------------------------------------- |
+| `req`    | The standard `Request`: `ctx.req.json()`, `ctx.req.headers`, …                |
+| `params` | The path parameters of the route, decoded: `ctx.params.id`                    |
+| `url`    | The request URL, parsed on first use: `ctx.url.searchParams`                  |
+| `state`  | A `Map` for the request: what a middleware sets, later ones and handlers read |
+| `native` | The adapter's own context, for what only that adapter can do                  |
+
+### Responses
+
+What a handler returns is the response.
+
+| Returned                                               | Sent                              |
+| ------------------------------------------------------ | --------------------------------- |
+| A `Response`                                           | As is                             |
+| Nothing                                                | `204 No Content`                  |
+| A string                                               | Text, `text/plain;charset=UTF-8`  |
+| Bytes, a `Blob`, a `ReadableStream`, a form            | As is, like `new Response(value)` |
+| Anything else: objects, arrays, numbers, `null`, dates | JSON, `application/json`          |
+
+For another status or content type, return a `Response`.
+
+### Middlewares
+
+`@Middlewares` applies to a feature module, a controller or a handler. A
+middleware wraps what comes after it: `next()` resolves to the `Response` of the
+rest of the chain.
+
+```ts
+const auth: ChoWebMiddlewareFn = (ctx, next) =>
+  ctx.req.headers.has("authorization")
+    ? next()
+    : new Response("unauthorized", { status: 401 }); // answers early
+
+const timing: ChoWebMiddlewareFn = async (ctx, next) => {
+  const start = Date.now();
+  const response = await next();
+  response.headers.set("x-time", `${Date.now() - start}ms`);
+  return response;
+};
+
+@Middlewares(auth) // every route of the controller
+@Controller({ route: "admin" })
+class AdminController {
+  @Middlewares(timing) // this route only
+  @Get("stats")
+  stats() {
+    return { users: 3 };
+  }
+}
+```
+
+A middleware can also be a class with a `handle(ctx, next)` method. It is
+created by the injector, so it can have dependencies; list it in the module's
+`providers`. Middlewares only run for the routes they apply to.
+
+### Error handling
+
+An error thrown by a handler or a middleware goes to the nearest `@Catch`
+handler (the handler's, the controller's, then the feature's), then to the
+application's `onError`. What the handler returns is the response.
+
+```ts
+@Catch((error, ctx) =>
+  error instanceof NotFound
+    ? new Response(`no user ${ctx.params.id}`, { status: 404 })
+    : Response.json({ error: "internal error" }, { status: 500 })
+)
+@Controller({ route: "users" })
+class UsersController {}
+```
+
+An error handler that returns nothing has not handled the error: the adapter
+answers `500`. A handler that only logs therefore never hides a failure.
+
+### Dependency injection and shutdown
+
+`@Module`, `@Controller`, `@Injectable`, `token` and `provider` come from the
+CHO core and are exported by this package, so an application imports everything
+from `@chojs/web`.
+
+`ChoWeb.create` creates every instance before it resolves. `app.close()`
+releases them in reverse creation order: every instance with a
+`[Symbol.asyncDispose]()` or `[Symbol.dispose]()` method is disposed. After it,
+`app.handler` answers `503`.
+
+```ts
+const server = Deno.serve(app.handler);
+Deno.addSignalListener("SIGTERM", async () => {
+  await server.shutdown(); // stop accepting, finish the requests in flight
+  await app.close();
+});
+```
+
+### Testing
+
+`app.handler` takes a `Request`, so a test needs no server. The `overrides`
+option replaces providers with fakes, anywhere in the module graph:
+
+```ts
+const app = await ChoWeb.create(App, {
+  linker: new HonoLinker(),
+  overrides: [provider({ provide: UserStore, factory: () => new FakeStore() })],
+});
+
+const response = await app.handler(new Request("http://localhost/v1/users/42"));
+assert.equal(response.status, 200);
+```
+
+## Options
+
+`ChoWeb.create(App, options)`:
+
+| Option      | Default  | Use                                             |
+| ----------- | -------- | ----------------------------------------------- |
+| `linker`    | required | The runtime adapter, such as `new HonoLinker()` |
+| `prefix`    | `""`     | A route prefix for every route, such as `"api"` |
+| `onError`   | none     | The error handler for what no `@Catch` covers   |
+| `overrides` | none     | Providers that replace declared ones, for tests |
+
+The application exposes `handler`, `close()`, `routes` (every route with its
+method, path and name), `graph` (the same routes as a tree) and `linked` (the
+adapter's own application object).
+
+## Runtime adapters
+
+An adapter implements `Linker`: it receives the application's routes, each ready
+to call, and registers them on its router. It does no plumbing, so an adapter is
+a few lines:
+
+```ts
+import type { Linked, Linker, Route } from "@chojs/web/linker";
+
+class MyLinker implements Linker<MyServer> {
+  link(routes: readonly Route[]): Linked<MyServer> {
+    const server = new MyServer();
+    for (const route of routes) {
+      server.on(
+        route.method,
+        route.path,
+        (req, params) => route.handle(req, params),
+      );
+    }
+    return { instance: server, handler: (req) => server.fetch(req) };
+  }
+}
+```
+
+## Runtime support
+
+Deno, Node.js and Bun, and any runtime that serves a `fetch`-style handler. Deno
+and Bun run TypeScript decorators directly; on Node.js, compile the application
+with TypeScript 5 or run it with a tool such as `tsx`. Both standard (TC39) and
+legacy (`experimentalDecorators`) decorators are supported.
+
+Debug logging is enabled with `CHO_DEBUG=1`, or with `CHO_DEBUGLOG=cho:web`.
 
 ## Documentation
 
-- [Specification](./specs.md): routes, handlers, middlewares, error handlers,
-  writing a runtime adapter, and error messages.
-- [Known issues](./issues.md).
+- [Specification](./specs.md): routes, the context, responses, middlewares,
+  error handlers, writing a runtime adapter, and error messages.
+- [`@chojs/vendor-hono`](../vendor/hono/README.md): the Hono adapter.
+- Example: [`hello-world-http.ts`](../examples/hello-world-http.ts).
+
+## License
+
+[MIT](./LICENSE)

@@ -46,14 +46,6 @@ import { type Debuglog, debuglog } from "../utils/debuglog.ts";
 
 export type { DependencyGraph, DependencyNode, MetadataGraph, ModuleScope };
 
-/**
- * The well-known symbols of explicit resource management, with the fallback
- * transpilers use on runtimes that do not have them yet.
- */
-const AsyncDispose: symbol = Symbol.asyncDispose ??
-  Symbol.for("Symbol.asyncDispose");
-const Dispose: symbol = Symbol.dispose ?? Symbol.for("Symbol.dispose");
-
 /** The error of `resolve()` and `init()` once the injector is disposed. */
 const DISPOSED = "The injector is disposed";
 
@@ -277,7 +269,7 @@ export class Injector {
       }
       disposed.add(value);
       const holder = value as Record<symbol, unknown>;
-      const method = holder[AsyncDispose] ?? holder[Dispose];
+      const method = holder[Symbol.asyncDispose] ?? holder[Symbol.dispose];
       if (typeof method !== "function") {
         continue;
       }

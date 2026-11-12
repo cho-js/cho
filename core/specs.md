@@ -5,7 +5,7 @@ system driven by decorators, plus the helpers CHO modules use to build on it.
 
 This document describes what `@chojs/core` provides and how it behaves. The
 source code is the reference: when this document and the code disagree, the code
-wins. Known bugs and open questions are tracked in `core/issues.md`.
+wins.
 
 ## 1. Who uses this package
 
@@ -319,8 +319,17 @@ method decides how and when to call them.
 - `@Catch` takes a function or a class. A class or method has at most one. By
   convention, a handler is called **error first**: a function as
   `(error, ctx?)`, a class through its `handle(error, ctx?)` method, where `ctx`
-  is whatever the CHO module passes (the parsed args for `@chojs/command`, the
-  request context for `@chojs/web`).
+  is whatever the CHO module passes: the context of the run for `@chojs/command`
+  (`ChoCommandContext`), the context of the request for `@chojs/web`
+  (`ChoWebContext`).
+- Both decorate a class, or a method whose metadata is read: a public,
+  non-static method with a string name. On any other method they throw, since
+  nothing would ever run them.
+- A middleware or an error handler given as a **class** is a class with a
+  `handle` method, created by the injector so that it can have dependencies. The
+  core has the helpers CHO modules share for them (`assert_handle`,
+  `resolve_handle`), so every CHO module accepts the same values and reports the
+  same mistakes.
 - The core types, `ChoMiddleware` and `ChoErrorHandler`, are "any function or
   class": each CHO module declares the precise type of what it runs
   (`ChoWebMiddleware` and `ChoWebErrorHandler` in `@chojs/web`) and exports
@@ -436,6 +445,14 @@ const injector = new Injector(App, {
 
 ### 2.8 Errors
 
+**Error messages are for people, not for code.** Every error is a plain `Error`
+(or `TypeError`, `AggregateError`) with a message, and the messages listed here
+describe the current wording: they are not part of the API, and can be reworded
+in any release. Do not match on their text. What is stable is when an error
+happens (which mistake, at which step) and, where it is documented, its `cause`.
+Error types with stable codes may be added later; that will not be a breaking
+change.
+
 Values are named in messages by class name (`<anonymous>` for an anonymous
 class), quoted string, `InjectionToken(<description>)` or
 `Symbol(<description>)`. `<v>` below is a short description of the bad value
@@ -443,18 +460,19 @@ class), quoted string, `InjectionToken(<description>)` or
 
 **Thrown by the decorators**, when the class is defined:
 
-| Mistake                                | Message                                                                                                                |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| A second DI decorator on a class       | `class is already decorated with @Injectable, @Module or @Controller`                                                  |
-| A list option is not an array          | `<option> must be an array, got <v>` (`dependencies`, `imports`, `controllers`, `exports`, `providers`, `middlewares`) |
-| A dependency is not a token            | `all dependencies must be classes, symbols or injection tokens: <v>`                                                   |
-| An import is not a class               | `all imports must be classes: <v>`                                                                                     |
-| A controller is not a class            | `all controllers must be classes: <v>`                                                                                 |
-| An export is not a token               | `all exports must be classes, symbols or injection tokens: <v>`                                                        |
-| A provider object is malformed         | `provider <name> …` (see below)                                                                                        |
-| A middleware is not a function         | `all middlewares must be functions: <v>`                                                                               |
-| An error handler is not a function     | `the error handler must be a function or a class: <v>`                                                                 |
-| A second `@Catch` on a class or method | `an error handler is already set (one @Catch per target)`                                                              |
+| Mistake                                                               | Message                                                                                                                            |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| A second DI decorator on a class                                      | `class X is already decorated with @Injectable, @Module or @Controller`                                                            |
+| A list option is not an array                                         | `<option> must be an array, got <v>` (`dependencies`, `imports`, `controllers`, `exports`, `providers`, `middlewares`)             |
+| A dependency is not a token                                           | `all dependencies must be classes, symbols or injection tokens: <v>`                                                               |
+| An import is not a class                                              | `all imports must be classes: <v>`                                                                                                 |
+| A controller is not a class                                           | `all controllers must be classes: <v>`                                                                                             |
+| An export is not a token                                              | `all exports must be classes, symbols or injection tokens: <v>`                                                                    |
+| A provider object is malformed                                        | `provider <name> …` (see below)                                                                                                    |
+| A middleware is not a function                                        | `all middlewares must be functions: <v>`                                                                                           |
+| An error handler is not a function                                    | `the error handler must be a function or a class: <v>`                                                                             |
+| A second `@Catch` on a class or method                                | `an error handler is already set (one @Catch per target)`                                                                          |
+| `@Middlewares` / `@Catch` on a static, private or symbol-named method | `TypeError: @Middlewares() cannot decorate static method <name>: only public, non-static methods with a string name are supported` |
 
 A malformed provider object gives one of these messages, checked in this order.
 `<name>` is `for X` once `provide` is a valid token, otherwise `<v>`:
@@ -566,7 +584,8 @@ own decorators and read them back:
 | `decorated_method`, `decorated_target`                                                     | Find what a decorator was applied to, in both decorator call shapes (TC39 and legacy/Bun).                                                            |
 | `set_injectable`, `set_module`, `set_controller`, `set_middlewares`, `set_error_handler`   | What the core decorators do, for decorators that wrap them.                                                                                           |
 | `is_token`                                                                                 | Whether a value is a token.                                                                                                                           |
-| `ChoClassDecorator`, `ChoMethodDecorator`, `ChoClassOrMethodDecorator`                     | Decorator types that accept both call shapes.                                                                                                         |
+| `assert_handle`, `is_handle_class`, `resolve_handle`                                       | Middlewares and error handlers given as classes with a `handle` method: checking them, and creating them with the injector (section 2.6).             |
+| `ChoMethodDecorator`, `ChoClassOrMethodDecorator`                                          | Decorator types that accept both call shapes.                                                                                                         |
 | `ChoInjectableDecorator`, `InjectedArgs`, `WithDependencies`                               | The type of the DI decorators, which checks the dependencies against the constructor; for a CHO module's own `@Module` / `@Controller` (section 2.4). |
 | `Token`, `InjectionToken`, `Provider`, `Factory`, `Resolved`, `ResolvedAll`, `AbstractCtr` | Token and provider types.                                                                                                                             |
 | `ChoMiddleware`, `ChoErrorHandler`                                                         | What `@Middlewares` and `@Catch` store: any function or class.                                                                                        |
@@ -648,11 +667,18 @@ Runtime helpers that work on every runtime:
 
 ### 3.4 `@chojs/core/utils/test_utils`
 
-Helpers for the tests of CHO packages, which must not use decorator syntax so
-that they run on Node: `legacy()` and `tc39()` apply a method decorator in each
-call shape, `method_context()` builds a TC39 method context, `capture()` records
-what a function writes to `console.log` and `console.error`, and `loose()`
-bypasses parameter types.
+Helpers for the tests of CHO packages. Most tests apply decorators as plain
+function calls, in each of the two call shapes, whatever the runtime's own
+decorator implementation is (each package also has one test file that uses the
+decorator syntax itself):
+
+- `legacy()` and `tc39()` apply a method decorator in each call shape;
+  `tc39_record()` reads back the record a `tc39()` call wrote;
+- `method_context()` builds a TC39 method context;
+- `capture()` records what a function writes to `console.log` and
+  `console.error`;
+- `with_env()` runs a function with environment variables set;
+- `loose()` bypasses parameter types.
 
 ## 4. Internals
 

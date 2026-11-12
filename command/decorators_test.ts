@@ -261,12 +261,22 @@ describe("@Help", () => {
     });
   });
 
-  it("allows a static or private method", () => {
+  it("rejects a static, private or symbol-named method: its help is never read", () => {
     function run() {}
-    tc39(Help("s"), run, "run", { isStatic: true });
-    tc39(Help("p"), run, "#run", { isPrivate: true });
-    // static and private methods keep their record on the function
-    assert.deepEqual(read_metadata_object(run), { [HELP]: "p" });
+    assert.throws(() => tc39(Help("s"), run, "run", { isStatic: true }), {
+      name: "TypeError",
+      message:
+        "@Help() cannot decorate static method run: only public, non-static methods with a string name are supported",
+    });
+    assert.throws(() => tc39(Help("p"), run, "#run", { isPrivate: true }), {
+      name: "TypeError",
+      message: /^@Help\(\) cannot decorate private method #run:/,
+    });
+    assert.throws(() => tc39(Help("y"), run, Symbol("run")), {
+      name: "TypeError",
+      message: /^@Help\(\) cannot decorate symbol-named method Symbol\(run\):/,
+    });
+    assert.equal(read_metadata_object(run), undefined);
   });
 
   it("rejects an empty text", () => {

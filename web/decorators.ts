@@ -37,7 +37,7 @@ import { normalize_route } from "./path.ts";
 import type { ChoWebErrorHandler, ChoWebMiddleware } from "./types.ts";
 
 /** The option `@chojs/web` adds to `@Module` and `@Controller`. */
-type RouteOption = {
+export type RouteOption = {
   /**
    * The route of the feature module or of the controller, without leading or
    * trailing `/` (`"users"`, `"api/v1"`). Default: none.

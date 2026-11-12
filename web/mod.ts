@@ -19,8 +19,6 @@
  * declares controllers), the `route` of the controller, and the route of the
  * handler.
  *
- * This package is at an early stage: its API may change.
- *
  * @example
  * ```ts
  * import {
@@ -71,7 +69,19 @@ export {
   type Provider,
   provider,
   token,
+  type WithDependencies,
 } from "@chojs/core/di";
+// What `ChoWeb` exposes: its routes, its graph and its linked application.
+// They are also in `@chojs/web/linker` and `@chojs/web/graph`, for adapters.
+export type { Linked, Linker, Route } from "./linker.ts";
+export type {
+  AppRef,
+  ControllerRef,
+  ErrorHandlerRef,
+  FeatureRef,
+  MethodRef,
+  NodeRef,
+} from "./graph.ts";
 export * from "./decorators.ts";
 export * from "./web.ts";
 export type { ChoWebContext } from "./context.ts";

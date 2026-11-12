@@ -207,6 +207,55 @@ describe("ChoWeb, closing and overrides", () => {
     assert.deepEqual(log, ["closed real"]);
   });
 
+  it("answers 503 after close(), without running a route", async () => {
+    let handled = 0;
+    const linker: Linker<null> = {
+      link: () => ({
+        instance: null,
+        handler: () => {
+          handled++;
+          return Promise.resolve(new Response("ok"));
+        },
+      }),
+    };
+    const app = await ChoWeb.create(db_app([]).App, { linker });
+    const handler = app.handler; // servers keep the function
+    const request = () => new Request("http://localhost/");
+
+    assert.equal((await handler(request())).status, 200);
+    await app.close();
+    const refused = await handler(request());
+    assert.deepEqual(
+      [refused.status, await refused.text()],
+      [503, "Service Unavailable"],
+    );
+    assert.equal(handled, 1);
+  });
+
+  it("passes every argument of the server on to the linked handler", async () => {
+    const seen: unknown[][] = [];
+    const linked = {
+      instance: null,
+      handler(...args: unknown[]) {
+        seen.push([this === linked, ...args.slice(1)]);
+        return Promise.resolve(new Response("ok"));
+      },
+    };
+    const app = await ChoWeb.create(db_app([]).App, {
+      linker: { link: () => linked as Linked<null> },
+    });
+    const info = { remoteAddr: "x" };
+    // Deno passes the connection info, Bun the server, Workers env and ctx
+    await (app.handler as (...args: unknown[]) => Promise<Response>)(
+      new Request("http://localhost/"),
+      info,
+      "ctx",
+    );
+    assert.deepEqual(seen, [[true, info, "ctx"]]);
+    // Deno.serve gives no request to a handler that declares no parameter
+    assert.equal(app.handler.length, 1);
+  });
+
   it("is closed at the end of an `await using` block", async () => {
     const log: string[] = [];
     {

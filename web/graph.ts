@@ -22,7 +22,13 @@ import type {
   ChoWebMiddlewareFn,
 } from "./types.ts";
 
-export type { ChoWebErrorHandlerFn, ChoWebHandler, ChoWebMiddlewareFn };
+export type { ChoWebContext } from "./context.ts";
+export type {
+  ChoWebErrorHandlerFn,
+  ChoWebHandler,
+  ChoWebMiddlewareFn,
+  ChoWebNext,
+} from "./types.ts";
 
 /**
  * An error handler as stored in the graph: the function given to `@Catch`,

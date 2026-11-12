@@ -78,6 +78,9 @@ export type {
   NoExtraOptions,
 } from "./decorations.ts";
 export { Injector, type InjectorOptions } from "./injector.ts";
+// Functions and handle classes, as CHO modules accept them for middlewares
+// and error handlers.
+export { assert_handle, is_handle_class, resolve_handle } from "./handles.ts";
 export { is_token, provider, token } from "./tokens.ts";
 export * from "./types.ts";
 // The graph types are public because `Injector.meta` and `Injector.graph`
