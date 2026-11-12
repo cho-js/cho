@@ -99,14 +99,9 @@ The code wins: update the spec. `command/specs.md` cites core §3.4, §4.1, §4.
 
 1. **`engine()` is not exported** by any entry point (`core/utils/engine.ts`),
    although `CLAUDE.md` lists it as a `core/utils` helper.
-2. **`@chojs/web` and `@chojs/vendor-hono` are not in the `tsconfig.json`
-   `paths`**, so web code cannot run on Node (`tsx`) or Bun.
-3. **`vendor/hono/deno.json` maps `hono`**, but the code imports `@hono/hono`,
-   which resolves through the root `deno.json` (the publish dry-run passes, but
-   the package's own import map is misleading).
-4. **`HonoLinked.handler` casts `fetch`** instead of typing it, and the Hono
+2. **`HonoLinked.handler` casts `fetch`** instead of typing it, and the Hono
    linker uses a `@ts-ignore` to register routes by method name.
-5. **The JSDoc examples don't type-check** with `deno check --doc`: they leave
+3. **The JSDoc examples don't type-check** with `deno check --doc`: they leave
    out the classes they use (`AppModule`, …).
 
 ## D. Missing tests

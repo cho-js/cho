@@ -18,7 +18,7 @@
  * ```ts
  * import { ChoWeb, Controller, Get, Middlewares, Module } from "@chojs/web";
  * import { HonoLinker } from "@chojs/vendor-hono";
- * import type { Context } from "@hono/hono";
+ * import type { Context } from "hono";
  *
  * @Controller({ route: "users" })
  * class UsersController {

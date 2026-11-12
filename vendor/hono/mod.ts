@@ -17,8 +17,8 @@
  */
 
 import type { ChoMiddlewareFn } from "@chojs/core/di";
-import type { Context, ErrorHandler, MiddlewareHandler } from "@hono/hono";
-import { Hono } from "@hono/hono";
+import type { Context, ErrorHandler, MiddlewareHandler } from "hono";
+import { Hono } from "hono";
 import type { AppRef, MethodRef, NodeRef } from "@chojs/web/graph";
 import type { Linked, Linker } from "@chojs/web/linker";
 

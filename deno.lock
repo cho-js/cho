@@ -1,14 +1,8 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@hono/hono@^4.13.18": "4.13.18",
-    "jsr:@hono/hono@^4.13.6": "4.13.18",
-    "npm:@types/node@*": "24.2.0"
-  },
-  "jsr": {
-    "@hono/hono@4.13.18": {
-      "integrity": "2e9a294f8ed5ca8f0dddf08927ad46111e756f3329f1483db550cd60757f7e21"
-    }
+    "npm:@types/node@*": "24.2.0",
+    "npm:hono@^4.13.18": "4.13.18"
   },
   "npm": {
     "@types/node@24.2.0": {
@@ -17,18 +11,23 @@
         "undici-types"
       ]
     },
+    "hono@4.13.18": {
+      "integrity": "sha512-H9q/E1XizaWstJxUW881dmLxEj+t/TrGGnyxINkm4+sK0qUwsMtFdo2BWI9Vs3cIS19MU6b6iCijoUoEf4f3DA=="
+    },
     "undici-types@7.10.0": {
       "integrity": "sha512-t5Fy/nfn+14LuOc2KNYg75vZqClpAiqscVvMygNnlsHBFpSXdJaYtXMcdNLpl/Qvc3P2cB3s6lOV51nqsFq4ag=="
     }
   },
   "workspace": {
-    "dependencies": [
-      "jsr:@hono/hono@^4.13.18"
-    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:hono@^4.13.18"
+      ]
+    },
     "members": {
       "vendor/hono": {
         "dependencies": [
-          "jsr:@hono/hono@^4.13.6"
+          "npm:hono@^4.13.18"
         ]
       }
     }
