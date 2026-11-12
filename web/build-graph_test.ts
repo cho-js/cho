@@ -319,3 +319,24 @@ describe("assert_route", () => {
     });
   });
 });
+
+describe("build_http_graph, anonymous classes", () => {
+  it("names an anonymous middleware or error handler class <anonymous>", async () => {
+    const NoHandle = (() => class {})();
+    Injectable()(NoHandle);
+
+    const WithMiddleware = app_with(
+      (Users) => Middlewares(NoHandle)(Users),
+      [NoHandle],
+    );
+    await assert.rejects(build_http_graph(new Injector(WithMiddleware), ""), {
+      message: "Middleware class <anonymous> must implement 'handle' method.",
+    });
+
+    const WithCatch = app_with((Users) => Catch(NoHandle)(Users), [NoHandle]);
+    await assert.rejects(build_http_graph(new Injector(WithCatch), ""), {
+      message:
+        "Error handler class <anonymous> must implement 'handle' method.",
+    });
+  });
+});

@@ -520,3 +520,58 @@ describe("build_dependency_graph", () => {
     });
   });
 });
+
+describe("build_dependency_graph, anonymous modules", () => {
+  /** A class whose name is empty, as an anonymous class expression has. */
+  const anonymous = () => (() => class {})();
+
+  it("names an anonymous module <anonymous> in every message", () => {
+    const T = token("t");
+
+    const Missing = anonymous();
+    class NeedsT {}
+    Injectable([T])(NeedsT);
+    Module({ providers: [NeedsT] })(Missing);
+    assert.throws(() => graph(Missing), {
+      message:
+        "Cannot resolve InjectionToken(t) (argument #0) of NeedsT in module <anonymous>. " +
+        "Provide it there or import a module that exports it.",
+    });
+
+    const Twice = anonymous();
+    Module({ providers: [value(T), value(T)] })(Twice);
+    assert.throws(() => graph(Twice), {
+      message:
+        "InjectionToken(t) is declared more than once in module <anonymous> " +
+        "(as a provider and as a provider). Declare each token once.",
+    });
+
+    const Exports = anonymous();
+    Module({ exports: [T] })(Exports);
+    assert.throws(() => graph(Exports), {
+      message:
+        "Module <anonymous> exports InjectionToken(t), which it neither provides nor imports.",
+    });
+
+    const Lib = anonymous();
+    Module()(Lib);
+    const ReExports = anonymous();
+    Module({ imports: [Lib], exports: [Lib] })(ReExports);
+    assert.throws(() => graph(ReExports), {
+      message: "Module <anonymous> exports the imported module <anonymous>. " +
+        "Re-exporting a module is not supported; export the tokens you need instead.",
+    });
+
+    const X1 = anonymous();
+    Module({ providers: [value(T, 1)], exports: [T] })(X1);
+    const X2 = anonymous();
+    Module({ providers: [value(T, 2)], exports: [T] })(X2);
+    const Ambiguous = anonymous();
+    Module({ imports: [X1, X2], exports: [T] })(Ambiguous);
+    assert.throws(() => graph(Ambiguous), {
+      message:
+        "InjectionToken(t) is ambiguous in module <anonymous>: <anonymous>, <anonymous> " +
+        "export different instances of it. Provide InjectionToken(t) in <anonymous> to choose which one to use.",
+    });
+  });
+});

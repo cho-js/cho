@@ -66,12 +66,21 @@ reproduced with a probe script against the current code.
    `[object Object] is not visible in module App`, and no other message can fail
    to build. Tests in `utils/describe_test.ts` and `di/injector_test.ts`.
 
-5. **Anonymous classes are named inconsistently in messages.** Some messages use
-   `describe()` (`<anonymous>`), others `ctr.name` (an empty string):
+5. **[FIXED] Anonymous classes are named inconsistently in messages.** Some
+   messages use `describe()` (`<anonymous>`), others `ctr.name` (an empty
+   string):
    `Cannot resolve InjectionToken(T) (argument #0) of X in module . Provide it…`.
    The `ctr.name` ones are the "not a module / not injectable / not a
    controller" messages, the import cycle message, and the module name `M` in
    the link messages (`dependency-graph.ts`).
+
+   **Fix:** every message now names classes with `describe()`, so an anonymous
+   class is `<anonymous>` everywhere: the read messages and the import cycle
+   (`metadata-graph.ts`), and the module name in every link message
+   (`dependency-graph.ts`). The two class names in `@chojs/web`'s messages
+   (`web/build-graph.ts`) were changed the same way. Messages for named classes
+   are unchanged. Tests in `di/metadata-graph_test.ts`,
+   `di/dependency-graph_test.ts` and `web/build-graph_test.ts`.
 
 6. **Symbol-named controller methods are silently dropped.** A method record on
    a symbol-named method is never collected (`Object.entries` in

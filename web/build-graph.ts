@@ -168,7 +168,7 @@ function error_handler_factory(
     }
     if (isClass(ctr)) {
       throw new Error(
-        `Error handler class ${ctr.name} must implement 'handle' method.`,
+        `Error handler class ${describe(ctr)} must implement 'handle' method.`,
       );
     }
     if (typeof ctr === "function") {
@@ -202,7 +202,7 @@ function create_middleware_factory(
         }
       } else if (isClass(mw)) {
         throw new Error(
-          `Middleware class ${mw.name} must implement 'handle' method.`,
+          `Middleware class ${describe(mw)} must implement 'handle' method.`,
         );
       } else if (typeof mw === "function") {
         fns.push(mw);

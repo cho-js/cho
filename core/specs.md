@@ -264,9 +264,10 @@ remembered, and every later request gets the same error.
 
 ### 2.8 Errors
 
-Values are named in messages by class name, quoted string,
-`InjectionToken(<description>)` or `Symbol(<description>)`. `<v>` below is a
-short description of the bad value (`array(3)`, `{ a, b }`, …).
+Values are named in messages by class name (`<anonymous>` for an anonymous
+class), quoted string, `InjectionToken(<description>)` or
+`Symbol(<description>)`. `<v>` below is a short description of the bad value
+(`array(3)`, `{ a, b }`, …).
 
 **Thrown by the decorators**, when the class is defined:
 

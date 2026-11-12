@@ -53,6 +53,7 @@ import {
   PROVIDERS,
 } from "./keys.ts";
 import { provider } from "./tokens.ts";
+import { describe } from "../utils/describe.ts";
 
 // Types
 // -----------------------------------------------------------------------------
@@ -234,7 +235,7 @@ function controller_metadata(ctr: Ctr): ControllerMetadata {
   const record = read_metadata_object<ControllerRecord>(ctr);
   if (!record?.[CONTROLLER]) {
     throw new Error(
-      `Class ${ctr.name} is not a controller. Did you forget @Controller?`,
+      `Class ${describe(ctr)} is not a controller. Did you forget @Controller?`,
     );
   }
 
@@ -285,7 +286,7 @@ function provider_metadata(
     const record = read_metadata_object<InjectableRecord>(p);
     if (!record?.[INJECTABLE]) {
       throw new Error(
-        `Class ${p.name} is not injectable. Did you forget @Injectable?`,
+        `Class ${describe(p)} is not injectable. Did you forget @Injectable?`,
       );
     }
     return {
@@ -331,7 +332,7 @@ function module_metadata(
   // Checked before the cache: a module on the current path is still being
   // normalized, so it is not in `modules` yet.
   if (path.includes(mdl)) {
-    const cycle = [...path, mdl].map((m) => m.name).join(" → ");
+    const cycle = [...path, mdl].map(describe).join(" → ");
     throw new Error(`Circular dependency detected: ${cycle}`);
   }
 
@@ -343,7 +344,7 @@ function module_metadata(
   const record = read_metadata_object<ModuleRecord>(mdl);
   if (!record?.[MODULE]) {
     throw new Error(
-      `Class ${mdl.name} is not a module. Did you forget @Module?`,
+      `Class ${describe(mdl)} is not a module. Did you forget @Module?`,
     );
   }
 

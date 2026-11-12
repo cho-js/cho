@@ -513,3 +513,38 @@ describe("build_meta_graph", () => {
     });
   });
 });
+
+describe("build_meta_graph, anonymous classes", () => {
+  /** A class whose name is empty, as an anonymous class expression has. */
+  const anonymous = () => (() => class {})();
+
+  it("names an anonymous class <anonymous> in every message", () => {
+    const NotAModule = anonymous();
+    assert.throws(() => build_meta_graph(NotAModule), {
+      message: "Class <anonymous> is not a module. Did you forget @Module?",
+    });
+
+    const Plain = anonymous();
+    const WithProvider = anonymous();
+    Module({ providers: [Plain] })(WithProvider);
+    assert.throws(() => build_meta_graph(WithProvider), {
+      message:
+        "Class <anonymous> is not injectable. Did you forget @Injectable?",
+    });
+
+    const Service = anonymous();
+    Injectable()(Service);
+    const WithController = anonymous();
+    Module({ controllers: [Service] })(WithController);
+    assert.throws(() => build_meta_graph(WithController), {
+      message:
+        "Class <anonymous> is not a controller. Did you forget @Controller?",
+    });
+
+    const A = anonymous();
+    Module({ imports: [A] })(A);
+    assert.throws(() => build_meta_graph(A), {
+      message: "Circular dependency detected: <anonymous> → <anonymous>",
+    });
+  });
+});

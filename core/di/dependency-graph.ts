@@ -166,11 +166,11 @@ export function ambiguity_error(
   }
   const name = describe(token);
   return new Error(
-    `${name} is ambiguous in module ${scope.ctr.name}: ` +
+    `${name} is ambiguous in module ${describe(scope.ctr)}: ` +
       `${
         exporters.map(describe).join(", ")
       } export different instances of it. ` +
-      `Provide ${name} in ${scope.ctr.name} to choose which one to use.`,
+      `Provide ${name} in ${describe(scope.ctr)} to choose which one to use.`,
   );
 }
 
@@ -253,7 +253,7 @@ function build_module_scope(
   // function safe on its own. A module on the current path is still being
   // built, so it is not in `scopes` yet: check the path first.
   if (path.includes(ctr)) {
-    const cycle = [...path, ctr].map((m) => m.name).join(" → ");
+    const cycle = [...path, ctr].map(describe).join(" → ");
     throw new Error(`Circular dependency detected: ${cycle}`);
   }
 
@@ -315,9 +315,9 @@ function build_module_scope(
     const previous = declaredAs.get(node.token);
     if (previous) {
       throw new Error(
-        `${
-          describe(node.token)
-        } is declared more than once in module ${ctr.name} ` +
+        `${describe(node.token)} is declared more than once in module ${
+          describe(ctr)
+        } ` +
           `(as ${previous} and as ${as}). Declare each token once.`,
       );
     }
@@ -364,11 +364,11 @@ function build_module_scope(
     const isImportedModule = imports.some((imp) => imp.ctr === token);
     throw new Error(
       isImportedModule
-        ? `Module ${ctr.name} exports the imported module ${
+        ? `Module ${describe(ctr)} exports the imported module ${
           describe(token)
         }. ` +
           `Re-exporting a module is not supported; export the tokens you need instead.`
-        : `Module ${ctr.name} exports ${
+        : `Module ${describe(ctr)} exports ${
           describe(token)
         }, which it neither provides nor imports.`,
     );
@@ -388,7 +388,9 @@ function build_module_scope(
           `Cannot resolve ${describe(dep)} (argument #${i}) of ${
             describe(node.token)
           } ` +
-            `in module ${ctr.name}. Provide it there or import a module that exports it.`,
+            `in module ${
+              describe(ctr)
+            }. Provide it there or import a module that exports it.`,
         );
       }
       return resolved;
