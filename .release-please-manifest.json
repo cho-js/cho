@@ -1,8 +1,8 @@
 {
-  "core": "2.5.5",
-  "command": "2.5.1",
-  "web": "2.5.1",
-  "vendor/hono": "2.5.1",
-  "vendor/cho": "0.0.0",
-  "vendor/fastify": "0.0.0"
+  "core": "3.0.0",
+  "command": "3.0.0",
+  "web": "3.0.0",
+  "vendor/hono": "3.0.0",
+  "vendor/cho": "3.0.0",
+  "vendor/fastify": "3.0.0"
 }
