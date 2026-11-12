@@ -56,6 +56,32 @@
         }
       ],
       "release-as": "3.0.0"
+    },
+    "vendor/cho": {
+      "component": "vendor-cho",
+      "package-name": "@chojs/vendor-cho",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ],
+      "release-as": "3.0.0"
+    },
+    "vendor/fastify": {
+      "component": "vendor-fastify",
+      "package-name": "@chojs/vendor-fastify",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ],
+      "release-as": "3.0.0"
     }
   }
 }

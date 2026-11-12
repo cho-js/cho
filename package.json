@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Dependencies for running the CHO workspace on Node.js (tsx) and Bun. Deno reads deno.json.",
   "dependencies": {
-    "hono": "^4.13.18"
+    "hono": "^4.13.18",
+    "fastify": "^5.12.8"
   }
 }

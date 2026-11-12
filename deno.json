@@ -8,7 +8,9 @@
     "./command",
     "./core",
     "./web",
-    "./vendor/hono"
+    "./vendor/hono",
+    "./vendor/cho",
+    "./vendor/fastify"
   ],
   "fmt": {
     "lineWidth": 80,

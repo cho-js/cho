@@ -1,0 +1,14 @@
+{
+  "name": "@chojs/vendor-fastify",
+  "version": "3.0.0",
+  "license": "MIT",
+  "exports": "./mod.ts",
+  "imports": {
+    "fastify": "npm:fastify@^5.12.8"
+  },
+  "publish": {
+    "exclude": [
+      "./**/*_test.ts"
+    ]
+  }
+}

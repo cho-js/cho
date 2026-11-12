@@ -35,8 +35,8 @@ call.
 - **Portable.** `app.handler` is a plain `(req: Request) => Promise<Response>`
   that Deno, Bun, Node.js and edge runtimes can serve.
 - **Bring your own router.** `@chojs/web` depends on no HTTP library. A small
-  adapter matches requests to routes; one for [Hono](https://hono.dev) is
-  available as [`@chojs/vendor-hono`](../vendor/hono/README.md).
+  adapter matches requests to routes: pick one of the
+  [available adapters](#runtime-adapters), or write your own.
 - **Same behavior on every adapter.** Middlewares, error handling and the
   conversion of results are done by `@chojs/web` itself.
 - **Dependency injection.** Controllers, middlewares and error handlers receive
@@ -247,9 +247,20 @@ adapter's own application object).
 
 ## Runtime adapters
 
-An adapter implements `Linker`: it receives the application's routes, each ready
-to call, and registers them on its router. It does no plumbing, so an adapter is
-a few lines:
+| Adapter                                                | Router                                             | Runs on                                                 |
+| ------------------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------- |
+| [`@chojs/vendor-cho`](../vendor/cho/README.md)         | The standard URL Pattern API, with no HTTP library | Runtimes with `URLPattern`: Deno, Node.js 24, Bun 1.3.4 |
+| [`@chojs/vendor-hono`](../vendor/hono/README.md)       | [Hono](https://hono.dev)                           | Deno, Node.js, Bun and edge runtimes                    |
+| [`@chojs/vendor-fastify`](../vendor/fastify/README.md) | [Fastify](https://fastify.dev)                     | Node.js only                                            |
+
+Pass the adapter's linker to `ChoWeb.create`: `new ChoLinker()`,
+`new HonoLinker()` or `new FastifyLinker()`. Routes, middlewares and error
+handlers are the same on each. What differs is listed in the "Behavior" table of
+each adapter, such as which route wins when two match.
+
+To write one, implement `Linker`: it receives the application's routes, each
+ready to call, and registers them on its router. It does no plumbing, so an
+adapter is a few lines:
 
 ```ts
 import type { Linked, Linker, Route } from "@chojs/web/linker";
@@ -282,7 +293,11 @@ Debug logging is enabled with `CHO_DEBUG=1`, or with `CHO_DEBUGLOG=cho:web`.
 
 - [Specification](./specs.md): routes, the context, responses, middlewares,
   error handlers, writing a runtime adapter, and error messages.
+- [`@chojs/vendor-cho`](../vendor/cho/README.md): the plain adapter, on the URL
+  Pattern API.
 - [`@chojs/vendor-hono`](../vendor/hono/README.md): the Hono adapter.
+- [`@chojs/vendor-fastify`](../vendor/fastify/README.md): the Fastify adapter,
+  for Node.js.
 - Example: [`hello-world-http.ts`](../examples/hello-world-http.ts).
 
 ## License

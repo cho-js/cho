@@ -12,8 +12,10 @@ reference: when this document and the code disagree, the code wins.
 
 An application imports everything from `@chojs/web` (the core's `@Injectable`,
 `token` and `provider` included, so it never imports `@chojs/core`), plus a
-**runtime adapter** that matches requests to routes with an HTTP library. The
-only adapter today is `@chojs/vendor-hono` (Hono).
+**runtime adapter** that matches requests to routes. There are three:
+`@chojs/vendor-cho` (the standard URL Pattern API, with no HTTP library),
+`@chojs/vendor-hono` (Hono) and `@chojs/vendor-fastify` (Fastify, on Node.js
+only). Section 7 compares them.
 
 `@chojs/web` does the rest itself, the same way on every adapter: it creates the
 request context, runs the middlewares, the handler and the error handler, and
@@ -123,10 +125,11 @@ the others when the application is created.
 Two handlers with the same HTTP method and the same full path are an error.
 Parameter names do not count: `users/:id` and `users/:name` are the same path.
 
-Routes are given to the adapter in declaration order. With the Hono adapter they
-are matched in that order: a parameter route declared first (`@Get(":id")`) also
-matches the static routes declared after it (`@Get("raw")`). Declare static
-routes first.
+Routes are given to the adapter in declaration order. The plain adapter and the
+Hono adapter match them in that order: a parameter route declared first
+(`@Get(":id")`) also matches the static routes declared after it
+(`@Get("raw")`). On the Fastify adapter a static route wins wherever it is
+declared. Declare static routes first, and a route means the same on all three.
 
 ## 3. Handlers and the context
 
@@ -138,7 +141,7 @@ A handler receives the request's `ChoWebContext`:
 | `params` | the path parameters of the route, decoded (`ctx.params.id`)                   |
 | `url`    | the request URL, parsed on first use (`ctx.url.searchParams`)                 |
 | `state`  | a `Map` for the request: what a middleware sets, later ones and handlers read |
-| `native` | the adapter's own context (Hono's `Context`); `undefined` if it has none      |
+| `native` | the adapter's own context (section 7); `undefined` if it has none             |
 
 The middlewares, the handler and the error handler of a request share one
 context. Code that uses `native` only runs on that adapter.
@@ -166,7 +169,8 @@ context. Code that uses `native` only runs on that adapter.
   an error (section 5).
 - The response of a `@Head` handler is sent **without its body**: only its
   status and headers. Without a `@Head` handler, what a `HEAD` request gets is
-  up to the adapter (Hono answers it from the `@Get` handler, without the body).
+  up to the adapter (the three adapters answer it from the `@Get` handler,
+  without the body).
 - A handler runs on its controller instance, so `this` works. Controllers are
   created once, with their dependencies, when the application is created.
 
@@ -265,8 +269,7 @@ const app = await ChoWeb.create(App, {
 ```
 
 It handles the errors of routes only. A request that matches no route never
-reaches it: that answer belongs to the adapter (with Hono, `notFound` on the
-Hono application given to the linker).
+reaches it: that answer belongs to the adapter (section 7).
 
 ```ts
 @Catch((error) => Response.json({ error: String(error) }, { status: 500 }))
@@ -281,9 +284,8 @@ class UsersController {
 ```
 
 Without any error handler at any level, when the error handler returns nothing,
-or when it throws too, the error goes to the adapter: the Hono adapter logs it
-and answers `500` (or calls the `onError` of the Hono application given to the
-linker).
+or when it throws too, the error goes to the adapter, which answers `500`
+(section 7).
 
 ## 6. The application: `ChoWeb`
 
@@ -350,6 +352,18 @@ being created, and each error a `@Catch` handler receives, with the request's
 method and path.
 
 ## 7. Runtime adapters
+
+|                        | `@chojs/vendor-cho`                                      | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                    |
+| ---------------------- | -------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------- |
+| Linker                 | `new ChoLinker(options?)`                                | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                              |
+| Runs on                | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                               |
+| `app.linked.instance`  | a `ChoRouter`                                            | the `Hono` application                           | the Fastify application                                    |
+| Served with            | `app.handler`                                            | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()` |
+| `ctx.native`           | `undefined`                                              | Hono's `Context`                                 | `{ request, reply }` of Fastify                            |
+| When two routes match  | the first declared                                       | the first declared                               | the static one                                             |
+| `HEAD` without `@Head` | `@Get`, without the body                                 | `@Get`, without the body                         | `@Get`, without the body                                   |
+| No route matches       | the `notFound` option; `404`                             | `notFound` of the Hono application               | the not-found handler of the Fastify application           |
+| A route rejects        | logged with `console.error`; `500`                       | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`        |
 
 An adapter implements `Linker` (`@chojs/web/linker`): it receives the
 application's routes and returns a `Linked`, the runtime's application object
@@ -476,5 +490,13 @@ A middleware class is named `<Class>.handle`.
 - **The Hono adapter** registers each route on one Hono application with
   `app.on(method, path, …)`, and calls `route.handle` with the raw `Request`,
   Hono's decoded parameters and Hono's context.
+- **The plain adapter** (`@chojs/vendor-cho`) makes one `URLPattern` for each
+  route, and calls the `route.handle` of the first route whose method and
+  pattern match, with the `Request` and the decoded parameters.
+- **The Fastify adapter** registers the routes as one Fastify plugin, in which
+  Fastify parses no body. It builds a standard `Request` from Fastify's (its
+  body is the raw stream), calls `route.handle` with it, Fastify's decoded
+  parameters and Fastify's request and reply, and lets Fastify send the
+  `Response`.
 - **Testing without an adapter.** `web/testing.ts` (not published) has a linker
   that matches requests itself; the tests of `@chojs/web` use it.

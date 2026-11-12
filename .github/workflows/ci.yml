@@ -35,7 +35,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
-      - run: deno install # installs the npm dependencies (hono) into node_modules
+      - run: deno install # installs the npm dependencies (hono, fastify) into node_modules
       - run: npx --yes tsx --test
 
   bun:
