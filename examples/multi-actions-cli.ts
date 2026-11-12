@@ -1,15 +1,33 @@
 #!/usr/bin/env -S deno run --allow-all
-import { Action, ChoCommand, Controller, Help, Module } from "@chojs/command";
-import type { ChoArgs } from "@chojs/command";
+import {
+  Action,
+  Catch,
+  type ChoCliContext,
+  ChoCommand,
+  Controller,
+  Help,
+  Middlewares,
+  Module,
+} from "@chojs/command";
 
 @Help("Multi-action CLI example")
+// runs around every command of the controller
+@Middlewares(async (ctx, next) => {
+  console.error(`> ${ctx.command}`);
+  await next();
+})
+// handles what a command throws; its result is the exit code
+@Catch((error, ctx) => {
+  console.error(`${ctx.command} failed: ${error}`);
+  return 2;
+})
 @Controller()
 export class MultiActionController {
   @Help("Hello world action")
   @Action("hello")
-  sayHello(ctx: ChoArgs) {
+  sayHello(ctx: ChoCliContext) {
     console.log("Hello");
-    console.log("argument used in this run:", ctx);
+    console.log("arguments used in this run:", ctx.args);
   }
 
   @Help("Goodbye world action")
@@ -19,16 +37,19 @@ export class MultiActionController {
     alias: { l: "loud" },
     describe: { loud: "Say it louder", to: "Who to say goodbye to" },
   })
-  sayGoodbye(ctx: ChoArgs) {
-    console.log("Goodbye");
-    console.log("argument used in this run:", ctx);
+  sayGoodbye(ctx: ChoCliContext) {
+    if (!ctx.args.to) {
+      throw new Error("--to is required");
+    }
+    const text = `Goodbye, ${ctx.args.to}`;
+    console.log(ctx.args.loud ? text.toUpperCase() + "!" : text);
   }
 }
 
 @Module({ controllers: [MultiActionController] })
 export class MultiActionApp {}
 
-const app = await ChoCommand.create(MultiActionApp, {
+const app = ChoCommand.create(MultiActionApp, {
   name: "multi-action",
   version: "0.1.0",
 });

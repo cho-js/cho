@@ -618,6 +618,12 @@ Runtime helpers that work on every runtime:
   `CHO_DEBUG=1` (every context) or `CHO_DEBUGLOG=ctx1,prefix*`. When disabled it
   does nothing. It has `.error()`, `.start()` (returns a logger that adds the
   elapsed time) and `.enabled`.
+- `compose(middlewares, endpoint, kind)`: runs a chain of middlewares around an
+  endpoint (the onion model), for any context and result. Each middleware is
+  `(ctx, next)`; `next()` resolves to the result of the rest of the chain, and a
+  middleware returns a result (to end or replace it) or nothing (to pass it on).
+  `kind` says what a result is and how to name it in error messages.
+  `@chojs/web` uses it with a `Response`, `@chojs/command` with an exit code.
 - `describe(value)`: a readable name for error messages.
 - `isClass(value)`, `isClassImplement(value, method)`: whether a value is a
   class, and whether its prototype has a given method.

@@ -12,8 +12,9 @@
 import { type Args, parseArgs, type ParseOptions } from "./lib/parse-args.ts";
 
 /**
- * Command context: the parsed command line, exactly as `parseArgs` from
- * `@std/cli` returns it (minimist API).
+ * The parsed command line, exactly as `parseArgs` from `@std/cli` returns it
+ * (minimist API): the `args` of the context a command receives
+ * (`ChoCliContext`).
  *
  * Positionals in `_` are always strings, as typed (`"007"` stays `"007"`).
  * The value of a flag that is not declared is typed from its look: `--n=42`
@@ -27,10 +28,10 @@ import { type Args, parseArgs, type ParseOptions } from "./lib/parse-args.ts";
  * class Files {
  *   // ./fs copy a.txt b.txt --force --mode=644
  *   @Action("copy")
- *   copy(args: ChoArgs) {
- *     args._;     // ["a.txt", "b.txt"]
- *     args.force; // true
- *     args.mode;  // 644 (a number: `mode` is not declared)
+ *   copy(ctx: ChoCliContext) {
+ *     ctx.args._;     // ["a.txt", "b.txt"]
+ *     ctx.args.force; // true
+ *     ctx.args.mode;  // 644 (a number: `mode` is not declared)
  *   }
  * }
  * ```
@@ -73,11 +74,11 @@ export type ParserOptions = ParseOptions;
  *   default: { mode: "644" },
  *   describe: { force: "Overwrite existing files", mode: "File mode" },
  * })
- * copy(args: ChoArgs) {
+ * copy(ctx: ChoCliContext) {
  *   // ./fs copy a b -f --mode 0755 --exclude x --exclude y
- *   args.force;   // true
- *   args.mode;    // "0755": a declared string is kept as typed
- *   args.exclude; // ["x", "y"]
+ *   ctx.args.force;   // true
+ *   ctx.args.mode;    // "0755": a declared string is kept as typed
+ *   ctx.args.exclude; // ["x", "y"]
  * }
  * ```
  */
@@ -111,7 +112,7 @@ export const COMMAND_FLAG_KEYS: readonly string[] = [
 
 /** A parsed command line. */
 export type ParsedArgs = {
-  /** What the handler receives. */
+  /** The parsed command line: the `args` of the command's context. */
   args: ChoArgs;
   /** The command to run: `"main"` in single-command mode. */
   route: string;

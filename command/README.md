@@ -12,8 +12,11 @@ parses the command line, runs the right one and returns the exit code.
 - **Dependency injection.** Commands live in controllers, which receive their
   dependencies (async ones included) from the module graph.
 - **Built-in `--help` and `--version`**, generated from `@Help` texts.
+- **Middlewares.** `@Middlewares` on a module, a controller or a command, as
+  functions or injectable classes, the way `@chojs/web` has them: a middleware
+  can stop a command, change its exit code, or prepare its context.
 - **Exit codes.** A command returns its exit code; errors go to `@Catch`
-  handlers or are printed and exit `1`.
+  handlers (or the application's `onError`), or are printed and exit `1`.
 - **Every runtime.** Deno, Node.js and Bun. `run()` never exits the process
   itself.
 
@@ -30,7 +33,7 @@ bunx jsr add @chojs/command    # Bun
 ```ts
 import {
   Action,
-  type ChoArgs,
+  type ChoCliContext,
   ChoCommand,
   Controller,
   Help,
@@ -50,14 +53,14 @@ class FileSystem {
 
   @Help("Copy a file")
   @Action("copy")
-  copy(args: ChoArgs) {
-    this.disk.copy(String(args._[0]), String(args._[1]));
+  copy(ctx: ChoCliContext) {
+    this.disk.copy(String(ctx.args._[0]), String(ctx.args._[1]));
   }
 
   @Help("Delete a file")
   @Action("rm")
-  remove(args: ChoArgs) {
-    return args.force ? 0 : 3; // the exit code
+  remove(ctx: ChoCliContext) {
+    return ctx.args.force ? 0 : 3; // the exit code
   }
 }
 
@@ -95,7 +98,7 @@ command declares the flags it accepts, which are also listed in its `--help`:
   alias: { f: "force" },
   describe: { force: "Overwrite existing files" },
 })
-copy(args: ChoArgs) {/* ./fs copy a b -f --mode 0755 */}
+copy(ctx: ChoCliContext) {/* ./fs copy a b -f --mode 0755 */}
 ```
 
 Positionals are always strings, as typed. Flags for every command go in the

@@ -2,6 +2,9 @@
  * The command decorators: `@Main` and `@Action` mark the command methods of a
  * controller, `@Help` adds help text to a controller or a method. `@Module`
  * and `@Controller` are the core's decorators; they accept no extra option.
+ * `@Middlewares` and `@Catch` declare the middlewares and the error handler
+ * of a module, a controller or a command: the core's decorators, typed for
+ * `@chojs/command`.
  *
  * They validate their input when the class is defined and write a record on
  * the decorated method (or class), which the command graph reads. The record
@@ -26,10 +29,13 @@ import {
   type ModuleOptions,
   type NoExtraOptions,
   read_metadata_object,
+  set_error_handler,
+  set_middlewares,
   type WithDependencies,
 } from "@chojs/core/di";
 import { COMMAND_FLAG_KEYS, type CommandFlags, is_reserved } from "./args.ts";
 import { ACTION, ALIAS, command_record, FLAGS, HELP, MAIN } from "./keys.ts";
+import type { ChoCliErrorHandler, ChoCliMiddleware } from "./types.ts";
 
 /**
  * Assert that a decorator argument is a non-empty string.
@@ -240,13 +246,13 @@ export function Controller<const D extends readonly Dependency[] = []>(
  *
  * @example
  * ```ts
- * import { type ChoArgs, ChoCommand, Controller, Main, Module } from "@chojs/command";
+ * import { type ChoCliContext, ChoCommand, Controller, Main, Module } from "@chojs/command";
  *
  * @Controller()
  * class Greet {
  *   @Main()
- *   main(args: ChoArgs) {
- *     console.log(`Hello, ${args._[0] ?? "world"}!`);
+ *   main(ctx: ChoCliContext) {
+ *     console.log(`Hello, ${ctx.args._[0] ?? "world"}!`);
  *   }
  * }
  *
@@ -286,21 +292,21 @@ export function Main(flags?: CommandFlags): ChoMethodDecorator {
  *
  * @example
  * ```ts
- * import { type ChoArgs, ChoCommand, Controller, Action, Module } from "@chojs/command";
+ * import { type ChoCliContext, ChoCommand, Controller, Action, Module } from "@chojs/command";
  *
  * @Controller()
  * class Files {
  *   // ./fs copy a.txt b.txt
  *   @Action("copy")
- *   copy(args: ChoArgs) {
- *     const [from, to] = args._;
+ *   copy(ctx: ChoCliContext) {
+ *     const [from, to] = ctx.args._;
  *     console.log(`copy ${from} to ${to}`);
  *   }
  *
  *   // ./fs remove a.txt --force
  *   @Action("remove")
- *   remove(args: ChoArgs) {
- *     return args.force ? 0 : 1; // the exit code
+ *   remove(ctx: ChoCliContext) {
+ *     return ctx.args.force ? 0 : 1; // the exit code
  *   }
  * }
  *
@@ -362,5 +368,90 @@ export function Help(help: string): ChoClassOrMethodDecorator {
     assert_non_empty_string(help, "Help");
     const meta = decorated_target("@Help()", target, context, descriptor);
     add_to_metadata_object(meta, { [HELP]: help });
+  };
+}
+
+/**
+ * Declare middlewares for a module that declares controllers, a controller,
+ * or a command method.
+ *
+ * A run executes the module's middlewares, then the controller's, then the
+ * method's, around the command. The decorator can be applied several times:
+ * the middlewares are kept in source order, top decorator first.
+ *
+ * Middlewares only run for a command: `--help`, `--version` and an unknown
+ * command run none.
+ *
+ * @param middlewares The middlewares, in the order they run: functions
+ *   `(ctx, next)`, or classes with a `handle(ctx, next)` method, created by
+ *   the injector in the scope of the module that declares the controller,
+ *   when a command they apply to first runs.
+ * @returns A class or method decorator.
+ * @throws {TypeError} When applied to anything other than a class or a method.
+ * @throws {Error} When a middleware is not a function or a class.
+ *
+ * @example
+ * ```ts
+ * const timing: ChoCliMiddlewareFn = async (ctx, next) => {
+ *   const start = performance.now();
+ *   await next();
+ *   console.error(`${ctx.command}: ${Math.round(performance.now() - start)}ms`);
+ * };
+ *
+ * @Middlewares(timing)
+ * @Controller()
+ * class Files {
+ *   @Action("copy")
+ *   copy(ctx: ChoCliContext) {}
+ * }
+ * ```
+ */
+export function Middlewares(
+  ...middlewares: ChoCliMiddleware[]
+): ChoClassOrMethodDecorator {
+  return (target, context, descriptor) => {
+    const meta = decorated_target(
+      "@Middlewares()",
+      target,
+      context,
+      descriptor,
+    );
+    set_middlewares(meta, middlewares);
+  };
+}
+
+/**
+ * Declare the error handler of a module that declares controllers, a
+ * controller, or a command method.
+ *
+ * An error thrown by a command, by a middleware, or while creating what the
+ * command needs, goes to the nearest one: the method's, else the
+ * controller's, else the module's, else the application's (`onError`). A
+ * non-negative integer it returns is the exit code; anything else gives `1`.
+ * A class or method has at most one `@Catch`.
+ *
+ * @param handler A function `(error, ctx)`, or a class with a
+ *   `handle(error, ctx)` method, created by the injector in the scope of the
+ *   module that declares the controller, when it first has an error to
+ *   handle.
+ * @returns A class or method decorator.
+ * @throws {TypeError} When applied to anything other than a class or a method.
+ * @throws {Error} When `handler` is not a function or a class, or when the
+ *   class or method already has an error handler.
+ *
+ * @example
+ * ```ts
+ * @Catch((error, ctx) => {
+ *   console.error(`${ctx.command} failed: ${error}`);
+ *   return 2;
+ * })
+ * @Controller()
+ * class Files {}
+ * ```
+ */
+export function Catch(handler: ChoCliErrorHandler): ChoClassOrMethodDecorator {
+  return (target, context, descriptor) => {
+    const meta = decorated_target("@Catch()", target, context, descriptor);
+    set_error_handler(meta, handler);
   };
 }

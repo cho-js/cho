@@ -2,9 +2,10 @@
  * The command-line application: {@link ChoCommand} reads the command graph of
  * a module, parses the command line and runs the matching command method.
  *
- * Errors in a command are handled by its `@Catch` error handler (the method's,
- * then the controller's), or by the default one, which prints
- * `Error: <message>` to stderr and exits `1`.
+ * A command runs through its pipeline (`pipeline.ts`): its middlewares, the
+ * command method, and its error handler. Errors go to the nearest `@Catch`
+ * handler (the method's, the controller's, the module's), then to the
+ * `onError` option, or are printed as `Error: <message>` with exit code `1`.
  *
  * `ChoCommand` logs to the `cho:command` debug context (`CHO_DEBUGLOG=cho:command`
  * or `CHO_DEBUG=1`): the commands it found, each run with its exit code, and
@@ -13,89 +14,21 @@
  * @module
  */
 
-import type {
-  ChoErrorHandler,
-  Ctr,
-  MethodMetadata,
-  Provider,
-} from "@chojs/core/di";
+import type { Ctr, Provider } from "@chojs/core/di";
 import { Injector } from "@chojs/core/di";
-import { type Debuglog, debuglog, describe, isClass } from "@chojs/core/utils";
+import { type Debuglog, debuglog, describe } from "@chojs/core/utils";
 import {
   ChoActionsParser,
   type ChoArgsParser,
   ChoMainParser,
   type ParserOptions,
 } from "./args.ts";
-import {
-  command_graph,
-  type CommandGraph,
-  type ControllerNode,
-} from "./graph.ts";
+import { command_graph, type CommandGraph } from "./graph.ts";
+import { create_context } from "./context.ts";
 import { format_help } from "./help.ts";
 import { ALIAS, command_record, FLAGS } from "./keys.ts";
-
-/**
- * Assert that a value is truthy.
- *
- * @param el The value.
- * @param msg The error message.
- * @throws {Error} When the value is falsy.
- */
-function assert_not_empty(el: unknown, msg: string): asserts el {
-  if (!el) {
-    throw new Error(msg);
-  }
-}
-
-/**
- * Assert that a value is a function.
- *
- * @param el The value.
- * @param msg The error message.
- * @throws {TypeError} When the value is not a function.
- */
-function assert_is_function(
-  el: unknown,
-  msg: string,
-): asserts el is (...args: unknown[]) => unknown {
-  if (typeof el !== "function") {
-    throw new TypeError(msg);
-  }
-}
-
-/** The highest exit code a process can report. */
-const MAX_EXIT_CODE = 255;
-
-/**
- * The exit code for what a command method or an error handler returned.
- *
- * A non-negative integer is the exit code, capped at `255`: a process reports
- * exit codes modulo 256, so `256` would read as success. Anything else gives
- * the fallback.
- *
- * @param value The returned value.
- * @param fallback The exit code when the value is not one.
- * @returns The exit code, from `0` to `255`.
- */
-function exit_code(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0
-    ? Math.min(value, MAX_EXIT_CODE)
-    : fallback;
-}
-
-/**
- * Find the error handler of an action (`@Catch`): the method's own handler
- * first, then the controller's.
- *
- * @param action The controller node and the action method.
- * @returns The handler, or `undefined` when neither has one.
- */
-function find_error_handler(
-  [node, method]: [ControllerNode, MethodMetadata],
-): ChoErrorHandler | undefined {
-  return method.errorHandler ?? node.meta.errorHandler;
-}
+import { command_pipeline, type CommandPipeline } from "./pipeline.ts";
+import type { ChoCliErrorHandler } from "./types.ts";
 
 /**
  * Options of {@link ChoCommand.create}. Every option is optional.
@@ -128,6 +61,19 @@ export type ChoCommandOptions = {
    * tests (see `InjectorOptions.overrides` of `@chojs/core`). Default: none.
    */
   overrides: readonly Provider[];
+  /**
+   * The error handler of the application: it handles the errors of every
+   * command that no `@Catch` handler covers (the method's, the controller's
+   * and the module's come first). Like `@Catch`, it takes a function
+   * `(error, ctx)`, or a class with a `handle(error, ctx)` method, created by
+   * the injector in the scope of the root module; a non-negative integer it
+   * returns is the exit code, anything else gives `1`. Default: none, such
+   * errors are printed and the exit code is `1`.
+   *
+   * It handles the errors of commands only: an unknown command is reported
+   * by the application.
+   */
+  onError: ChoCliErrorHandler;
 };
 
 /**
@@ -200,6 +146,8 @@ export class ChoCommand {
   readonly #options: Partial<ChoCommandOptions>;
   /** The command-line parser of the mode. */
   readonly #parser: ChoArgsParser;
+  /** The pipeline of each command, by command name. */
+  readonly #pipelines: Map<string, CommandPipeline>;
   /**
    * The `cho:command` debug logger, created with the application, so it
    * follows `set_env` and the environment at that time.
@@ -228,6 +176,12 @@ export class ChoCommand {
       version: options.version ?? "1.0.0",
     };
     this.#parser = parser;
+    this.#pipelines = new Map(
+      graph.actions.map((action) => [
+        command_record(action[1].meta)[ALIAS]!,
+        command_pipeline(injector, action, options.onError, this.#log),
+      ]),
+    );
     if (this.#log.enabled) {
       const commands = this.#graph.actions.map(([node, method]) =>
         `${command_record(method.meta)[ALIAS]} (${
@@ -246,15 +200,18 @@ export class ChoCommand {
    * - `--version`: prints `<name> version <version>` and resolves to `0`;
    * - no command in multi-command mode: prints the global help and resolves to
    *   `0`;
-   * - otherwise: resolves the command's controller and calls the method with
-   *   the parsed arguments. A non-negative integer it returns is the exit
-   *   code; anything else gives `0`.
+   * - an unknown command in multi-command mode: prints an error and resolves
+   *   to `1`;
+   * - otherwise: runs the command through its middlewares, with the context
+   *   of the run (`ChoCliContext`). A non-negative integer the command (or a
+   *   middleware) returns is the exit code; anything else gives `0`.
    *
-   * An error while creating the controller or running the method goes to the
-   * command's `@Catch` handler (the method's, then the controller's): a
+   * An error while creating the controller or a middleware class, in a
+   * middleware, or in the command, goes to the nearest error handler (the
+   * method's, the controller's, the module's `@Catch`, then `onError`): a
    * non-negative integer it returns is the exit code, anything else gives
-   * `1`. Without a handler, and for an unknown command, the error is logged to
-   * the `cho` debug logger and the exit code is `1`.
+   * `1`. Without a handler, the error is printed and the exit code is `1`;
+   * when the handler fails too, `2`.
    *
    * It never exits the process: pass the result to `Deno.exit` or
    * `process.exit`.
@@ -297,100 +254,15 @@ export class ChoCommand {
       return 0;
     }
 
-    let action: [ControllerNode, MethodMetadata] | undefined;
-
-    try {
-      assert_not_empty(
-        route,
-        "No route specified. Use --help for usage information.",
-      );
-
-      action = this.#find_controller(route);
-
-      assert_not_empty(
-        action,
-        `Action '${route}' not found. Use --help for usage information.`,
-      );
-
-      const [node, meta] = action;
-
-      const ctrl = await this.#injector.resolve(
-        node.token,
-        node.owner,
-      ) as Record<string, unknown>;
-
-      assert_not_empty(
-        ctrl,
-        `Controller '${describe(node.token)}' not found.`,
-      );
-
-      const method = ctrl[meta.name];
-
-      assert_is_function(
-        method,
-        `Method '${meta.name}' is not a function on controller '${
-          describe(node.token)
-        }'.`,
-      );
-
-      const handler = method.bind(ctrl);
-      const done = this.#log.start();
-      const ret = await handler(args);
-      const code = exit_code(ret, 0);
-      done(`${route} (${describe(node.token)}.${meta.name}) exited ${code}`);
-      return code;
-    } catch (err) {
-      this.#log.error(`${route || "main"} failed:`, err);
-      // the method's error handler, then the controller's
-      const errorHandler = action && find_error_handler(action);
-      if (errorHandler) {
-        this.#log(`handled by ${describe(errorHandler)}`);
-      }
-
-      // error handler as a resolvable class
-      if (action && action[0] && isClass(errorHandler)) {
-        try {
-          const handler = await this.#injector.resolve<
-            { handle: (error: unknown, ctx?: unknown) => unknown }
-          >(
-            errorHandler,
-            action![0].owner,
-          );
-          const ret = await handler.handle(err, args);
-          return exit_code(ret, 1);
-        } catch (handlerErr) {
-          this.#log.error("the error handler failed:", handlerErr);
-          console.error(
-            `Error: ${err instanceof Error ? err.message : String(err)}`,
-          );
-          return 2;
-        }
-      }
-
-      // error handler as a function
-      if (typeof errorHandler === "function") {
-        try {
-          const ret =
-            await (errorHandler as (error: unknown, ctx?: unknown) => unknown)(
-              err,
-              args,
-            );
-          return exit_code(ret, 1);
-        } catch (handlerErr) {
-          this.#log.error("the error handler failed:", handlerErr);
-          console.error(
-            `Error: ${err instanceof Error ? err.message : String(err)}`,
-          );
-          return 2;
-        }
-      }
-
-      // default error handling: log the error and return 1
+    const pipeline = this.#pipelines.get(route);
+    if (!pipeline) {
+      this.#log.error(`unknown action ${JSON.stringify(route)}`);
       console.error(
-        `Error: ${err instanceof Error ? err.message : String(err)}`,
+        `Error: Action '${route}' not found. Use --help for usage information.`,
       );
       return 1;
     }
+    return await pipeline.run(create_context(args, argv, route));
   }
 
   /**
@@ -435,19 +307,5 @@ export class ChoCommand {
    */
   #show_help(route: string): void {
     console.log(format_help(this.#graph, this.#options.name!, route));
-  }
-
-  /**
-   * Find a command method by alias.
-   *
-   * @param route The alias: an action name, or `"main"`.
-   * @returns The method and its controller node, or `undefined`.
-   */
-  #find_controller(
-    route: string,
-  ): [ControllerNode, MethodMetadata] | undefined {
-    return this.#graph.actions.find(([, { meta }]) =>
-      command_record(meta)[ALIAS] === route
-    );
   }
 }

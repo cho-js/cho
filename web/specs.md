@@ -432,9 +432,10 @@ A middleware class is named `<Class>.handle`.
   handler classes are created there.
 - **Compiling the routes** (`web/routes.ts`): each handler of the graph becomes
   one `Route`. Its `handle` creates the context (`web/context.ts`), runs the
-  feature's, controller's and handler's middlewares around the handler
-  (`web/compose.ts`), converts the result (`web/response.ts`), and gives an
-  error to the nearest error handler. Duplicate routes are rejected here.
+  feature's, controller's and handler's middlewares around the handler (the
+  core's `compose`, through `web/compose.ts`), converts the result
+  (`web/response.ts`), and gives an error to the nearest error handler.
+  Duplicate routes are rejected here.
 - **The Hono adapter** registers each route on one Hono application with
   `app.on(method, path, …)`, and calls `route.handle` with the raw `Request`,
   Hono's decoded parameters and Hono's context.

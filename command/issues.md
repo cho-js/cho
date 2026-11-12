@@ -5,10 +5,12 @@ Bugs and limitations of the current code, found while writing
 
 ## Bugs
 
-1. **`@Middlewares` is silently ignored.** It comes from `@chojs/core` (the
-   command module does not re-export it), is accepted on controllers and command
-   methods, and never runs. Either run middlewares around a command or reject
-   them.
+1. **[FIXED] `@Middlewares` is silently ignored.** It came from `@chojs/core`,
+   was accepted on controllers and command methods, and never ran.
+
+   **Fix:** `@chojs/command` exports its own typed `@Middlewares` and `@Catch`,
+   and runs middlewares around a command, the way `@chojs/web` does
+   (`command/specs.md`, section 4.3; `command/tasks.md`).
 
 ## Limitations
 
@@ -39,3 +41,14 @@ Bugs and limitations of the current code, found while writing
 - **The command is found before the line is parsed** (section 3.4 of the
   specification). `-v ls` used to give `v: "ls"` and no command.
 - `@Main` and `@Action` take the flags of their command, listed in its `--help`.
+- **A command receives a context**, `ChoCliContext`, not the parsed command
+  line: `args.force` is now `ctx.args.force`.
+- **An error handler receives `(error, ctx)`**, not `(error, args)`.
+- **`@Middlewares` runs.** It was accepted and ignored.
+- **`@Catch` on a module** handles the errors of its controllers' commands, and
+  the `onError` option is the application's fallback.
+- **`@Middlewares` and `@Catch` come from `@chojs/command`** (typed); the core's
+  `@Catch` is no longer re-exported.
+- A middleware or an error handler class without a `handle` method makes
+  `ChoCommand.create` throw. A class error handler without one used to fail when
+  an error reached it, with exit code `2`.

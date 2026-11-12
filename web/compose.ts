@@ -1,10 +1,11 @@
 /**
- * Runs a chain of middlewares around a handler (the onion model).
+ * Runs a chain of middlewares around a handler (the onion model): the core's
+ * `compose`, for a `ChoWebContext` and a `Response`.
  *
  * @module
  */
 
-import { describe } from "@chojs/core/utils";
+import { compose as compose_chain } from "@chojs/core/utils";
 import type { ChoWebContext } from "./context.ts";
 import type { ChoWebMiddlewareFn } from "./types.ts";
 
@@ -30,55 +31,9 @@ export function compose(
   middlewares: readonly ChoWebMiddlewareFn[],
   endpoint: Endpoint,
 ): Endpoint {
-  if (middlewares.length === 0) {
-    return endpoint;
-  }
-
-  return (ctx) => {
-    const dispatch = async (index: number): Promise<Response> => {
-      const middleware = middlewares[index];
-      if (!middleware) {
-        return endpoint(ctx);
-      }
-
-      let downstream: Promise<Response> | undefined;
-      const next = (): Promise<Response> => {
-        if (downstream) {
-          return Promise.reject(
-            new Error(
-              `middleware ${
-                describe(middleware)
-              }: next() called more than once`,
-            ),
-          );
-        }
-        downstream = dispatch(index + 1);
-        // A middleware may answer without awaiting next(): a failure down
-        // the chain must not become an unhandled rejection.
-        downstream.catch(() => {});
-        return downstream;
-      };
-
-      const result = await middleware(ctx, next);
-      if (result instanceof Response) {
-        return result;
-      }
-      if (result !== undefined) {
-        throw new TypeError(
-          `middleware ${
-            describe(middleware)
-          } must return a Response or nothing, got ${typeof result}`,
-        );
-      }
-      if (!downstream) {
-        throw new Error(
-          `middleware ${
-            describe(middleware)
-          } returned no response: return a Response or call next()`,
-        );
-      }
-      return downstream;
-    };
-    return dispatch(0);
-  };
+  return compose_chain(middlewares, endpoint, {
+    is: (value) => value instanceof Response,
+    name: "a Response",
+    noun: "response",
+  });
 }

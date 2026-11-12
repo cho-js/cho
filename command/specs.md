@@ -28,7 +28,7 @@ A single command:
 
 ```ts
 import {
-  type ChoArgs,
+  type ChoCliContext,
   ChoCommand,
   Controller,
   Help,
@@ -41,11 +41,11 @@ import {
 class ListFiles {
   @Help("List the files of a directory")
   @Main()
-  main(args: ChoArgs) {
-    if (args._.length !== 1) {
+  main(ctx: ChoCliContext) {
+    if (ctx.args._.length !== 1) {
       throw new Error("expected one directory");
     }
-    console.log(`listing ${args._[0]}`);
+    console.log(`listing ${ctx.args._[0]}`);
     // returning nothing exits with 0
   }
 }
@@ -62,7 +62,7 @@ Multiple actions, with a dependency injected into the controller:
 ```ts
 import {
   Action,
-  type ChoArgs,
+  type ChoCliContext,
   ChoCommand,
   Controller,
   Help,
@@ -82,14 +82,14 @@ class FileSystem {
 
   @Help("Copy a file")
   @Action("copy")
-  copy(args: ChoArgs) {
-    this.disk.copy(String(args._[0]), String(args._[1]));
+  copy(ctx: ChoCliContext) {
+    this.disk.copy(String(ctx.args._[0]), String(ctx.args._[1]));
   }
 
   @Help("Delete a file")
   @Action("rm")
-  remove(args: ChoArgs) {
-    return args.force ? 0 : 3; // the exit code
+  remove(ctx: ChoCliContext) {
+    return ctx.args.force ? 0 : 3; // the exit code
   }
 }
 
@@ -165,18 +165,29 @@ line fits (a group heading, the list of commands), the first line is used.
 
 ## 3. The command line
 
-### 3.1 What a command receives: `ChoArgs`
+### 3.1 What a command receives: the context
 
-A command method receives the parsed command line: the result of `parseArgs`
-from `@std/cli` (minimist style).
+A command method receives the **context** of the run, a `ChoCliContext`:
+
+| Property  | Holds                                                                        |
+| --------- | ---------------------------------------------------------------------------- |
+| `args`    | the parsed command line (`ChoArgs`): the positionals in `_`, and the flags   |
+| `argv`    | the command line, as it was given to `run()`                                 |
+| `command` | the command that runs: `"main"`, or the name of the action                   |
+| `state`   | a `Map` for the run: what a middleware sets, later ones and the command read |
+
+The middlewares, the command and the error handler of a run share one context;
+each run has its own.
+
+`ctx.args` is the result of `parseArgs` from `@std/cli` (minimist style):
 
 ```ts
 // ./fs copy a.txt 007 --force --mode=644 -v
-copy(args: ChoArgs) {
-  args._;     // ["a.txt", "007"]  positionals, always as typed
-  args.force; // true
-  args.mode;  // 644: not declared, so typed from its look
-  args.v;     // true
+copy(ctx: ChoCliContext) {
+  ctx.args._;     // ["a.txt", "007"]  positionals, always as typed
+  ctx.args.force; // true
+  ctx.args.mode;  // 644: not declared, so typed from its look
+  ctx.args.v;     // true
 }
 ```
 
@@ -210,7 +221,7 @@ first of `@Main`), of type `CommandFlags`:
   default: { mode: "644" }, // when the flag is not given
   describe: { force: "Overwrite existing files" }, // for --help
 })
-copy(args: ChoArgs) {
+copy(ctx: ChoCliContext) {
   // ./fs copy a b -f --mode 0755 --exclude x --exclude y
   // { _: ["a", "b"], f: true, force: true, mode: "0755", exclude: ["x", "y"] }
 }
@@ -270,6 +281,7 @@ creates no instance.
 | `version`      | `"1.0.0"` | printed by `--version`                                    |
 | `parseOptions` | none      | flag declarations (section 3.3)                           |
 | `overrides`    | none      | providers that replace declared ones, for tests           |
+| `onError`      | none      | the application's error handler (section 4.4)             |
 
 To run setup code before a command (open a connection, read a configuration
 file, …), put it in a provider, an async factory if needed, and make the
@@ -299,33 +311,104 @@ pass the result to `Deno.exit` or `process.exit`.
 2. `--version` prints `<name> version <version>` and resolves to `0`.
 3. In multiple-action mode, a command line without an action prints the help and
    resolves to `0`.
-4. Otherwise the command's controller is created (with its dependencies, the
+4. In multiple-action mode, an unknown action prints
+   `Error: Action '<name>' not found. …` and resolves to `1`.
+5. Otherwise the command's controller is created (with its dependencies, the
    first time only: later runs reuse it), and the method is called with the
-   parsed arguments and awaited. Only what that command needs is created.
+   context (section 3.1), through its middlewares (section 4.3), and awaited.
+   Only what that command needs is created.
 
-| Situation                                                 | Exit code                 |
-| --------------------------------------------------------- | ------------------------- |
-| the command returns a non-negative integer `n`            | `n`                       |
-| the command returns anything else, or nothing             | `0`                       |
-| `--help`, `--version`, or no action (multiple actions)    | `0`                       |
-| the command fails, and its `@Catch` handler returns `n`   | `n` (a non-negative int.) |
-| the command fails, and its `@Catch` handler returns other | `1`                       |
-| the command fails, without a `@Catch` handler             | `1`                       |
+Steps 1 to 4 are answered by the application itself: no middleware and no error
+handler runs for them.
+
+| Situation                                              | Exit code                 |
+| ------------------------------------------------------ | ------------------------- |
+| the command returns a non-negative integer `n`         | `n`                       |
+| the command returns anything else, or nothing          | `0`                       |
+| `--help`, `--version`, or no action (multiple actions) | `0`                       |
+| a middleware returns a non-negative integer `n`        | `n`                       |
+| the command fails, and its error handler returns `n`   | `n` (a non-negative int.) |
+| the command fails, and its error handler returns other | `1`                       |
+| the command fails, without an error handler            | `1`                       |
+| the command fails, and its error handler fails too     | `2`                       |
 
 An exit code above `255` is capped at `255`: a process reports exit codes modulo
 256, so `256` would read as success. | an unknown action | `1` |
 
-### 4.3 Errors and `@Catch`
+### 4.3 Middlewares
 
-An error thrown by a command, or while creating its controller, goes to the
-command's `@Catch` handler: the method's, or else the controller's.
+`@Middlewares(...)` (from `@chojs/command`) applies to a module that declares
+controllers, a controller, or a command method. A middleware is either:
+
+- a function `(ctx, next)`; or
+- a class with a `handle(ctx, next)` method. It is created by the injector, in
+  the scope of the module that declares the controller, so it must be a provider
+  visible there, and it can have dependencies.
+
+A middleware wraps the rest of the chain (the next middlewares, then the
+command). It works as the middlewares of `@chojs/web` do, with the **exit code**
+where web has a `Response`:
+
+- `next()` runs the rest of the chain and resolves to its exit code;
+- returning an exit code (a non-negative integer) ends the run with it: without
+  calling `next()` to stop before the command, or after it to replace the exit
+  code;
+- returning nothing after calling `next()` passes the exit code on, so
+  `await next();` alone is enough.
+
+```ts
+const confirm: ChoCliMiddlewareFn = (ctx, next) => ctx.args.yes ? next() : 1; // stops, with exit code 1
+
+@Injectable([Config])
+class LoadProfile {
+  constructor(readonly config: Config) {}
+  async handle(ctx: ChoCliContext, next: ChoCliNext) {
+    ctx.state.set("profile", await this.config.profile(ctx.args.profile));
+    return await next();
+  }
+}
+
+@Middlewares(LoadProfile) // every command of the controller
+@Controller()
+class FileSystem {
+  @Middlewares(confirm) // this command only
+  @Action("rm")
+  remove(ctx: ChoCliContext) {
+    const profile = ctx.state.get("profile");
+    /* ... */
+  }
+}
+```
+
+A run executes the module's middlewares, then the controller's, then the
+method's, each in declaration order. Middlewares belong to their commands: they
+only run for a command they apply to, never for the commands of another
+controller or module, nor for `--help`, `--version` or an unknown action.
+
+**Nothing is created before a command runs.** A middleware class is created the
+first time a command it applies to runs, and kept: printing the help creates
+nothing. What can be checked without creating anything is checked by
+`ChoCommand.create`: a middleware is a function or a class with a `handle`
+method.
+
+A middleware that calls `next()` twice, returns something that is not an exit
+code, or returns nothing without calling `next()`, makes the run fail (section
+4.4).
+
+### 4.4 Errors and `@Catch`
+
+`@Catch(handler)` (from `@chojs/command`) applies to a module that declares
+controllers, a controller, or a command method. An error thrown by a command, by
+a middleware, or while creating what the command needs (its controller, a
+middleware class), goes to the nearest handler: the method's, else the
+controller's, else the module's, else the application's.
 
 ```ts
 @Injectable([Logger])
 class ReportError {
   constructor(readonly logger: Logger) {}
-  handle(error: unknown, args: ChoArgs) {
-    this.logger.error(error, args);
+  handle(error: unknown, ctx: ChoCliContext) {
+    this.logger.error(ctx.command, error);
     return 3;
   }
 }
@@ -335,30 +418,44 @@ class ReportError {
 class FileSystem {
   @Catch((error) => (error instanceof NotFound ? 4 : 1)) // for `rm` only
   @Action("rm")
-  remove(args: ChoArgs) {/* ... */}
+  remove(ctx: ChoCliContext) {/* ... */}
 
   @Catch(ReportError) // a class, created by the injector
   @Action("sync")
-  sync(args: ChoArgs) {/* ... */}
+  sync(ctx: ChoCliContext) {/* ... */}
 }
 ```
 
-A handler is called with the error, as thrown, and the parsed arguments, and
+A handler is called with the error, as thrown, and the context of the run, and
 awaited. Its result gives the exit code (section 4.2).
 
-- **A function** is called as `(error, args)`.
-- **A class** is created by the injector, in the scope of the module that
-  declares the controller (so it must be a provider visible there, and can have
-  dependencies), and its `handle(error, args)` method is called.
+- **A function** is called as `(error, ctx)`.
+- **A class** is created by the injector when it first has an error to handle,
+  in the scope of the module that declares the controller (so it must be a
+  provider visible there, and can have dependencies), and its
+  `handle(error, ctx)` method is called.
+- **The application's error handler** is the `onError` option of
+  `ChoCommand.create`: the fallback for every command that no `@Catch` covers.
+  It takes what `@Catch` takes; a class is created in the scope of the root
+  module.
 - If the handler fails (it throws, or the class cannot be created), `run()`
   prints the original error and resolves to `2`.
-- Without a handler, `run()` prints `Error: <message>` to stderr and resolves to
-  `1`. An unknown action is reported the same way.
+- Without a handler at any level, `run()` prints `Error: <message>` to stderr
+  and resolves to `1`.
 
-`@Middlewares` is accepted on controllers and methods, but the command module
-does not run middlewares.
+```ts
+const app = ChoCommand.create(App, {
+  onError: (error, ctx) => {
+    console.error(`${ctx.command}: ${error}`);
+    return 70;
+  },
+});
+```
 
-### 4.4 Debug logging
+An unknown action is not an error of a command: it is reported by the
+application (section 4.2) and no error handler runs.
+
+### 4.5 Debug logging
 
 `ChoCommand` logs to the `cho:command` debug context, on stderr. It is off by
 default; enable it with `CHO_DEBUGLOG=cho:command`, `CHO_DEBUGLOG=cho:*` or
@@ -376,9 +473,9 @@ cho:command handled by onError
 
 It logs the commands found when the application is created, each command line
 with what it ran (a command, the help or the version), each command's exit code
-and duration, each error, the `@Catch` handler that received it, and a handler
-that failed. Debug logging only adds these lines: errors are printed as
-described in section 4.3 either way.
+and duration, each error, the error handler that received it, and a handler that
+failed. Debug logging only adds these lines: errors are printed as described in
+section 4.4 either way.
 
 ## 5. Help
 
@@ -450,14 +547,18 @@ Run 'fs <command> --help' for help on a command.
 
 ## 6. Public API
 
-| Export                                                                            | Kind     | Section |
-| --------------------------------------------------------------------------------- | -------- | ------- |
-| `ChoCommand`, `ChoCommandOptions`                                                 | class    | 4       |
-| `Main`, `Action`, `Help`                                                          | function | 2       |
-| `ChoArgs`, `CommandFlags`, `ParserOptions`                                        | type     | 3       |
-| `Controller`, `Module` (the core's, with no extra option)                         | function | 2.1     |
-| `Injectable`, `Catch` (re-exported from `@chojs/core`)                            | function | 2.1     |
-| `ControllerOptions`, `ModuleOptions`, `InjectableOptions` (re-exported, see core) | type     | 2.1     |
+| Export                                                                            | Kind     | Section  |
+| --------------------------------------------------------------------------------- | -------- | -------- |
+| `ChoCommand`, `ChoCommandOptions`                                                 | class    | 4        |
+| `Main`, `Action`, `Help`                                                          | function | 2        |
+| `Middlewares`, `Catch` (the core's, typed for `@chojs/command`)                   | function | 4.3, 4.4 |
+| `ChoCliContext`                                                                   | type     | 3.1      |
+| `ChoArgs`, `CommandFlags`, `ParserOptions`                                        | type     | 3        |
+| `ChoCliHandler`, `ChoCliNext`, `ChoCliMiddlewareFn`, `ChoCliMiddleware`           | type     | 4.3      |
+| `ChoCliErrorHandlerFn`, `ChoCliErrorHandler`                                      | type     | 4.4      |
+| `Controller`, `Module` (the core's, with no extra option)                         | function | 2.1      |
+| `Injectable` (re-exported from `@chojs/core`)                                     | function | 2.1      |
+| `ControllerOptions`, `ModuleOptions`, `InjectableOptions` (re-exported, see core) | type     | 2.1      |
 
 ## 7. Errors
 
@@ -489,6 +590,15 @@ decorator (`@Action("copy"): …`):
 An unknown option of `@Module` or `@Controller` throws
 `@Controller(): unknown option "<name>". Known options: dependencies`.
 
+**By `ChoCommand.create`**, for the middlewares and error handlers of the
+commands (nothing is created to check them):
+
+- `Middleware class <Name> must implement 'handle' method.`
+- `Error handler class <Name> must implement 'handle' method.` (`@Catch`, and
+  the `onError` option)
+- `Invalid error handler <v>: must be a function or a class with a 'handle' method.`
+  (the `onError` option)
+
 **By `ChoCommand.create`:** any module graph error of the core (`core/specs.md`,
 section 2.8), and:
 
@@ -498,6 +608,10 @@ section 2.8), and:
 - `Duplicate @Action("<name>"): declared on <Controller>.<method> and <Controller>.<method>`
 
 **Printed by `run()`** (exit code `1`), besides the command's own errors:
+
+- `Error: middleware <name>: next() called more than once`
+- `Error: middleware <name> returned no exit code: return an exit code or call next()`
+- `Error: middleware <name> must return an exit code or nothing, got <typeof>`
 
 - `Error: Action '<name>' not found. Use --help for usage information.`
 - `Error: Method '<name>' is not a function on controller '<Controller>'.`
@@ -512,10 +626,18 @@ section 2.8), and:
   module and walks `injector.controllers()` (imported modules first, the root
   last; controllers and methods in declaration order). That order is the order
   of the actions in the help.
-- **Running.** `run()` resolves the controller with the injector, in the scope
-  of the module that declares it, so it is created once per application and only
-  when one of its commands runs. Error handlers come from the core's metadata
-  (`errorHandler` of the method, then of the controller).
+- **Running.** Each command has a pipeline (`command/pipeline.ts`), built by
+  `ChoCommand.create` from the core's metadata: the `middlewares` and the
+  `errorHandler` of the module that declares the controller, of the controller
+  and of the method. `run()` parses the command line, answers the built-ins,
+  creates the context (`command/context.ts`) and calls the pipeline of the
+  command.
+- **Laziness.** On its first run, a pipeline resolves the controller and its
+  middleware classes with the injector, in the scope of the module that declares
+  the controller, and composes them around the command method with the core's
+  `compose` (`@chojs/core/utils`, the runner `@chojs/web` uses too). An error
+  handler class is resolved when it first has an error to handle. Everything is
+  created once per application, and only for the commands that run.
 - **Parsing.** `parseArgs` is a vendored copy of `@std/cli/parse-args`
   (`command/lib/parse-args.ts`), so the package has no dependency besides
   `@chojs/core`.

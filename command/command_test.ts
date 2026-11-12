@@ -22,6 +22,7 @@ import {
 } from "@chojs/core/di";
 import type { Ctr } from "@chojs/core/di";
 import type { ChoArgs } from "./args.ts";
+import type { ChoCliContext } from "./context.ts";
 import { ChoCommand } from "./command.ts";
 import { Action, Main } from "./decorators.ts";
 import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
@@ -45,14 +46,14 @@ function actions_app(calls: Calls, created: unknown[] = []): Ctr {
       this.service = service;
       created.push(this);
     }
-    copy(args: ChoArgs) {
-      calls.push([`copy:${this.service.label}`, args]);
+    copy(ctx: ChoCliContext) {
+      calls.push([`copy:${this.service.label}`, ctx.args]);
     }
     fail() {
       throw new Error("copy failed");
     }
-    code(args: ChoArgs) {
-      return Number(args._[0]); // positionals are strings
+    code(ctx: ChoCliContext) {
+      return Number(ctx.args._[0]); // positionals are strings
     }
   }
   legacy(Action("copy"), Files, "copy");
@@ -68,8 +69,8 @@ function actions_app(calls: Calls, created: unknown[] = []): Ctr {
 /** A single-command app whose main handler records its arguments. */
 function main_app(calls: Calls): Ctr {
   class Cli {
-    run(args: ChoArgs) {
-      calls.push(["run", args]);
+    run(ctx: ChoCliContext) {
+      calls.push(["run", ctx.args]);
     }
   }
   legacy(Main(), Cli, "run");
@@ -367,10 +368,14 @@ describe("ChoCommand.run, error handler", () => {
     }
   });
 
-  it("passes the parsed args as the second argument", async () => {
+  it("passes the context of the run as the second argument", async () => {
     const seen: unknown[] = [];
-    const app = ChoCommand.create(error_app(new Error("boom"), (err, args) => {
-      seen.push(err, args);
+    const app = ChoCommand.create(error_app(new Error("boom"), (err, ctx) => {
+      seen.push(
+        err,
+        (ctx as ChoCliContext).args,
+        (ctx as ChoCliContext).command,
+      );
       return 4;
     }));
 
@@ -378,6 +383,7 @@ describe("ChoCommand.run, error handler", () => {
     assert.equal(result, 4);
     assert.equal((seen[0] as Error).message, "boom");
     assert.deepEqual(seen[1], { _: [], force: true });
+    assert.equal(seen[2], "fail");
   });
 
   it("passes a non-Error throw as is", async () => {
@@ -506,11 +512,11 @@ describe("ChoCommand.run, failures without a usable handler", () => {
     ]);
   });
 
-  it("calls a class error handler's handle with the error and the args", async () => {
+  it("calls a class error handler's handle with the error and the context", async () => {
     const seen: unknown[] = [];
     class OnError {
-      handle(error: unknown, args: unknown) {
-        seen.push(error, args);
+      handle(error: unknown, ctx: ChoCliContext) {
+        seen.push(error, ctx.args);
         return 5;
       }
     }
@@ -848,11 +854,11 @@ describe("ChoCommand, declared flags", () => {
   /** `copy` declares flags; `ls` does not. Both report their args. */
   function app(seen: ChoArgs[]) {
     class Files {
-      copy(args: ChoArgs) {
-        seen.push(args);
+      copy(ctx: ChoCliContext) {
+        seen.push(ctx.args);
       }
-      list(args: ChoArgs) {
-        seen.push(args);
+      list(ctx: ChoCliContext) {
+        seen.push(ctx.args);
       }
     }
     legacy(

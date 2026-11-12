@@ -4,17 +4,20 @@
  * Controllers declare command methods with `@Main` (a single-command
  * application) or `@Action` (a multi-command application), and
  * {@link ChoCommand} parses the command line and runs the matching method.
- * `@Controller`, `@Module` and `@Catch` come from `@chojs/core`.
+ * A command receives the context of the run (`ChoCliContext`), and runs
+ * through the middlewares declared with `@Middlewares`; `@Catch` declares
+ * error handlers. `@Controller`, `@Module` and `@Injectable` come from
+ * `@chojs/core`.
  *
  * @example
  * ```ts
- * import { Controller, Module, Action, type ChoArgs, ChoCommand, Help } from "@chojs/command";
+ * import { Controller, Module, Action, type ChoCliContext, ChoCommand, Help } from "@chojs/command";
  *
  * @Controller()
  * class Files {
  *   @Help("Copy a file")
  *   @Action("copy")
- *   copy(args: ChoArgs) {}
+ *   copy(ctx: ChoCliContext) {}
  * }
  *
  * @Module({ controllers: [Files] })
@@ -27,9 +30,16 @@
  * @module
  */
 
-export { Action, Controller, Help, Main, Module } from "./decorators.ts";
 export {
+  Action,
   Catch,
+  Controller,
+  Help,
+  Main,
+  Middlewares,
+  Module,
+} from "./decorators.ts";
+export {
   type ControllerOptions,
   Injectable,
   type InjectableOptions,
@@ -37,3 +47,5 @@ export {
 } from "@chojs/core/di";
 export { ChoCommand, type ChoCommandOptions } from "./command.ts";
 export type { ChoArgs, CommandFlags, ParserOptions } from "./args.ts";
+export type { ChoCliContext } from "./context.ts";
+export type * from "./types.ts";

@@ -40,8 +40,8 @@ open. Each mark was checked against the code.
 | D5   | fixed    | positionals are strings; commands declare their flags                       |
 | D6   | fixed    | `web/syntax_test.ts` runs real decorator syntax on Deno, Bun and Node       |
 
-Current checks: `deno check`, `deno lint` pass; 104 tests / 654 steps on Deno,
-637 on Bun and on Node.
+Current checks: `deno check`, `deno lint` pass; 111 tests / 701 steps on Deno,
+684 on Bun and on Node.
 
 ## Verdict
 
@@ -425,7 +425,8 @@ kind of bug that follows. One fixture file with real syntax, executed by
   of the error: they are called through `handle(error, args)`.
 - **[FIXED]** A throwing function error handler made `run()` reject: it now
   resolves to `2`.
-- Open: `@Middlewares` is accepted and ignored (`command/issues.md`).
+- **[FIXED]** `@Middlewares` was accepted and ignored: commands now run
+  middlewares, with a context, as `@chojs/web` does (`command/tasks.md`).
 - Open: `initModule` resolves only the owning module; `injector.init()`
   semantics would be less surprising.
 - Open: `command/lib/parse-args.ts` is a vendored copy of `@std/cli` with its
@@ -452,7 +453,7 @@ Blockers for a 3.0, in my view, and where they stand:
 - web + vendor-hono: A1 **[FIXED]**, the prefix **[FIXED]**, the error handler
   contract **[FIXED]**, A3 **[FIXED]**.
 - command: class and throwing error handlers **[FIXED]**; `@Middlewares` ignored
-  is open.
+  **[FIXED]**.
 - core: A2, the stale JSDoc (A5), D1 and D2 are all **[FIXED]**. D1 and D2 are
   breaking for CHO module authors (`method.fn` → `method.meta`, extras under
   `options`), so they had to land before 3.0.
@@ -477,9 +478,9 @@ Repository housekeeping:
    registration.
 2. **[DONE]** A2 and the web decorator guards (A3, first two rows); add the
    syntax fixture to CI (D6).
-3. **[DONE for web]** Decide the handler / middleware / error-handler contract
-   (B2), then fix the web and command issues against it. Open for command:
-   `@Middlewares` is still ignored.
+3. **[DONE]** Decide the handler / middleware / error-handler contract (B2),
+   then fix the web and command issues against it; command now has the same
+   middleware and error-handler contract.
 4. **[DONE]** D1 and D2 together, as the one breaking change to the metadata
    contract; D3 as well.
 5. **[DONE]** `dispose()` and test overrides (B3.1, B3.2).
