@@ -92,7 +92,7 @@ export class HonoLinker implements Linker<Hono> {
   link(graph: AppRef): HonoLinked {
     const done = this.#log.start();
     let count = 0;
-    const app = new Hono();
+    const app = new Hono().basePath(graph.route);
     for (const fr of graph.features) {
       const feature = this.#createController(fr);
       for (const cr of fr.controllers) {
@@ -159,7 +159,11 @@ export class HonoLinker implements Linker<Hono> {
       } catch (error) {
         if (ref.errorHandler) {
           this.#log.error(`${ctx.req.method} ${ctx.req.path} failed:`, error);
-          return ref.errorHandler(error, ctx);
+          const result = await ref.errorHandler(error, ctx);
+          if (result instanceof Response) {
+            return result;
+          }
+          return ctx.json(result);
         }
         throw error;
       }

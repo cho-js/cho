@@ -135,6 +135,35 @@ export function Put(route: string): ChoMethodDecorator {
 }
 
 /**
+ * Mark a method as the handler of `PATCH route`.
+ *
+ * The method receives the request context of the HTTP runtime (Hono's
+ * `Context` with `HonoLinker`). What it returns is sent as JSON, unless it is a
+ * `Response`.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @returns A method decorator.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   // PATCH /users/42
+ *   @Patch(":id")
+ *   async update(ctx: Context) {
+ *     const changes = await ctx.req.json();
+ *     return { id: ctx.req.param("id"), ...changes };
+ *   }
+ * }
+ * ```
+ */
+export function Patch(route: string): ChoMethodDecorator {
+  return create_http_decorator("Patch", route, "PATCH");
+}
+
+/**
  * Mark a method as the handler of `DELETE route`.
  *
  * The method receives the request context of the HTTP runtime (Hono's
