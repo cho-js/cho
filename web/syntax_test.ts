@@ -198,6 +198,28 @@ describe("decorator syntax", () => {
     assert.equal(await get("/b/v"), "b");
   });
 
+  it("checks dependencies against the constructor, at compile time", () => {
+    // Type-only: never called, so the mismatched class is never defined.
+    const _check = () => {
+      // @ts-expect-error the constructor wants a Store, not a number
+      @Controller({ route: "bad", dependencies: [Store] })
+      class Bad {
+        constructor(readonly limit: number) {}
+      }
+      // @ts-expect-error the constructor needs a dependency
+      @Injectable()
+      class Missing {
+        constructor(readonly store: Store) {}
+      }
+      // @ts-expect-error the same, for a controller without dependencies
+      @Controller({ route: "none" })
+      class None {
+        constructor(readonly store: Store) {}
+      }
+      return [Bad, Missing, None];
+    };
+  });
+
   it("rejects a second HTTP method decorator, when the class is defined", () => {
     assert.throws(() => {
       class Twice {

@@ -10,8 +10,10 @@
 
 import { describe, it } from "node:test";
 import type { Injector } from "./injector.ts";
+import { Controller, Injectable, Module } from "./decorators.ts";
 import { provider, token } from "./tokens.ts";
 import type {
+  Dependency,
   InjectionToken,
   Provider,
   Resolved,
@@ -145,5 +147,83 @@ describe("Injector.resolve", () => {
       void url;
     };
     void check;
+  });
+});
+
+describe("DI decorators, constructor check", () => {
+  class Logger {
+    log() {}
+  }
+  class Db {
+    query() {}
+  }
+  const PORT = token<number>("PORT");
+  const CACHE = Symbol("cache");
+
+  it("accepts dependencies that match the constructor, in order", () => {
+    // Type-only: never called.
+    const _check = () => {
+      class Server {
+        constructor(readonly logger: Logger, readonly port: number) {}
+      }
+      Injectable([Logger, PORT])(Server);
+      Controller({ dependencies: [Logger, PORT] })(Server);
+      Module({ dependencies: [Logger, PORT] })(Server);
+
+      class NoArgs {}
+      Injectable()(NoArgs);
+      Controller()(NoArgs);
+      Module({ providers: [Logger] })(NoArgs);
+
+      // optional and missing parameters are fine
+      class Optional {
+        constructor(readonly logger: Logger, readonly db?: Db) {}
+      }
+      Injectable([Logger])(Optional);
+      Injectable([Logger, Db])(Optional);
+      Injectable([Logger, Db])(NoArgs);
+
+      // a subclass instance where its parent is expected
+      class FileLogger extends Logger {}
+      class Uses {
+        constructor(readonly logger: Logger) {}
+      }
+      Injectable([FileLogger])(Uses);
+
+      // a symbol's value is untyped: it can be received as anything
+      class Cached {
+        constructor(readonly cache: Map<string, string>) {}
+      }
+      Injectable([CACHE])(Cached);
+
+      // a list that is not a tuple is not checked
+      const deps: Dependency[] = [PORT];
+      Injectable(deps)(Server);
+    };
+  });
+
+  it("rejects dependencies that do not match the constructor", () => {
+    // Type-only: never called.
+    const _check = () => {
+      class Server {
+        constructor(readonly logger: Logger, readonly port: number) {}
+      }
+      // @ts-expect-error wrong order
+      Injectable([PORT, Logger])(Server);
+      // @ts-expect-error a required parameter has no dependency
+      Injectable([Logger])(Server);
+      // @ts-expect-error no dependency at all
+      Injectable()(Server);
+      // @ts-expect-error wrong type: Db is not a Logger
+      Injectable([Db, PORT])(Server);
+      // @ts-expect-error wrong token type: a string where a number is expected
+      Injectable([Logger, token<string>("NAME")])(Server);
+      // @ts-expect-error the same check, for @Controller
+      Controller({ dependencies: [PORT, Logger] })(Server);
+      // @ts-expect-error and for @Controller without dependencies
+      Controller()(Server);
+      // @ts-expect-error the same check, for @Module
+      Module({ dependencies: [Logger] })(Server);
+    };
   });
 });

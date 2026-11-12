@@ -14,13 +14,14 @@
 
 import type { MethodMetadata } from "@chojs/core/di";
 import type { CommandGraph, ControllerNode } from "./graph.ts";
-import { ALIAS, command_record, HELP } from "./keys.ts";
+import type { CommandFlags } from "./args.ts";
+import { ALIAS, command_record, FLAGS, HELP } from "./keys.ts";
 
 /** The heading of the commands whose controller has no `@Help`. */
 const DEFAULT_GROUP = "Commands";
 
 /** The reserved flags (see `args.ts`), as listed in every help text. */
-const OPTIONS: [string, string][] = [
+const OPTIONS: [string, string | undefined][] = [
   ["--help", "Show this help"],
   ["--version", "Show the version"],
 ];
@@ -48,9 +49,70 @@ function rows(entries: [string, string | undefined][]): string[] {
   );
 }
 
-/** The `Options:` section. */
-function options_section(): string {
-  return ["Options:", ...rows(OPTIONS)].join("\n");
+/**
+ * The rows of the flags a command declares: each flag with its other names,
+ * how it is written, and its description.
+ *
+ * - a `boolean` flag: `--force`, or `--[no-]color` when it is negatable;
+ * - a `string` flag: `--mode <value>`;
+ * - a `collect` flag: `--exclude <value>...`.
+ *
+ * A flag only named in `alias`, `default` or `describe` is not listed.
+ */
+function flag_rows(flags: CommandFlags): [string, string | undefined][] {
+  // every name of a flag, from either side of an alias entry
+  const names_of = (flag: string): string[] => {
+    const names = new Set([flag]);
+    for (const [name, aliases] of Object.entries(flags.alias ?? {})) {
+      const group = [name, ...[aliases].flat()];
+      if (group.includes(flag)) {
+        group.forEach((n) => names.add(n));
+      }
+    }
+    return [...names].sort((a, b) => a.length - b.length);
+  };
+  const dashed = (name: string, negatable: boolean) =>
+    name.length === 1 ? `-${name}` : negatable ? `--[no-]${name}` : `--${name}`;
+
+  const collect = new Set(flags.collect ?? []);
+  const negatable = new Set(flags.negatable ?? []);
+  const boolean = new Set(flags.boolean ?? []);
+  const listed = [
+    ...new Set([
+      ...(flags.boolean ?? []),
+      ...(flags.string ?? []),
+      ...(flags.collect ?? []),
+    ]),
+  ];
+  return listed.map((flag) => {
+    const names = names_of(flag)
+      .map((name) => dashed(name, negatable.has(flag)))
+      .join(", ");
+    const value = collect.has(flag)
+      ? " <value>..."
+      : boolean.has(flag)
+      ? ""
+      : " <value>";
+    const fallback = flags.default?.[flag];
+    const text = [
+      flags.describe?.[flag],
+      fallback === undefined ? undefined : `(default: ${String(fallback)})`,
+    ].filter(Boolean).join(" ");
+    return [`${names}${value}`, text || undefined];
+  });
+}
+
+/**
+ * The `Options:` section: the flags the command declares, then the reserved
+ * flags.
+ *
+ * @param flags The flags of the command the help is for, if it declares any.
+ */
+function options_section(flags?: CommandFlags): string {
+  return [
+    "Options:",
+    ...rows([...(flags ? flag_rows(flags) : []), ...OPTIONS]),
+  ].join("\n");
 }
 
 /** Join the non-empty sections with a blank line. */
@@ -70,7 +132,7 @@ function main_help(
     `Usage: ${name} [options] [args]`,
     help_of(node.meta.options),
     help_of(method.meta),
-    options_section(),
+    options_section(command_record(method.meta)[FLAGS]),
   );
 }
 
@@ -82,7 +144,7 @@ function action_help(
   return sections(
     `Usage: ${name} ${command_record(method.meta)[ALIAS]} [options] [args]`,
     help_of(method.meta),
-    options_section(),
+    options_section(command_record(method.meta)[FLAGS]),
   );
 }
 

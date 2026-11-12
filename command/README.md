@@ -85,9 +85,21 @@ Options:
 Run 'fs <command> --help' for help on a command.
 ```
 
-For a single command, mark one method with `@Main()` instead of `@Action`.
-Declare flags with the `parseOptions` option (`{ boolean: ["force"] }`, …) when
-the defaults of `parseArgs` are not what you want.
+For a single command, mark one method with `@Main()` instead of `@Action`. A
+command declares the flags it accepts, which are also listed in its `--help`:
+
+```ts
+@Action("copy", {
+  boolean: ["force"],
+  string: ["mode"],
+  alias: { f: "force" },
+  describe: { force: "Overwrite existing files" },
+})
+copy(args: ChoArgs) {/* ./fs copy a b -f --mode 0755 */}
+```
+
+Positionals are always strings, as typed. Flags for every command go in the
+`parseOptions` option of `ChoCommand.create`.
 
 More examples: [`examples/hello-world-cli.ts`](../examples/hello-world-cli.ts),
 [`examples/multi-actions-cli.ts`](../examples/multi-actions-cli.ts).

@@ -52,7 +52,7 @@ function actions_app(calls: Calls, created: unknown[] = []): Ctr {
       throw new Error("copy failed");
     }
     code(args: ChoArgs) {
-      return args._[0];
+      return Number(args._[0]); // positionals are strings
     }
   }
   legacy(Action("copy"), Files, "copy");
@@ -841,5 +841,49 @@ describe("ChoCommand, closing and overrides", () => {
     });
     const { output } = await capture(() => app.run(["name"]));
     assert.deepEqual(output.log, ["fake"]);
+  });
+});
+
+describe("ChoCommand, declared flags", () => {
+  /** `copy` declares flags; `ls` does not. Both report their args. */
+  function app(seen: ChoArgs[]) {
+    class Files {
+      copy(args: ChoArgs) {
+        seen.push(args);
+      }
+      list(args: ChoArgs) {
+        seen.push(args);
+      }
+    }
+    legacy(
+      Action("copy", {
+        boolean: ["force"],
+        string: ["mode"],
+        alias: { f: "force" },
+      }),
+      Files,
+      "copy",
+    );
+    legacy(Action("ls"), Files, "list");
+    Controller()(Files);
+    class App {}
+    Module({ controllers: [Files] })(App);
+    return ChoCommand.create(App, { name: "fs" });
+  }
+
+  it("parses each command with its own flags", async () => {
+    const seen: ChoArgs[] = [];
+    const fs = app(seen);
+    await fs.run(["copy", "-f", "007", "--mode", "0755", "b"]);
+    await fs.run(["-v", "ls", "dir"]);
+    assert.deepEqual(seen, [
+      { _: ["007", "b"], f: true, force: true, mode: "0755" },
+      { _: ["dir"], v: true },
+    ]);
+  });
+
+  it("lists a command's flags in its help", async () => {
+    const { output } = await capture(() => app([]).run(["copy", "--help"]));
+    assert.match(output.log.join("\n"), /-f, --force\n {2}--mode <value>/);
   });
 });

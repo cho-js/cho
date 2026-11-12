@@ -69,6 +69,7 @@ export {
   Middlewares,
   Module,
 } from "./decorators.ts";
+export type { WithDependencies } from "./decorators.ts";
 export type {
   ControllerOptions,
   ExtraOptions,
@@ -100,6 +101,7 @@ export type {
 // private: CHO modules read the DI data through the metadata graph.
 export {
   add_to_metadata_object,
+  METADATA_FORMAT,
   type MetaTarget,
   method_metadata,
   method_records,

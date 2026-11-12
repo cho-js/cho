@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   add_to_metadata_object,
+  METADATA_FORMAT,
   method_metadata,
   method_records,
   read_metadata_object,
@@ -33,7 +34,8 @@ describe("read_metadata_object", () => {
   });
 
   it("reads the record from a decorator metadata object", () => {
-    const metadata = { [MetaKey]: { a: 1 } };
+    const metadata = {};
+    write_metadata_object(metadata, { a: 1 });
     assert.deepEqual(read_metadata_object(metadata), { a: 1 });
   });
 });
@@ -261,5 +263,72 @@ describe("method records", () => {
     write_metadata_object(Cli.prototype.run, { a: 1 });
     write_metadata_object(Cli.build, { b: 2 }); // static: never listed
     assert.deepEqual([...method_records(Cli)], [["run", { a: 1 }]]);
+  });
+});
+
+describe("metadata format", () => {
+  const FORMAT = Symbol.for("chojs.meta.format");
+  const META = Symbol.for("chojs.meta");
+  const bag_of = (target: object) =>
+    (target as Record<symbol, Record<symbol, unknown>>)[
+      Symbol.metadata ?? Symbol.for("Symbol.metadata")
+    ]!;
+
+  it("stamps every record with the format it was written in", () => {
+    class Foo {
+      run() {}
+    }
+    write_metadata_object(Foo, { a: 1 });
+    add_to_metadata_object(method_metadata(Foo, "run"), { b: 2 });
+    assert.equal(bag_of(Foo)[FORMAT], METADATA_FORMAT);
+    assert.equal(
+      (method_metadata(Foo, "run") as Record<symbol, unknown>)[FORMAT],
+      METADATA_FORMAT,
+    );
+  });
+
+  /** A class whose record was written by a copy with another format. */
+  function foreign(format: number | undefined) {
+    class Foo {}
+    const bag: Record<symbol, unknown> = { [META]: { a: 1 } };
+    if (format !== undefined) bag[FORMAT] = format;
+    Object.defineProperty(
+      Foo,
+      Symbol.metadata ?? Symbol.for("Symbol.metadata"),
+      {
+        value: bag,
+      },
+    );
+    return Foo;
+  }
+
+  it("refuses to read a record of another format", () => {
+    assert.throws(() => read_metadata_object(foreign(METADATA_FORMAT + 1)), {
+      message:
+        `The CHO metadata of Foo was written in format ${
+          METADATA_FORMAT + 1
+        }, ` +
+        `but this copy of @chojs/core reads format ${METADATA_FORMAT}. ` +
+        "Two incompatible versions of @chojs/core are loaded: use one version.",
+    });
+  });
+
+  it("refuses a record with no format stamp (an older copy)", () => {
+    assert.throws(
+      () => read_metadata_object(foreign(undefined)),
+      /was written in format \(none\)/,
+    );
+  });
+
+  it("refuses to overwrite or extend a record of another format", () => {
+    const Foo = foreign(METADATA_FORMAT + 1);
+    assert.throws(() => write_metadata_object(Foo, { b: 2 }), /format/);
+    assert.throws(() => add_to_metadata_object(Foo, { b: 2 }), /format/);
+    assert.deepEqual(bag_of(Foo)[META], { a: 1 });
+  });
+
+  it("reads nothing, without an error, where there is no record", () => {
+    class Foo {}
+    assert.equal(read_metadata_object(Foo), undefined);
   });
 });

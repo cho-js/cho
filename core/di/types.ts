@@ -184,6 +184,60 @@ export type ChoClassDecorator = (
 ) => void;
 
 /**
+ * The constructor arguments a list of dependencies provides, in the same
+ * order: what a class decorated with that list must accept.
+ *
+ * It is {@link ResolvedAll}, except that a symbol, whose value type is
+ * unknown, can be received as any type, and that a list which is not a tuple
+ * (`Dependency[]`) gives `any[]`: it cannot be checked.
+ *
+ * @typeParam D The list of dependencies.
+ *
+ * @example
+ * ```ts
+ * // [Logger, number]
+ * type Args = InjectedArgs<[typeof Logger, InjectionToken<number>]>;
+ * ```
+ */
+export type InjectedArgs<D extends readonly unknown[]> =
+  // A list of unknown length (`Dependency[]`) cannot be checked.
+  number extends D["length"] ? Any[]
+    : { -readonly [K in keyof D]: D[K] extends symbol ? Any : Resolved<D[K]> };
+
+/**
+ * A class decorator of the DI (`@Injectable`, `@Module`, `@Controller`),
+ * typed by the dependencies it declares: it only accepts a class whose
+ * constructor can be called with the values of those dependencies, in order.
+ * A dependency list that does not match the constructor is a compile error.
+ *
+ * ```ts
+ * @Injectable([PORT, Logger]) // error: the constructor wants (Logger, number)
+ * class Server {
+ *   constructor(logger: Logger, port: number) {}
+ * }
+ * ```
+ *
+ * What is checked: each dependency's value type against the parameter at its
+ * position, and that every required parameter has a dependency. A class may
+ * take fewer parameters than the list has dependencies.
+ *
+ * The check needs the dependencies as a tuple, which a literal array given to
+ * the decorator is. A list typed `Dependency[]` (built elsewhere, or kept in
+ * a variable) is not checked.
+ *
+ * Like {@link ChoClassDecorator}, it works with both decorator
+ * implementations.
+ *
+ * @typeParam D The dependencies the decorator declares.
+ */
+export type ChoInjectableDecorator<
+  D extends readonly Dependency[] = readonly Dependency[],
+> = (
+  target: new (...args: InjectedArgs<D>) => unknown,
+  context?: ClassDecoratorContext,
+) => void;
+
+/**
  * A middleware, declared with `@Middlewares`: a function, or a class.
  *
  * The core only stores middlewares. What a middleware receives and returns,

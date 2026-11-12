@@ -8,7 +8,11 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { read_metadata_object, read_method_metadata } from "@chojs/core/di";
+import {
+  read_metadata_object,
+  read_method_metadata,
+  token,
+} from "@chojs/core/di";
 import { legacy, loose, tc39, tc39_record } from "@chojs/core/utils/test_utils";
 import {
   Catch,
@@ -162,6 +166,8 @@ describe("@Middlewares and @Catch", () => {
   });
 });
 
+const LIMIT = token<number>("LIMIT");
+
 describe("@Module and @Controller", () => {
   it("store the route as an option of the core's record", () => {
     class Users {}
@@ -201,5 +207,22 @@ describe("@Module and @Controller", () => {
       () => Controller({ middlewares: [() => new Response()] })(class {}),
       { message: /unknown option "middlewares"/ },
     );
+  });
+
+  it("check the dependencies against the constructor", () => {
+    class Store {}
+    class Users {
+      constructor(readonly store: Store, readonly limit: number) {}
+    }
+    // Type-only: never called.
+    const _check = () => {
+      Controller({ route: "users", dependencies: [Store, LIMIT] })(Users);
+      // @ts-expect-error wrong order
+      Controller({ route: "users", dependencies: [LIMIT, Store] })(Users);
+      // @ts-expect-error the constructor needs dependencies
+      Controller({ route: "users" })(Users);
+      // @ts-expect-error the same check, for @Module
+      Module({ dependencies: [Store] })(Users);
+    };
   });
 });

@@ -35,13 +35,13 @@ open. Each mark was checked against the code.
 | B3   | resolved | teardown and overrides implemented; the other three are design positions    |
 | D1   | fixed    | extras are `meta.options`; closed types. Dependency-list spelling unchanged |
 | D2   | fixed    | method records are stored with the class, by method name                    |
-| D3   | open     |                                                                             |
-| D4   | open     |                                                                             |
-| D5   | open     |                                                                             |
+| D3   | fixed    | the DI decorators check dependencies against the constructor                |
+| D4   | fixed    | records are stamped with a format; another format is an error               |
+| D5   | fixed    | positionals are strings; commands declare their flags                       |
 | D6   | fixed    | `web/syntax_test.ts` runs real decorator syntax on Deno, Bun and Node       |
 
-Current checks: `deno check`, `deno lint` pass; 94 tests / 606 steps on Deno,
-589 on Bun and on Node.
+Current checks: `deno check`, `deno lint` pass; 102 tests / 646 steps on Deno,
+629 on Bun and on Node.
 
 ## Verdict
 
@@ -328,7 +328,17 @@ Both call shapes can reach the class instead: TC39 gives `context.metadata`
 This is the one structural change in core I would make before 3.0, because the
 record location is part of the contract with CHO module authors.
 
-### D3. Check constructor signatures at compile time
+### D3. [FIXED] Check constructor signatures at compile time
+
+**Fix:** `@Injectable`, `@Module` and `@Controller` return a
+`ChoInjectableDecorator<D>`, typed by the dependency tuple, in core and in the
+`web` and `command` wrappers. A wrong order, a wrong type or a missing
+dependency is a compile error, with decorator syntax and with plain calls.
+Limits: a class may take fewer parameters than there are dependencies; a list
+typed `Dependency[]` is not checked; symbols are untyped; and the check is
+structural, so a class with no members accepts anything. Type tests in
+`core/di/types_test.ts`, `web/syntax_test.ts` and the web and command decorator
+tests. No existing code in the repository failed the new check.
 
 The cost of explicit dependency lists is that list and constructor can drift.
 With TC39 class decorators the list can be checked against the constructor
@@ -346,14 +356,29 @@ class Server { constructor(l: Logger, p: number) {} }
 `ResolvedAll` already exists for `provider()`. This would be the strongest
 answer to "why not reflect-metadata".
 
-### D4. Version the record key
+### D4. [FIXED] Version the record key
+
+**Fix:** the key is unchanged, so copies still find each other's records; each
+record is stamped with its format (`METADATA_FORMAT`, in `core/di/metadata.ts`).
+Reading, overwriting or extending a record of another format, or one with no
+stamp, throws an error that says two incompatible versions of `@chojs/core` are
+loaded. A versioned key was the other option: it would have hidden the records,
+and reported a decorated class as "not a module".
 
 `Symbol.for("chojs.meta")` lets two copies of the package share records, which
 is the intent. It also lets two **versions** read each other's records with no
 format check. Put the format version in the key (`chojs.meta.v3`) or in the
 record, so a mismatch is an error and not a misread.
 
-### D5. Command: flags are global and untyped
+### D5. [FIXED] Command: flags are global and untyped
+
+**Fix:** positionals are always strings (`007`, `0x10` and `1e3` arrive as
+typed). `@Action(name, flags)` and `@Main(flags)` declare a command's flags
+(`boolean`, `string`, `collect`, `negatable`, `alias`, `default`, `describe`);
+they apply to that command only and are listed in its `--help`. The command is
+found before the line is parsed, so `-v ls` runs `ls` (command issue 4). Still
+as before: the value of a flag that is not declared is typed from its look
+(`--id=007` gives `7`).
 
 `parseOptions` applies to the whole application, and undeclared values are
 coerced (probed):
@@ -456,5 +481,5 @@ Repository housekeeping:
    (B2), then fix the web and command issues against it. Open for command:
    `@Middlewares` is still ignored.
 4. **[DONE]** D1 and D2 together, as the one breaking change to the metadata
-   contract. D3 is still open and fits the same area.
+   contract; D3 as well.
 5. **[DONE]** `dispose()` and test overrides (B3.1, B3.2).

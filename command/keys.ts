@@ -9,12 +9,16 @@
  * @module
  */
 
+import type { CommandFlags } from "./args.ts";
+
 /** Marks a method as the `@Main` command. */
 export const MAIN: unique symbol = Symbol.for("chojs.command.isMain");
 /** Marks a method as an `@Action` command. */
 export const ACTION: unique symbol = Symbol.for("chojs.command.isAction");
 /** The name a command is invoked by: the action name, or `"main"`. */
 export const ALIAS: unique symbol = Symbol.for("chojs.command.alias");
+/** The flags a command declares (`@Main(flags)`, `@Action(name, flags)`). */
+export const FLAGS: unique symbol = Symbol.for("chojs.command.flags");
 /** The `@Help` text of a controller or a method. */
 export const HELP: unique symbol = Symbol.for("chojs.command.help");
 
@@ -30,6 +34,8 @@ export type CommandRecord = {
   readonly [ACTION]?: true;
   /** Set by `@Main` (`"main"`) and `@Action` (the action name). */
   readonly [ALIAS]?: string;
+  /** Set by `@Main` and `@Action`, when they declare flags. */
+  readonly [FLAGS]?: CommandFlags;
   /** Set by `@Help`. */
   readonly [HELP]?: string;
 };

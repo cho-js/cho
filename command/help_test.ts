@@ -190,3 +190,67 @@ describe("format_help, actions mode", () => {
     );
   });
 });
+
+describe("format_help, declared flags", () => {
+  const FLAGS = {
+    boolean: ["force", "quiet"],
+    string: ["mode"],
+    collect: ["exclude"],
+    negatable: ["quiet"],
+    alias: { f: "force", m: "mode" },
+    default: { mode: "644" },
+    describe: { force: "Overwrite existing files", mode: "File mode" },
+  };
+
+  it("lists a command's flags before the reserved ones", () => {
+    class Files {
+      copy() {}
+      list() {}
+    }
+    legacy(Action("copy", FLAGS), Files, "copy");
+    legacy(Action("ls"), Files, "list");
+    Controller()(Files);
+    class App {}
+    Module({ controllers: [Files] })(App);
+
+    assert.equal(
+      help(App, "copy", "fs"),
+      [
+        "Usage: fs copy [options] [args]",
+        "",
+        "Options:",
+        "  -f, --force           Overwrite existing files",
+        "  --[no-]quiet",
+        "  -m, --mode <value>    File mode (default: 644)",
+        "  --exclude <value>...",
+        "  --help                Show this help",
+        "  --version             Show the version",
+      ].join("\n"),
+    );
+    // a command without flags, and the global help, list the reserved only
+    assert.ok(help(App, "ls", "fs").endsWith(OPTIONS));
+    assert.ok(help(App, "", "fs").includes(OPTIONS));
+  });
+
+  it("lists the flags of the @Main command", () => {
+    class Cli {
+      run() {}
+    }
+    legacy(Main({ boolean: ["verbose"], alias: { verbose: "v" } }), Cli, "run");
+    Controller()(Cli);
+    class App {}
+    Module({ controllers: [Cli] })(App);
+
+    assert.equal(
+      help(App, "main"),
+      [
+        "Usage: app [options] [args]",
+        "",
+        "Options:",
+        "  -v, --verbose",
+        "  --help         Show this help",
+        "  --version      Show the version",
+      ].join("\n"),
+    );
+  });
+});

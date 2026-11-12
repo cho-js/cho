@@ -13,19 +13,23 @@
 import {
   add_to_metadata_object,
   assert_known_options,
-  type ChoClassDecorator,
   type ChoClassOrMethodDecorator,
+  type ChoInjectableDecorator,
   type ChoMethodDecorator,
   Controller as CoreController,
   type ControllerOptions,
   decorated_method,
   decorated_target,
   type DecoratedMethod,
+  type Dependency,
   Module as CoreModule,
   type ModuleOptions,
+  type NoExtraOptions,
   read_metadata_object,
+  type WithDependencies,
 } from "@chojs/core/di";
-import { ACTION, ALIAS, command_record, HELP, MAIN } from "./keys.ts";
+import { COMMAND_FLAG_KEYS, type CommandFlags, is_reserved } from "./args.ts";
+import { ACTION, ALIAS, command_record, FLAGS, HELP, MAIN } from "./keys.ts";
 
 /**
  * Assert that a decorator argument is a non-empty string.
@@ -110,6 +114,66 @@ function assert_no_command(method: DecoratedMethod, adding: string) {
 }
 
 /**
+ * Assert that the flags a command declares are well formed, so a mistake
+ * fails when the class is defined and not when the command runs.
+ *
+ * @param flags The flags given to `@Main` or `@Action`; `undefined` is none.
+ * @param adding The decorator, for the messages.
+ * @throws {TypeError} When `flags` is not an object, has an unknown key, a
+ *   list that is not an array of non-empty strings, or an `alias`, `default`
+ *   or `describe` that is not an object.
+ * @throws {Error} When a flag is reserved (`help`, `version`).
+ */
+function assert_flags(
+  flags: unknown,
+  adding: string,
+): asserts flags is CommandFlags | undefined {
+  if (flags === undefined) {
+    return;
+  }
+  if (typeof flags !== "object" || flags === null || Array.isArray(flags)) {
+    throw new TypeError(`${adding}: the flags must be an object`);
+  }
+  assert_known_options(adding, flags, COMMAND_FLAG_KEYS);
+  const record = flags as Record<string, unknown>;
+  const names: string[] = [];
+  for (const key of ["boolean", "string", "collect", "negatable"]) {
+    const list = record[key];
+    if (list === undefined) {
+      continue;
+    }
+    if (
+      !Array.isArray(list) ||
+      list.some((name) => typeof name !== "string" || !name)
+    ) {
+      throw new TypeError(
+        `${adding}: "${key}" must be an array of flag names`,
+      );
+    }
+    names.push(...list);
+  }
+  for (const key of ["alias", "default", "describe"]) {
+    const map = record[key];
+    if (map === undefined) {
+      continue;
+    }
+    if (typeof map !== "object" || map === null || Array.isArray(map)) {
+      throw new TypeError(`${adding}: "${key}" must be an object`);
+    }
+    names.push(...Object.keys(map));
+    if (key === "alias") {
+      names.push(...Object.values(map).flat().map(String));
+    }
+  }
+  const reserved = names.find(is_reserved);
+  if (reserved) {
+    throw new Error(
+      `${adding}: the flag "${reserved}" is reserved by the application`,
+    );
+  }
+}
+
+/**
  * Mark a class as a module (see `@Module` of `@chojs/core`).
  *
  * @param options What the module imports, declares and exports.
@@ -123,9 +187,9 @@ function assert_no_command(method: DecoratedMethod, adding: string) {
  * class App {}
  * ```
  */
-export function Module(
-  options: Partial<ModuleOptions> = {},
-): ChoClassDecorator {
+export function Module<const D extends readonly Dependency[] = []>(
+  options: WithDependencies<Partial<ModuleOptions>, D> = {},
+): ChoInjectableDecorator<NoInfer<D>> {
   assert_known_options("@Module()", options, [
     "dependencies",
     "imports",
@@ -133,7 +197,7 @@ export function Module(
     "controllers",
     "exports",
   ]);
-  return CoreModule(options);
+  return CoreModule<NoExtraOptions, D>(options);
 }
 
 /**
@@ -154,11 +218,11 @@ export function Module(
  * }
  * ```
  */
-export function Controller(
-  options: Partial<ControllerOptions> = {},
-): ChoClassDecorator {
+export function Controller<const D extends readonly Dependency[] = []>(
+  options: WithDependencies<Partial<ControllerOptions>, D> = {},
+): ChoInjectableDecorator<NoInfer<D>> {
   assert_known_options("@Controller()", options, ["dependencies"]);
-  return CoreController(options);
+  return CoreController<NoExtraOptions, D>(options);
 }
 
 /**
@@ -168,9 +232,11 @@ export function Controller(
  * (`./app [options] [args]`). The whole module graph can have only one `@Main`
  * method, and cannot mix it with `@Action` methods.
  *
+ * @param flags The flags the command accepts (see `CommandFlags`): used to
+ *   parse the command line, and listed by `--help`. Default: none declared.
  * @returns A method decorator.
  * @throws {TypeError} When the decorated method is not public, non-static and
- *   string-named.
+ *   string-named, or when `flags` is malformed.
  *
  * @example
  * ```ts
@@ -192,12 +258,17 @@ export function Controller(
  * Deno.exit(await app.run(Deno.args));
  * ```
  */
-export function Main(): ChoMethodDecorator {
+export function Main(flags?: CommandFlags): ChoMethodDecorator {
   return function (target, context, descriptor) {
+    assert_flags(flags, "@Main()");
     const method = decorated_method("@Main()", target, context, descriptor);
     assert_command_method(method, "@Main()");
     assert_no_command(method, "@Main()");
-    add_to_metadata_object(method.meta, { [MAIN]: true, [ALIAS]: "main" });
+    add_to_metadata_object(method.meta, {
+      [MAIN]: true,
+      [ALIAS]: "main",
+      ...(flags && { [FLAGS]: flags }),
+    });
   };
 }
 
@@ -206,6 +277,9 @@ export function Main(): ChoMethodDecorator {
  *
  * @param alias The command name: non-empty, no whitespace, not starting with
  *   `-`.
+ * @param flags The flags the command accepts (see `CommandFlags`): used to
+ *   parse the command line when this command runs, and listed by its
+ *   `--help`. Default: none declared.
  * @returns A method decorator.
  * @throws {TypeError} When the name breaks these rules, or when the decorated
  *   method is not public, non-static and string-named.
@@ -237,14 +311,22 @@ export function Main(): ChoMethodDecorator {
  * Deno.exit(await app.run(Deno.args));
  * ```
  */
-export function Action(alias: string): ChoMethodDecorator {
+export function Action(
+  alias: string,
+  flags?: CommandFlags,
+): ChoMethodDecorator {
   return function (target, context, descriptor) {
     assert_action_name(alias);
     const adding = `@Action(${JSON.stringify(alias)})`;
+    assert_flags(flags, adding);
     const method = decorated_method(adding, target, context, descriptor);
     assert_command_method(method, adding);
     assert_no_command(method, adding);
-    add_to_metadata_object(method.meta, { [ACTION]: true, [ALIAS]: alias });
+    add_to_metadata_object(method.meta, {
+      [ACTION]: true,
+      [ALIAS]: alias,
+      ...(flags && { [FLAGS]: flags }),
+    });
   };
 }
 

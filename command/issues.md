@@ -12,10 +12,14 @@ Bugs and limitations of the current code, found while writing
 
 ## Limitations
 
-1. **A flag before the action name swallows it.** Flags are not declared, so
-   `./app -v ls` parses `ls` as the value of `-v`: there is no action, so the
-   help is printed and the exit code is `0`, without running `ls`. `./app ls -v`
-   works, and so does declaring the flag a boolean in `parseOptions`.
+1. **[FIXED] A flag before the action name swallows it.** Flags were not
+   declared, so `./app -v ls` parsed `ls` as the value of `-v`: there was no
+   action, the help was printed and the exit code was `0`, without running `ls`.
+
+   **Fix:** the command is now the first word that names an action
+   (`command/specs.md`, section 3.4), and a flag right before it has no value:
+   `-v ls dir` runs `ls` with `v: true`. Commands can also declare their flags
+   (`@Action(name, flags)`).
 
 2. **An unknown action with `--help` is not reported.** `./app nope --help`
    prints the global help and exits `0`, without saying that `nope` is not a
@@ -26,3 +30,12 @@ Bugs and limitations of the current code, found while writing
    context adds details (commands, runs, exit codes, errors), but cannot make
    the output quieter. Decide whether errors should be silent unless debug
    logging is on.
+
+## Behavior changes
+
+- **Positionals are strings.** `args._` used to hold numbers for words that
+  looked like numbers (`007` gave `7`, `0x10` gave `16`); it now holds them as
+  typed. Convert with `Number()` where a number is wanted.
+- **The command is found before the line is parsed** (section 3.4 of the
+  specification). `-v ls` used to give `v: "ls"` and no command.
+- `@Main` and `@Action` take the flags of their command, listed in its `--help`.

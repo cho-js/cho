@@ -92,7 +92,7 @@ import { describe } from "../utils/describe.ts";
 /** Options shared by every DI decorator. */
 export type InjectableOptions = {
   /** Dependencies passed to the class constructor, in argument order. */
-  dependencies: Dependency[];
+  dependencies: readonly Dependency[];
 };
 
 /**
@@ -164,9 +164,9 @@ export type ControllerOptions = InjectableOptions;
  *
  * export function Controller(
  *   options: Partial<ControllerOptions> & WebOptions = {},
- * ): ChoClassDecorator {
+ * ): ChoInjectableDecorator {
  *   assert_known_options("@Controller()", options, ["dependencies", "route"]);
- *   return CoreController<WebOptions>(options);
+ *   return CoreController<WebOptions, readonly Dependency[]>(options);
  * }
  * ```
  */

@@ -33,7 +33,7 @@ import {
   type ControllerNode,
 } from "./graph.ts";
 import { format_help } from "./help.ts";
-import { ALIAS, command_record } from "./keys.ts";
+import { ALIAS, command_record, FLAGS } from "./keys.ts";
 
 /**
  * Assert that a value is truthy.
@@ -179,7 +179,16 @@ export class ChoCommand {
       inj,
       graph,
       options,
-      graph.mode === "main" ? new ChoMainParser() : new ChoActionsParser(),
+      graph.mode === "main"
+        ? new ChoMainParser(command_record(graph.actions[0]![1].meta)[FLAGS])
+        : new ChoActionsParser(
+          new Map(
+            graph.actions.map(([, { meta }]) => {
+              const record = command_record(meta);
+              return [record[ALIAS]!, record[FLAGS]];
+            }),
+          ),
+        ),
     );
   }
 

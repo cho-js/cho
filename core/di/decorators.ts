@@ -15,15 +15,19 @@
  * a method, and can be combined with a DI decorator.
  *
  * The decorators work with TC39 standard decorators and with legacy or Bun
- * decorators (see `ChoClassDecorator` and `ChoClassOrMethodDecorator`).
+ * decorators (see `ChoInjectableDecorator` and `ChoClassOrMethodDecorator`).
+ *
+ * The DI decorators check, at compile time, that the dependencies they
+ * declare match the constructor of the class they decorate (see
+ * `ChoInjectableDecorator`).
  *
  * @module
  */
 
 import type {
-  ChoClassDecorator,
   ChoClassOrMethodDecorator,
   ChoErrorHandler,
+  ChoInjectableDecorator,
   ChoMiddleware,
   Dependency,
 } from "./types.ts";
@@ -41,6 +45,20 @@ import {
   set_module,
 } from "./decorations.ts";
 
+/**
+ * Options whose `dependencies` are the tuple `D`, so the decorator can check
+ * them against the constructor of the decorated class.
+ *
+ * @typeParam O The options.
+ * @typeParam D The dependencies, as a tuple.
+ */
+export type WithDependencies<O, D extends readonly Dependency[]> =
+  & Omit<O, "dependencies">
+  & {
+    /** Dependencies passed to the class constructor, in argument order. */
+    dependencies?: D;
+  };
+
 export type {
   ControllerOptions,
   Dependency,
@@ -56,6 +74,8 @@ export type {
  * injector then creates it by calling its constructor with the values of
  * `dependencies`, in order.
  *
+ * @typeParam D The dependencies, as a tuple: inferred from the array, and
+ *   checked against the constructor of the decorated class.
  * @param dependencies The constructor's dependencies, in argument order.
  *   Defaults to `[]`.
  * @returns The class decorator.
@@ -77,7 +97,9 @@ export type {
  * }
  * ```
  */
-export function Injectable(dependencies: Dependency[] = []): ChoClassDecorator {
+export function Injectable<const D extends readonly Dependency[] = []>(
+  dependencies: D = [] as unknown as D,
+): ChoInjectableDecorator<NoInfer<D>> {
   return (target, context) => {
     const meta = context?.metadata ?? target;
     set_injectable(meta, { dependencies });
@@ -99,6 +121,9 @@ export function Injectable(dependencies: Dependency[] = []): ChoClassDecorator {
  * @typeParam E The extra options a CHO module accepts (such as the `route` of
  *   `@chojs/web`), stored as is and handed back as `ModuleMetadata.options`.
  *   By default there is none, so an unknown option is a compile error.
+ * @typeParam D The `dependencies`, as a tuple: inferred, and checked against
+ *   the constructor of the decorated class. A caller that gives `E` gives `D`
+ *   too (TypeScript infers all type arguments or none).
  * @param options What the module imports, declares and exports. Every field
  *   defaults to `[]`.
  * @returns The class decorator.
@@ -121,9 +146,13 @@ export function Injectable(dependencies: Dependency[] = []): ChoClassDecorator {
  * class UserModule {}
  * ```
  */
-export function Module<E extends ExtraOptions = NoExtraOptions>(
-  options: Partial<ModuleOptions> & NoInfer<E> = {} as NoInfer<E>,
-): ChoClassDecorator {
+export function Module<
+  E extends ExtraOptions = NoExtraOptions,
+  const D extends readonly Dependency[] = [],
+>(
+  options: WithDependencies<Partial<ModuleOptions>, D> & NoInfer<E> =
+    {} as NoInfer<E>,
+): ChoInjectableDecorator<NoInfer<D>> {
   return (target, context) => {
     const meta = context?.metadata ?? target;
     // Checked first, so a bad option leaves the class undecorated instead of
@@ -150,6 +179,9 @@ export function Module<E extends ExtraOptions = NoExtraOptions>(
  *   `@chojs/web`), stored as is and handed back as
  *   `ControllerMetadata.options`. By default there is none, so an unknown
  *   option is a compile error.
+ * @typeParam D The `dependencies`, as a tuple: inferred, and checked against
+ *   the constructor of the decorated class. A caller that gives `E` gives `D`
+ *   too (TypeScript infers all type arguments or none).
  * @param options The controller's dependencies (default `[]`), plus the extra
  *   options of `E`.
 
@@ -168,9 +200,13 @@ export function Module<E extends ExtraOptions = NoExtraOptions>(
  * class App {}
  * ```
  */
-export function Controller<E extends ExtraOptions = NoExtraOptions>(
-  options: Partial<ControllerOptions> & NoInfer<E> = {} as NoInfer<E>,
-): ChoClassDecorator {
+export function Controller<
+  E extends ExtraOptions = NoExtraOptions,
+  const D extends readonly Dependency[] = [],
+>(
+  options: WithDependencies<Partial<ControllerOptions>, D> & NoInfer<E> =
+    {} as NoInfer<E>,
+): ChoInjectableDecorator<NoInfer<D>> {
   return (target, context) => {
     const meta = context?.metadata ?? target;
     set_injectable(meta, { dependencies: options.dependencies ?? [] });

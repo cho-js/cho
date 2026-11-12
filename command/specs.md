@@ -123,14 +123,16 @@ constructor, resolved in the scope of the module that declares it.
 Controllers can be declared in any module of the application, imported ones
 included. A controller without command methods is ignored.
 
-### 2.2 `@Main()`
+### 2.2 `@Main(flags?)`
 
 Marks the method that runs for every command line. The application has exactly
-one, and no `@Action` (section 2.5).
+one, and no `@Action` (section 2.5). `flags` declares the flags it accepts
+(section 3.3).
 
-### 2.3 `@Action(name)`
+### 2.3 `@Action(name, flags?)`
 
-Marks the method that runs for `./app <name>`.
+Marks the method that runs for `./app <name>`. `flags` declares the flags the
+command accepts (section 3.3).
 
 - The name must be a non-empty string, without whitespace, that does not start
   with `-`: a word the command line can pass as is, and not as a flag. Any other
@@ -169,21 +171,23 @@ A command method receives the parsed command line: the result of `parseArgs`
 from `@std/cli` (minimist style).
 
 ```ts
-// ./fs copy a.txt 42 --force --mode=644 -v
+// ./fs copy a.txt 007 --force --mode=644 -v
 copy(args: ChoArgs) {
-  args._;     // ["a.txt", 42]  positionals; numbers are parsed as numbers
+  args._;     // ["a.txt", "007"]  positionals, always as typed
   args.force; // true
-  args.mode;  // 644
+  args.mode;  // 644: not declared, so typed from its look
   args.v;     // true
 }
 ```
 
+- **Positionals are strings**, exactly as typed: `007`, `0x10` and `1e3` are not
+  turned into numbers.
 - In multiple-action mode, `_` does not include the action name.
 - `--help` and `--version` are never in it (section 3.2).
-- Flags are not declared, so their types come from the command line alone: a
-  flag that is followed by a word that is not a flag takes it as its value
-  (`--out dir` gives `out: "dir"`). Declare flags with `parseOptions` (section
-  3.3) to change that.
+- A flag that is **not declared** is typed from the command line alone: followed
+  by a word that is not a flag, it takes it as its value (`--out dir` gives
+  `out: "dir"`), and a value that looks like a number becomes one (`--mode=644`
+  gives `644`). Declare the flag (section 3.3) to decide instead.
 
 ### 3.2 Reserved flags: `--help` and `--version`
 
@@ -191,20 +195,66 @@ Only these two long flags are reserved. They never take a value (`--help copy`
 is the help of `copy`), `--no-help` and `--help=false` turn them off, and they
 are never passed to commands. Short flags (`-h`, `-v`) are left to the commands.
 
-### 3.3 Declaring flags: `parseOptions`
+### 3.3 Declaring flags
 
-The `parseOptions` option of `ChoCommand.create` takes `parseArgs` options (type
+**A command declares its own flags**, as the second argument of `@Action` (the
+first of `@Main`), of type `CommandFlags`:
+
+```ts
+@Action("copy", {
+  boolean: ["force"], // no value: never takes the next word
+  string: ["mode"], // value kept as typed: "0755" stays "0755"
+  collect: ["exclude"], // can repeat: collected in an array
+  negatable: ["color"], // --no-color turns it off
+  alias: { f: "force" }, // -f is --force
+  default: { mode: "644" }, // when the flag is not given
+  describe: { force: "Overwrite existing files" }, // for --help
+})
+copy(args: ChoArgs) {
+  // ./fs copy a b -f --mode 0755 --exclude x --exclude y
+  // { _: ["a", "b"], f: true, force: true, mode: "0755", exclude: ["x", "y"] }
+}
+```
+
+They apply when that command runs, and only then: another command does not know
+them. They are listed in the command's `--help` (section 5). A malformed
+declaration, or a reserved flag in it, throws when the class is defined.
+
+**The application declares flags for every command** with the `parseOptions`
+option of `ChoCommand.create`, which takes `parseArgs` options (type
 `ParserOptions`): `boolean`, `string`, `collect`, `negatable`, `alias`,
-`default`, `stopEarly`, `"--"` and `unknown`.
+`default`, `stopEarly`, `"--"` and `unknown`. A command's flags are added to
+them.
 
 ```ts
 const app = ChoCommand.create(App, {
-  parseOptions: { boolean: ["force"], string: ["out"], alias: { f: "force" } },
+  parseOptions: { boolean: ["verbose"], string: ["config"] },
 });
-// ./fs --force copy a b   now runs `copy`: --force no longer takes "copy"
 ```
 
-Whatever they say, `--help` and `--version` keep the behavior of section 3.2.
+Whatever is declared, `--help` and `--version` keep the behavior of section 3.2.
+
+### 3.4 Finding the command
+
+With multiple actions, the command is the first word that **names an action**
+and is not a flag, the value of a declared flag, or after `--`. It is removed,
+and the rest is parsed with the application's options and the command's flags.
+
+| Command line       | Runs   | Args                                                   |
+| ------------------ | ------ | ------------------------------------------------------ |
+| `copy a b`         | `copy` | `_: ["a", "b"]`                                        |
+| `-v ls dir`        | `ls`   | `v: true`, `_: ["dir"]`: `-v` did not take `ls`        |
+| `--out dir copy a` | `copy` | `out: "dir"`, `_: ["a"]`: `dir` is not an action       |
+| `--force copy a`   | `copy` | `force: true`: a command's flag can come before it     |
+| `--config ls copy` | `copy` | `config: "ls"`, once the application declares `config` |
+| `copy -- ls`       | `copy` | `_: ["ls"]`                                            |
+
+Only a word after a flag the **application** declares as `string` or `collect`
+is known to be a value before the command is found; the value of any other flag
+that happens to be an action name is taken as the command.
+
+When no word names an action, the route is the first positional: it is reported
+as an unknown action (section 4.2), or there is none.
 
 ## 4. Running the application
 
@@ -333,7 +383,20 @@ described in section 4.3 either way.
 ## 5. Help
 
 `--help` prints to stdout, built from the `@Help` texts. The options listed are
-always the two reserved flags.
+the flags the command declares (section 3.3), then the two reserved flags. A
+declared flag is shown with its other names, how it is written (`<value>` for a
+`string`, `<value>...` for a `collect`, `--[no-]name` for a `negatable`), its
+`describe` text and its default:
+
+```
+Options:
+  -f, --force           Overwrite existing files
+  --mode <value>        (default: 644)
+  --exclude <value>...
+  --[no-]color
+  --help                Show this help
+  --version             Show the version
+```
 
 A single command (`./ls --help`): the usage, the controller's help, the method's
 help, then the options.
@@ -391,7 +454,7 @@ Run 'fs <command> --help' for help on a command.
 | --------------------------------------------------------------------------------- | -------- | ------- |
 | `ChoCommand`, `ChoCommandOptions`                                                 | class    | 4       |
 | `Main`, `Action`, `Help`                                                          | function | 2       |
-| `ChoArgs`, `ParserOptions`                                                        | type     | 3       |
+| `ChoArgs`, `CommandFlags`, `ParserOptions`                                        | type     | 3       |
 | `Controller`, `Module` (the core's, with no extra option)                         | function | 2.1     |
 | `Injectable`, `Catch` (re-exported from `@chojs/core`)                            | function | 2.1     |
 | `ControllerOptions`, `ModuleOptions`, `InjectableOptions` (re-exported, see core) | type     | 2.1     |
@@ -412,6 +475,16 @@ Run 'fs <command> --help' for help on a command.
 | A second `@Main` / `@Action` on a method     | `Cannot add <decorator> to method '<name>': it already has <existing>. A method can have at most one @Main or @Action.` |
 | `@Help` text is empty or not a string        | `TypeError: Help must be a non-empty string`                                                                            |
 | `@Help` on anything but a class or a method  | `TypeError: @Help() can only decorate a class or a method`                                                              |
+
+Flags declared with `@Main` / `@Action`, each message starting with the
+decorator (`@Action("copy"): …`):
+
+- `TypeError: … the flags must be an object`
+- `… unknown option "<key>". Known options: boolean, string, collect, negatable, alias, default, describe`
+- `TypeError: … "<key>" must be an array of flag names` (`boolean`, `string`,
+  `collect`, `negatable`)
+- `TypeError: … "<key>" must be an object` (`alias`, `default`, `describe`)
+- `… the flag "<name>" is reserved by the application` (`help`, `version`)
 
 An unknown option of `@Module` or `@Controller` throws
 `@Controller(): unknown option "<name>". Known options: dependencies`.

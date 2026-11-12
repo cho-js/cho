@@ -13,7 +13,12 @@ export class MultiActionController {
   }
 
   @Help("Goodbye world action")
-  @Action("goodbye")
+  @Action("goodbye", {
+    boolean: ["loud"],
+    string: ["to"],
+    alias: { l: "loud" },
+    describe: { loud: "Say it louder", to: "Who to say goodbye to" },
+  })
   sayGoodbye(ctx: ChoArgs) {
     console.log("Goodbye");
     console.log("argument used in this run:", ctx);
@@ -31,4 +36,5 @@ const code = await app.run(Deno.args);
 await app.close(); // release what the application created
 Deno.exit(code);
 
-// run with ./examples/multi-actions-cli.ts goodbye --foo bar
+// run with ./examples/multi-actions-cli.ts goodbye --to you -l
+// and ./examples/multi-actions-cli.ts goodbye --help

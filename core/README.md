@@ -32,8 +32,10 @@ injection system driven by decorators, plus the helpers CHO modules build on.
   imports export, and nothing else.
 - **Every runtime.** Deno, Node.js and Bun, with TC39 decorators as well as
   legacy (`experimentalDecorators`) and Bun decorators.
-- **No reflection.** Dependencies are declared explicitly; no
-  `reflect-metadata`, no emitted types.
+- **No reflection, still type-checked.** Dependencies are declared explicitly;
+  no `reflect-metadata`, no emitted types. The list is checked against the
+  constructor at compile time: a wrong order or a missing dependency does not
+  compile.
 
 ## Install
 

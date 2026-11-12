@@ -131,6 +131,26 @@ A provider says how to create the value of a token. There are two kinds:
 
 Every dependency is required: there are no optional dependencies.
 
+**The dependencies are checked against the constructor, at compile time.**
+`@Injectable`, `@Module` and `@Controller` only accept a class whose constructor
+can be called with the values of the listed dependencies, in order:
+
+```ts
+@Injectable([PORT, Logger]) // compile error: the constructor wants (Logger, number)
+class Server {
+  constructor(logger: Logger, port: number) {}
+}
+```
+
+- Checked: the value type of each dependency against the parameter at its
+  position, and that every required parameter has a dependency. A class may take
+  fewer parameters than there are dependencies.
+- The check needs the list as written in the decorator. A list typed
+  `Dependency[]` (kept in a variable, built elsewhere) is not checked.
+- A symbol token has no value type, so it can be received as any type.
+- TypeScript compares types by structure: a class with no members accepts any
+  value, so the check is only as precise as the types are.
+
 ### 2.4 Modules
 
 ```ts
@@ -157,13 +177,17 @@ at runtime:
 // in @chojs/web
 type RouteOption = { route?: string };
 
-export function Controller(
-  options: Partial<ControllerOptions> & RouteOption = {},
-): ChoClassDecorator {
+export function Controller<const D extends readonly Dependency[] = []>(
+  options: WithDependencies<Partial<ControllerOptions>, D> & RouteOption = {},
+): ChoInjectableDecorator<D> {
   assert_known_options("@Controller()", options, ["dependencies", "route"]);
-  return CoreController<RouteOption>(options);
+  return CoreController<RouteOption, D>(options);
 }
 ```
+
+The second type parameter, `D`, carries the dependencies as a tuple, so the
+constructor check (section 2.3) still applies through the CHO module's
+decorator.
 
 Such extra options are stored as is; the DI system ignores them, whatever their
 names, and hands them back apart from its own fields, as `options` (section
@@ -516,18 +540,19 @@ The DI essentials:
 Everything in `@chojs/core`, plus what CHO module authors need to write their
 own decorators and read them back:
 
-| Export                                                                                     | Use                                                                                                            |
-| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `read_metadata_object`, `write_metadata_object`, `add_to_metadata_object`                  | Read and write the CHO record of a class or a method (section 4.1).                                            |
-| `method_metadata`, `read_method_metadata`, `method_records`                                | Where a method's record is stored, and reading the records of a class's methods (section 4.1).                 |
-| `assert_known_options`, `ExtraOptions`, `NoExtraOptions`                                   | For a CHO module's own `@Module` / `@Controller`: its extra options, and rejecting unknown ones (section 2.4). |
-| `decorated_method`, `decorated_target`                                                     | Find what a decorator was applied to, in both decorator call shapes (TC39 and legacy/Bun).                     |
-| `set_injectable`, `set_module`, `set_controller`, `set_middlewares`, `set_error_handler`   | What the core decorators do, for decorators that wrap them.                                                    |
-| `isToken`                                                                                  | Whether a value is a token.                                                                                    |
-| `ChoClassDecorator`, `ChoMethodDecorator`, `ChoClassOrMethodDecorator`                     | Decorator types that accept both call shapes.                                                                  |
-| `Token`, `InjectionToken`, `Provider`, `Factory`, `Resolved`, `ResolvedAll`, `AbstractCtr` | Token and provider types.                                                                                      |
-| `ChoMiddleware`, `ChoErrorHandler`                                                         | What `@Middlewares` and `@Catch` store: any function or class.                                                 |
-| `InjectableOptions`, `DecoratedMethod`, `MetaTarget`, the `*Metadata` types                | Option, record and graph types.                                                                                |
+| Export                                                                                     | Use                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read_metadata_object`, `write_metadata_object`, `add_to_metadata_object`                  | Read and write the CHO record of a class or a method (section 4.1).                                                                                   |
+| `method_metadata`, `read_method_metadata`, `method_records`                                | Where a method's record is stored, and reading the records of a class's methods (section 4.1).                                                        |
+| `assert_known_options`, `ExtraOptions`, `NoExtraOptions`                                   | For a CHO module's own `@Module` / `@Controller`: its extra options, and rejecting unknown ones (section 2.4).                                        |
+| `decorated_method`, `decorated_target`                                                     | Find what a decorator was applied to, in both decorator call shapes (TC39 and legacy/Bun).                                                            |
+| `set_injectable`, `set_module`, `set_controller`, `set_middlewares`, `set_error_handler`   | What the core decorators do, for decorators that wrap them.                                                                                           |
+| `isToken`                                                                                  | Whether a value is a token.                                                                                                                           |
+| `ChoClassDecorator`, `ChoMethodDecorator`, `ChoClassOrMethodDecorator`                     | Decorator types that accept both call shapes.                                                                                                         |
+| `ChoInjectableDecorator`, `InjectedArgs`, `WithDependencies`                               | The type of the DI decorators, which checks the dependencies against the constructor; for a CHO module's own `@Module` / `@Controller` (section 2.4). |
+| `Token`, `InjectionToken`, `Provider`, `Factory`, `Resolved`, `ResolvedAll`, `AbstractCtr` | Token and provider types.                                                                                                                             |
+| `ChoMiddleware`, `ChoErrorHandler`                                                         | What `@Middlewares` and `@Catch` store: any function or class.                                                                                        |
+| `InjectableOptions`, `DecoratedMethod`, `MetaTarget`, the `*Metadata` types                | Option, record and graph types.                                                                                                                       |
 
 Every decorator must accept both call shapes: TC39 `(value, context)`, and
 legacy / Bun `(prototype, name, descriptor)`. A typical method decorator of a
@@ -627,6 +652,14 @@ creates nothing.
   decorator cannot reach the class (a static or private method, or TC39
   decorators compiled for a runtime without `Symbol.metadata`), the record is
   written on the function, and read from there too.
+- **Records are versioned.** Every copy of the package in an application shares
+  the records, so each record is stamped with the format it was written in
+  (`METADATA_FORMAT`, under `Symbol.for("chojs.meta.format")`). Reading or
+  extending a record of another format throws
+  `The CHO metadata of X was written in format N, but this copy of @chojs/core
+  reads format M. Two incompatible versions of @chojs/core are loaded: use one
+  version.`
+  The format number increases with any change another version would misread.
 - Records are frozen and replaced on every write, never mutated.
   `add_to_metadata_object` merges into the existing record: arrays are
   concatenated, any other value replaces the previous one.

@@ -10,6 +10,7 @@
  * class Foo
  *   └─ [Symbol.metadata]                         the class's own metadata object
  *        ├─ [Symbol.for("chojs.meta")]           the CHO record of the class (frozen)
+ *        ├─ [Symbol.for("chojs.meta.format")]    the format the record was written in
  *        └─ [Symbol.for("chojs.meta.methods")]   the methods of the class, by name
  *             └─ run
  *                  └─ [Symbol.for("chojs.meta")] the CHO record of `run` (frozen)
@@ -34,6 +35,11 @@
  *   decorators, and with plain function calls (the record is written to the
  *   class itself). Runtimes without a native `Symbol.metadata` use
  *   `Symbol.for("Symbol.metadata")`, the same fallback transpilers use.
+ *
+ * - **Versioned.** Every copy of the package in an application shares the
+ *   records, so each record is stamped with its format
+ *   ({@link METADATA_FORMAT}). A copy that finds a record of another format
+ *   throws: two incompatible versions are loaded.
  *
  * A record's keys can be strings or symbols. The framework writes its own
  * data under symbol keys (core's are in `keys.ts`), so they never collide
@@ -70,6 +76,27 @@ const MetaKey: symbol = Symbol.for("chojs.meta");
  * Where metadata can be stored: a class (or any function), or a TC39
  * decorator metadata object (`context.metadata` inside a decorator).
  */
+/**
+ * The format of the records this copy of the package writes and reads: how
+ * they are stored, and the keys and shapes of what the core writes in them.
+ *
+ * Records are shared by every copy of the package in an application (see
+ * `MetaKey`), so two copies must agree on the format. Each record is stamped
+ * with the format it was written in, and reading a record of another format
+ * throws instead of misreading it.
+ *
+ * Increase it with any change that an older or newer copy would misread: a
+ * renamed or re-shaped core key, or a change of where records are stored.
+ */
+export const METADATA_FORMAT = 1;
+
+/**
+ * Key of the format stamp, next to a record, in the same metadata object.
+ *
+ * @internal
+ */
+const FormatKey: symbol = Symbol.for("chojs.meta.format");
+
 export type MetaTarget = Target | DecoratorMetadataObject;
 
 /** A decorator metadata object, seen as a plain key-value bag. */
@@ -130,9 +157,33 @@ function own_bag(target: MetaTarget, create: boolean): Bag | undefined {
 export function read_metadata_object<T>(target: MetaTarget): T | undefined {
   const bag = own_bag(target, false);
   if (bag && Object.hasOwn(bag, MetaKey)) {
+    assert_format(bag, target);
     return bag[MetaKey] as T;
   }
   return undefined;
+}
+
+/**
+ * Throw if a record was written in another format than this copy of the
+ * package reads.
+ *
+ * @param bag The metadata object that holds the record.
+ * @param target What the record was read from, for the message.
+ * @throws {Error} When the record's format is not {@link METADATA_FORMAT}.
+ */
+function assert_format(bag: Bag, target: MetaTarget): void {
+  const format = Object.hasOwn(bag, FormatKey) ? bag[FormatKey] : undefined;
+  if (format !== METADATA_FORMAT) {
+    const name = typeof target === "function" && target.name
+      ? ` of ${target.name}`
+      : "";
+    throw new Error(
+      `The CHO metadata${name} was written in format ${
+        format === undefined ? "(none)" : String(format)
+      }, but this copy of @chojs/core reads format ${METADATA_FORMAT}. ` +
+        `Two incompatible versions of @chojs/core are loaded: use one version.`,
+    );
+  }
 }
 
 /**
@@ -161,8 +212,20 @@ export function write_metadata_object(
     const value = obj[key];
     record[key] = Array.isArray(value) ? Object.freeze([...value]) : value;
   }
-  Object.defineProperty(own_bag(target, true), MetaKey, {
+  const bag = own_bag(target, true)!;
+  // Never overwrite a record of another format: its other writers would then
+  // read a record they did not write.
+  if (Object.hasOwn(bag, MetaKey)) {
+    assert_format(bag, target);
+  }
+  Object.defineProperty(bag, MetaKey, {
     value: Object.freeze(record),
+    writable: false,
+    enumerable: false,
+    configurable: true,
+  });
+  Object.defineProperty(bag, FormatKey, {
+    value: METADATA_FORMAT,
     writable: false,
     enumerable: false,
     configurable: true,

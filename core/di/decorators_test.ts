@@ -169,7 +169,10 @@ describe("@Module", () => {
   it("stores extra options without duplicating dependencies", () => {
     class Logger {}
     class App {}
-    Module<ExtraOptions>({ dependencies: [Logger], route: "api" })(App);
+    Module<ExtraOptions, [typeof Logger]>({
+      dependencies: [Logger],
+      route: "api",
+    })(App);
     assert.deepEqual(read_metadata_object(App), {
       [INJECTABLE]: true,
       [MODULE]: true,

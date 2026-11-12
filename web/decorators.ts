@@ -17,18 +17,20 @@
 import {
   add_to_metadata_object,
   assert_known_options,
-  type ChoClassDecorator,
   type ChoClassOrMethodDecorator,
+  type ChoInjectableDecorator,
   type ChoMethodDecorator,
   Controller as CoreController,
   type ControllerOptions,
   decorated_method,
   decorated_target,
+  type Dependency,
   Module as CoreModule,
   type ModuleOptions,
   read_metadata_object,
   set_error_handler,
   set_middlewares,
+  type WithDependencies,
 } from "@chojs/core/di";
 import { HTTP, http_route, type HttpRoute } from "./keys.ts";
 import { normalize_route } from "./path.ts";
@@ -47,13 +49,17 @@ type RouteOption = {
  * Options of `@Module` in a web application: the module options of the core,
  * and the `route` of the feature.
  */
-export type WebModuleOptions = Partial<ModuleOptions> & RouteOption;
+export type WebModuleOptions<
+  D extends readonly Dependency[] = readonly Dependency[],
+> = WithDependencies<Partial<ModuleOptions>, D> & RouteOption;
 
 /**
  * Options of `@Controller` in a web application: its `dependencies`, and its
  * `route`.
  */
-export type WebControllerOptions = Partial<ControllerOptions> & RouteOption;
+export type WebControllerOptions<
+  D extends readonly Dependency[] = readonly Dependency[],
+> = WithDependencies<Partial<ControllerOptions>, D> & RouteOption;
 
 /**
  * Mark a class as a module (see `@Module` of `@chojs/core`). A module that
@@ -72,7 +78,9 @@ export type WebControllerOptions = Partial<ControllerOptions> & RouteOption;
  * class App {}
  * ```
  */
-export function Module(options: WebModuleOptions = {}): ChoClassDecorator {
+export function Module<const D extends readonly Dependency[] = []>(
+  options: WebModuleOptions<D> = {},
+): ChoInjectableDecorator<NoInfer<D>> {
   assert_known_options("@Module()", options, [
     "dependencies",
     "imports",
@@ -81,7 +89,7 @@ export function Module(options: WebModuleOptions = {}): ChoClassDecorator {
     "exports",
     "route",
   ]);
-  return CoreModule<RouteOption>(options);
+  return CoreModule<RouteOption, D>(options);
 }
 
 /**
@@ -102,11 +110,11 @@ export function Module(options: WebModuleOptions = {}): ChoClassDecorator {
  * }
  * ```
  */
-export function Controller(
-  options: WebControllerOptions = {},
-): ChoClassDecorator {
+export function Controller<const D extends readonly Dependency[] = []>(
+  options: WebControllerOptions<D> = {},
+): ChoInjectableDecorator<NoInfer<D>> {
   assert_known_options("@Controller()", options, ["dependencies", "route"]);
-  return CoreController<RouteOption>(options);
+  return CoreController<RouteOption, D>(options);
 }
 
 /**

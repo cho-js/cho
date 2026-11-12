@@ -61,8 +61,8 @@ describe("ChoActionsParser", () => {
   it("gives a numeric command name as a string", () => {
     const { args, route } = parser.parse(["42", "7"]);
     assert.equal(route, "42");
-    // the remaining positionals are left as parseArgs gives them
-    assert.deepEqual(args._, [7]);
+    // positionals are kept as typed
+    assert.deepEqual(args._, ["7"]);
   });
 });
 
@@ -196,5 +196,164 @@ describe("parser options", () => {
     const options = { boolean: ["force"], negatable: ["force"] };
     actions.parse(["--force"], options);
     assert.deepEqual(options, { boolean: ["force"], negatable: ["force"] });
+  });
+});
+
+describe("positionals", () => {
+  it("are kept as typed, never turned into numbers", () => {
+    const argv = ["0501234567", "0x10", "1e3", "7"];
+    assert.deepEqual(new ChoMainParser().parse(argv).args._, argv);
+    assert.deepEqual(
+      new ChoActionsParser(new Map([["call", undefined]]))
+        .parse(["call", ...argv]).args._,
+      argv,
+    );
+  });
+
+  it("stay strings when the application declares string flags", () => {
+    const { args } = new ChoMainParser().parse(["007", "--id", "008"], {
+      string: ["id"],
+    });
+    assert.deepEqual(args, { _: ["007"], id: "008" });
+  });
+
+  it("still types the value of a flag that is not declared", () => {
+    const { args } = new ChoMainParser().parse(["--id=007", "--name", "x"]);
+    assert.deepEqual(args, { _: [], id: 7, name: "x" });
+  });
+});
+
+describe("command flags", () => {
+  const copy = {
+    boolean: ["force"],
+    string: ["mode"],
+    collect: ["exclude"],
+    negatable: ["color"],
+    alias: { f: "force" },
+    default: { mode: "644" },
+  };
+  const actions = new ChoActionsParser(
+    new Map([["copy", copy], ["ls", undefined]]),
+  );
+
+  it("parse the command line of their command", () => {
+    const { args, route } = actions.parse([
+      "copy",
+      "-f",
+      "a",
+      "--mode",
+      "0755",
+      "--exclude",
+      "x",
+      "--exclude",
+      "y",
+      "--no-color",
+      "b",
+    ]);
+    assert.equal(route, "copy");
+    assert.deepEqual(args, {
+      _: ["a", "b"],
+      f: true,
+      force: true,
+      mode: "0755",
+      exclude: ["x", "y"],
+      color: false,
+    });
+  });
+
+  it("apply their defaults", () => {
+    const { args } = actions.parse(["copy", "a"]);
+    assert.equal(args.mode, "644");
+    assert.equal(args.force, false);
+    assert.equal("exclude" in args, false);
+  });
+
+  it("do not apply to another command", () => {
+    const { args, route } = actions.parse(["ls", "--mode", "0755", "-f", "x"]);
+    assert.equal(route, "ls");
+    // undeclared for `ls`: typed from their look, and -f takes the next word
+    assert.deepEqual(args, { _: [], mode: 755, f: "x" });
+  });
+
+  it("are added to the application's options", () => {
+    const { args } = actions.parse(["copy", "--out", "01", "-v", "a"], {
+      string: ["out"],
+      boolean: ["v"],
+    });
+    assert.equal(args.out, "01");
+    assert.equal(args.v, true);
+    assert.equal(args.force, false);
+    assert.deepEqual(args._, ["a"]);
+  });
+
+  it("apply to the single command of main mode", () => {
+    const { args, route } = new ChoMainParser(copy).parse(["-f", "a"]);
+    assert.equal(route, "main");
+    assert.deepEqual(args._, ["a"]);
+    assert.equal(args.force, true);
+  });
+
+  it("keep the reserved flags", () => {
+    const { args, help } = actions.parse(["copy", "--help"]);
+    assert.equal(help, true);
+    assert.equal("help" in args, false);
+  });
+});
+
+describe("finding the command", () => {
+  const actions = new ChoActionsParser(
+    new Map([["copy", { boolean: ["force"] }], ["ls", undefined]]),
+  );
+
+  it("is not fooled by an undeclared flag before the command", () => {
+    const { args, route } = actions.parse(["-v", "ls", "dir"]);
+    assert.equal(route, "ls");
+    assert.deepEqual(args, { _: ["dir"], v: true });
+  });
+
+  it("skips words that are not commands: an undeclared flag's value", () => {
+    const { args, route } = actions.parse(["--out", "dir", "copy", "a"]);
+    assert.equal(route, "copy");
+    assert.deepEqual(args, { _: ["a"], out: "dir", force: false });
+  });
+
+  it("takes a command's own flag given before its name", () => {
+    const { args, route } = actions.parse(["--force", "copy", "a"]);
+    assert.equal(route, "copy");
+    assert.deepEqual(args, { _: ["a"], force: true });
+  });
+
+  it("never takes the value of a declared string flag as the command", () => {
+    for (const argv of [["--out", "ls", "copy"], ["-o", "ls", "copy"]]) {
+      const { args, route } = actions.parse(argv, {
+        string: ["out"],
+        alias: { o: "out" },
+      });
+      assert.equal(route, "copy");
+      assert.equal(args.out, "ls");
+    }
+    // --out=ls holds its own value: the next word can be the command
+    assert.equal(
+      actions.parse(["--out=x", "ls"], { string: ["out"] }).route,
+      "ls",
+    );
+  });
+
+  it("does not look after --", () => {
+    const { args, route } = actions.parse(["copy", "--", "ls"]);
+    assert.equal(route, "copy");
+    assert.deepEqual(args._, ["ls"]);
+  });
+
+  it("only removes the command name once", () => {
+    const { args } = actions.parse(["copy", "copy", "ls"]);
+    assert.deepEqual(args._, ["copy", "ls"]);
+  });
+
+  it("falls back to the first positional for an unknown command", () => {
+    const { args, route } = actions.parse(["nope", "a"]);
+    assert.equal(route, "nope");
+    assert.deepEqual(args._, ["a"]);
+    assert.equal(actions.parse(["--force"]).route, "");
   });
 });

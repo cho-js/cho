@@ -290,7 +290,7 @@ describe("build_meta_graph", () => {
       const EXT = Symbol.for("test.ext");
       class Logger {}
       class Cli {}
-      Controller<ExtraOptions>({
+      Controller<ExtraOptions, [typeof Logger]>({
         dependencies: [Logger],
         name: "cli",
         tags: ["a"],

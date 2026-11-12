@@ -8,7 +8,11 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { read_metadata_object, read_method_metadata } from "@chojs/core/di";
+import {
+  read_metadata_object,
+  read_method_metadata,
+  token,
+} from "@chojs/core/di";
 import { Action, Controller, Help, Main, Module } from "./decorators.ts";
 import { ACTION, ALIAS, HELP, MAIN } from "./keys.ts";
 import { legacy, loose, tc39, tc39_record } from "@chojs/core/utils/test_utils";
@@ -274,6 +278,8 @@ describe("@Help", () => {
   });
 });
 
+const NAME = token<string>("NAME");
+
 describe("@Module and @Controller", () => {
   it("accept the core's options", () => {
     class Disk {}
@@ -298,6 +304,100 @@ describe("@Module and @Controller", () => {
       // @ts-expect-error a command module has no route
       () => Module({ route: "x" })(class {}),
       { message: /^@Module\(\): unknown option "route"/ },
+    );
+  });
+
+  it("check the dependencies against the constructor", () => {
+    class Disk {
+      read() {}
+    }
+    class Files {
+      constructor(readonly disk: Disk) {}
+    }
+    // Type-only: never called.
+    const _check = () => {
+      Controller({ dependencies: [Disk] })(Files);
+      // @ts-expect-error the constructor needs a Disk
+      Controller()(Files);
+      // @ts-expect-error a string is not a Disk
+      Controller({ dependencies: [NAME] })(Files);
+    };
+  });
+});
+
+describe("command flags", () => {
+  const FLAGS = Symbol.for("chojs.command.flags");
+  const flags_of = (fn: () => void) =>
+    (tc39_record(fn, "run") as Record<symbol, unknown> | undefined)?.[FLAGS];
+
+  it("are stored by @Action and @Main, only when declared", () => {
+    const flags = { boolean: ["force"], alias: { f: "force" } };
+    const with_flags = function run() {};
+    tc39(Action("copy", flags), with_flags, "run");
+    assert.deepEqual(flags_of(with_flags), flags);
+
+    const main = function run() {};
+    tc39(Main(flags), main, "run");
+    assert.deepEqual(flags_of(main), flags);
+
+    const without = function run() {};
+    tc39(Action("ls"), without, "run");
+    assert.equal(FLAGS in (tc39_record(without, "run") as object), false);
+  });
+
+  for (
+    const [flags, error] of [
+      ["force", { name: "TypeError", message: /the flags must be an object/ }],
+      [["force"], {
+        name: "TypeError",
+        message: /the flags must be an object/,
+      }],
+      [
+        { booleans: ["force"] },
+        {
+          message: /unknown option "booleans"\. Known options: boolean, string/,
+        },
+      ],
+      [
+        { boolean: "force" },
+        {
+          name: "TypeError",
+          message: /"boolean" must be an array of flag names/,
+        },
+      ],
+      [
+        { string: ["mode", ""] },
+        {
+          name: "TypeError",
+          message: /"string" must be an array of flag names/,
+        },
+      ],
+      [
+        { alias: ["f"] },
+        { name: "TypeError", message: /"alias" must be an object/ },
+      ],
+      [
+        { boolean: ["help"] },
+        { message: /the flag "help" is reserved by the application/ },
+      ],
+      [
+        { alias: { v: "version" } },
+        { message: /the flag "version" is reserved by the application/ },
+      ],
+    ] as const
+  ) {
+    it(`reject ${JSON.stringify(flags)}`, () => {
+      const run = function run() {};
+      assert.throws(() => tc39(Action("x", loose(flags)), run, "run"), error);
+      assert.throws(() => tc39(Main(loose(flags)), run, "run"), error);
+      assert.equal(tc39_record(run, "run"), undefined);
+    });
+  }
+
+  it("name the decorator in the message", () => {
+    assert.throws(
+      () => tc39(Action("copy", loose(1)), () => {}, "run"),
+      { message: '@Action("copy"): the flags must be an object' },
     );
   });
 });
