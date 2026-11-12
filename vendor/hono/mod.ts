@@ -21,9 +21,8 @@
 import type { ChoMiddlewareFn } from "@chojs/web";
 import type { Context, ErrorHandler, MiddlewareHandler } from "@hono/hono";
 import { Hono } from "@hono/hono";
-import { type AppRef, MethodRef, NodeRef } from "@chojs/web/graph";
-import type { Target } from "@chojs/core";
-import { Linked, Linker } from "@chojs/web/linker";
+import type { AppRef, MethodRef, NodeRef } from "@chojs/web/graph";
+import { Linked, type Linker } from "@chojs/web/linker";
 
 /**
  * A Hono application linked by {@link HonoLinker}.
@@ -38,7 +37,7 @@ import { Linked, Linker } from "@chojs/web/linker";
 export class HonoLinked extends Linked<Hono> {
   /** The Hono application's `fetch`, as a request handler. */
   get handler(): (req: Request) => Promise<Response> {
-    return (this.instance as Hono).fetch as any; // todo fix this type
+    return (this.instance as Hono).fetch as (req: Request) => Promise<Response>;
   }
 }
 
@@ -80,9 +79,9 @@ export class HonoLinker implements Linker<Hono> {
         const ctrl = this.#createController(cr);
         for (const mr of cr.methods) {
           const endpoint = this.#createMethod(mr);
-          const action = mr.method.toLowerCase();
+          const action = mr.method.toLowerCase() as keyof typeof Hono;
           const middlewares = this.#createMiddlewares(mr.middlewares);
-          // @ts-ignore
+          // @ts-ignore: ts unable to infer that action is a key of ctrl
           ctrl[action](`/${mr.route}`, ...middlewares, endpoint);
         }
         feature.route(cr.route, ctrl);

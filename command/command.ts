@@ -11,7 +11,7 @@
 
 import type { ChoErrorHandler, Ctr, MethodMetadata } from "@chojs/core/di";
 import { Injector } from "@chojs/core/di";
-import { debuglog, describe, isClass } from "@chojs/core/utils";
+import { describe, isClass } from "@chojs/core/utils";
 import {
   ChoActionsParser,
   type ChoArgsParser,
@@ -24,12 +24,6 @@ import {
   type ControllerNode,
 } from "./graph.ts";
 import { format_help } from "./help.ts";
-
-/**
- * The logger of the default error handler. It writes only when `CHO_DEBUG` or
- * `CHO_DEBUGLOG` enable the `cho` context.
- */
-const log = debuglog("cho");
 
 /**
  * Assert that a value is truthy.
@@ -315,7 +309,7 @@ export class ChoCommand {
           );
           const ret = await handler(args);
           return is_positive_integer(ret) ? ret : 1;
-        } catch (handlerErr) {
+        } catch (_handlerErr) {
           console.error(
             `Error: ${err instanceof Error ? err.message : String(err)}`,
           );
