@@ -9,6 +9,7 @@ import { Controller, Injector, Module } from "@chojs/core/di";
 import type { Ctr } from "@chojs/core/di";
 import { Action, Help, Main } from "./decorators.ts";
 import { command_graph } from "./graph.ts";
+import { ALIAS, command_record } from "./keys.ts";
 import { legacy } from "@chojs/core/utils/test_utils";
 
 /** The `[controller, method]` pairs of a graph, by name. */
@@ -16,7 +17,7 @@ function names(app: Ctr): [string, string, unknown][] {
   return command_graph(new Injector(app)).actions.map(([node, method]) => [
     (node.token as Ctr).name,
     method.name,
-    method.meta.alias,
+    command_record(method.meta)[ALIAS],
   ]);
 }
 

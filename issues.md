@@ -41,41 +41,33 @@ The code wins: update the spec. `command/specs.old.md` cites core §3.4, §4.1, 
    not specified.** `command/specs.old.md` relies on them. Add them as §3.6–§3.8:
    middlewares are kept in source order (prepended, top decorator first);
    `@Catch` allows one handler per target; the error messages.
-7. **`@Controller` flags** (spec §3.4 and §9). It now writes
-   `{ ...rest, isController: true }`: `isController` can no longer be
-   overwritten by an option, but `isInjectable` still can.
-8. **§7 Public API is wrong.** `core/mod.ts` does not re-export `di/mod.ts`; it
+7. **§7 Public API is wrong.** `core/mod.ts` does not re-export `di/mod.ts`; it
    exports `Injectable`, `Module`, `Controller`, `Middlewares`, `Catch`,
    `Injector`, `token`, `provider`, and the types `ControllerOptions`,
    `ModuleOptions`, `Dependency`, `DependencyGraph`, `DependencyNode`,
    `MetadataGraph`, `ModuleScope`, `Any`, `ChoMiddlewareFn`, `Ctr`, `Target`.
    Rewrite §7 with the actual surfaces of `@chojs/core`, `@chojs/core/di`,
    `@chojs/core/utils` and `@chojs/core/utils/test_utils`.
-9. **`Injector` is incomplete in the spec:** `readonly meta: MetadataGraph` and
+8. **`Injector` is incomplete in the spec:** `readonly meta: MetadataGraph` and
    `modules()` (each module scope once, post-order, root last; add as §6.8).
-10. **`controllers()` deduplicates:** a controller exported to importers is
+9. **`controllers()` deduplicates:** a controller exported to importers is
     yielded once, from its owner module.
-11. **`resolve` is not `async`.** It returns a rejected promise for every
+10. **`resolve` is not `async`.** It returns a rejected promise for every
     failure, but builds the message synchronously, so a token whose `String()`
     throws (`Object.create(null)`) makes it throw synchronously.
-12. **More messages use the bare `ctr.name`** than §8 says: the module name in
+11. **More messages use the bare `ctr.name`** than §8 says: the module name in
     the link errors (`dependency-graph.ts`: import cycle, duplicate, ambiguous,
     export, cannot resolve), so an anonymous module shows an empty name.
-13. **Two §8.2 read errors can no longer happen through the decorators**
+12. **Two §8.2 read errors can no longer happen through the decorators**
     ("import is not a function", "controller entry not a function"): only for
     the root or a hand-written record.
-14. **Symbol-named controller methods are not collected** (`Object.entries` in
+13. **Symbol-named controller methods are not collected** (`Object.entries` in
     `metadata-graph.ts`).
-15. **Smaller omissions:** `DependencyNode` and `ModuleScope` are classes, and
+14. **Smaller omissions:** `DependencyNode` and `ModuleScope` are classes, and
     `DependencyNode.isController()` exists; the Declare step also lives in
     `di/decorations.ts`.
-16. **New known gaps for §9:**
-    - a failed `@Module` / `@Controller` leaves a partial
-      `{ isInjectable: true, dependencies: [] }` record, so the class then looks
-      decorated;
-    - `@Controller({ isInjectable: false })` clears the flag, so a second DI
-      decorator is accepted;
-    - `resolve` can throw synchronously (item 11).
+15. **New known gaps for §9:**
+    - `resolve` can throw synchronously (item 10).
 
 ## B. Bugs
 

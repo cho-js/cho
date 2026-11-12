@@ -98,6 +98,25 @@ describe("write_metadata_object", () => {
     assert.ok(!Object.isFrozen(list));
     assert.equal(input.list, list);
   });
+
+  it("stores symbol keys too, with their arrays copied and frozen", () => {
+    const KEY = Symbol.for("test.key");
+    class Foo {}
+    const list = [1];
+    write_metadata_object(Foo, { [KEY]: list, a: 1 });
+    const record = read_metadata_object<Record<PropertyKey, unknown>>(Foo)!;
+    assert.deepEqual(record, { [KEY]: [1], a: 1 });
+    assert.notEqual(record[KEY], list);
+    assert.ok(Object.isFrozen(record[KEY]));
+  });
+
+  it("skips non-enumerable keys, as object spread does", () => {
+    class Foo {}
+    const input = { a: 1 };
+    Object.defineProperty(input, Symbol.for("test.hidden"), { value: 2 });
+    write_metadata_object(Foo, input);
+    assert.deepEqual(read_metadata_object(Foo), { a: 1 });
+  });
 });
 
 describe("add_to_metadata_object", () => {
@@ -133,6 +152,19 @@ describe("add_to_metadata_object", () => {
     add_to_metadata_object(Foo, { obj: { a: 1 } });
     add_to_metadata_object(Foo, { obj: { b: 2 } });
     assert.deepEqual(read_metadata_object(Foo), { obj: { b: 2 } });
+  });
+
+  it("merges symbol keys like string keys", () => {
+    const LIST = Symbol.for("test.list");
+    const FLAG = Symbol.for("test.flag");
+    class Foo {}
+    add_to_metadata_object(Foo, { [LIST]: [1], [FLAG]: 1, a: 1 });
+    add_to_metadata_object(Foo, { [LIST]: [2], [FLAG]: 2 });
+    assert.deepEqual(read_metadata_object(Foo), {
+      [LIST]: [1, 2],
+      [FLAG]: 2,
+      a: 1,
+    });
   });
 
   it("stores a frozen record", () => {

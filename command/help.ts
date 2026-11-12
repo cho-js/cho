@@ -2,9 +2,9 @@
  * The help text of a command-line application, built from its `@Help` records.
  *
  * - `@Help` on a controller class is in the controller node's metadata
- *   (`node.meta.help`);
+ *   (`node.meta[HELP]`);
  * - `@Help` on a command method is in the method's metadata
- *   (`method.meta.help`).
+ *   (`method.meta[HELP]`).
  *
  * Help texts can span several lines. Where only one line fits (the list of
  * commands, a group heading), the first non-empty line is used.
@@ -14,6 +14,7 @@
 
 import type { MethodMetadata } from "@chojs/core/di";
 import type { CommandGraph, ControllerNode } from "./graph.ts";
+import { ALIAS, command_record, HELP } from "./keys.ts";
 
 /** The heading of the commands whose controller has no `@Help`. */
 const DEFAULT_GROUP = "Commands";
@@ -25,8 +26,8 @@ const OPTIONS: [string, string][] = [
 ];
 
 /** The `@Help` text of a record, trimmed, or `undefined` when it has none. */
-function help_of(meta: Record<string, unknown>): string | undefined {
-  const help = meta["help"];
+function help_of(meta: object): string | undefined {
+  const help = command_record(meta)[HELP];
   return typeof help === "string" && help.trim() ? help.trim() : undefined;
 }
 
@@ -79,7 +80,7 @@ function action_help(
   [, method]: [ControllerNode, MethodMetadata],
 ): string {
   return sections(
-    `Usage: ${name} ${method.meta["alias"]} [options] [args]`,
+    `Usage: ${name} ${command_record(method.meta)[ALIAS]} [options] [args]`,
     help_of(method.meta),
     options_section(),
   );
@@ -99,7 +100,7 @@ function global_help(name: string, graph: CommandGraph): string {
     const methodHelp = help_of(method.meta);
     const group = groups.get(heading) ?? [];
     group.push([
-      String(method.meta["alias"]),
+      String(command_record(method.meta)[ALIAS]),
       methodHelp && summary(methodHelp),
     ]);
     groups.set(heading, group);
@@ -137,7 +138,9 @@ export function format_help(
     return main_help(name, main);
   }
   const action = route
-    ? graph.actions.find(([, { meta }]) => meta["alias"] === route)
+    ? graph.actions.find(([, { meta }]) =>
+      command_record(meta)[ALIAS] === route
+    )
     : undefined;
   return action ? action_help(name, action) : global_help(name, graph);
 }

@@ -13,12 +13,7 @@
  * @module
  */
 
-import type {
-  ChoErrorHandler,
-  ChoErrorHandlerFn,
-  ChoMiddleware,
-  ChoMiddlewareFn,
-} from "@chojs/core/di";
+import type { ChoErrorHandlerFn, ChoMiddlewareFn } from "@chojs/core/di";
 
 export type { ChoMiddlewareFn };
 
@@ -34,27 +29,6 @@ export type ErrorHandlerRef =
 /** A controller instance: its handler methods, by name. */
 export type ControllerInstance = {
   [key: string]: () => Promise<unknown>;
-};
-
-/**
- * The record of a route handler method: what the HTTP method decorators
- * (`@Get`, `@Post`, ...) write, plus what `@Middlewares` and `@Catch` add.
- */
-export type MethodMetadata = {
-  /** Marks a route handler. */
-  isHTTP: true;
-  /** The kind of handler. */
-  type: "HTTP";
-  /** The HTTP method, such as `"GET"`. */
-  method: string;
-  /** The name of the method on the controller. */
-  name: string;
-  /** The route of the handler, relative to its controller. */
-  route: string;
-  /** The middlewares of `@Middlewares`, in order. */
-  middlewares?: ChoMiddleware[];
-  /** The error handler of `@Catch`. */
-  errorHandler?: ChoErrorHandler;
 };
 
 /** A node of the HTTP graph that has a route, middlewares and an error handler. */

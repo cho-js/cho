@@ -495,6 +495,8 @@ describe("build_dependency_graph", () => {
         exports: [],
         providers: [],
         controllers: [],
+        middlewares: [],
+        errorHandler: undefined,
         provider: value(ctr),
       });
       const a = module_of(A, imports_of_a);

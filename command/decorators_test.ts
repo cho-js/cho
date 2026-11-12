@@ -10,6 +10,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { read_metadata_object } from "@chojs/core/di";
 import { Action, Help, Main } from "./decorators.ts";
+import { ACTION, ALIAS, HELP, MAIN } from "./keys.ts";
 import { legacy, loose, tc39 } from "@chojs/core/utils/test_utils";
 
 const ONE_COMMAND = "A method can have at most one @Main or @Action.";
@@ -19,9 +20,8 @@ describe("@Main", () => {
     function run() {}
     tc39(Main(), run, "run");
     assert.deepEqual(read_metadata_object(run), {
-      isMain: true,
-      name: "run",
-      alias: "main",
+      [MAIN]: true,
+      [ALIAS]: "main",
     });
   });
 
@@ -31,9 +31,8 @@ describe("@Main", () => {
     }
     legacy(Main(), Cli, "run");
     assert.deepEqual(read_metadata_object(Cli.prototype.run), {
-      isMain: true,
-      name: "run",
-      alias: "main",
+      [MAIN]: true,
+      [ALIAS]: "main",
     });
   });
 
@@ -66,9 +65,8 @@ describe("@Action", () => {
     function copy() {}
     tc39(Action("cp"), copy, "copy");
     assert.deepEqual(read_metadata_object(copy), {
-      isAction: true,
-      name: "copy",
-      alias: "cp",
+      [ACTION]: true,
+      [ALIAS]: "cp",
     });
   });
 
@@ -78,9 +76,8 @@ describe("@Action", () => {
     }
     legacy(Action("cp"), Cli, "copy");
     assert.deepEqual(read_metadata_object(Cli.prototype.copy), {
-      isAction: true,
-      name: "copy",
-      alias: "cp",
+      [ACTION]: true,
+      [ALIAS]: "cp",
     });
   });
 
@@ -89,7 +86,7 @@ describe("@Action", () => {
       const run = function run() {};
       tc39(Action(name), run, "run");
       assert.equal(
-        read_metadata_object<{ alias: string }>(run)?.alias,
+        read_metadata_object<{ [ALIAS]: string }>(run)?.[ALIAS],
         name,
       );
     }
@@ -198,7 +195,7 @@ describe("one command per method", () => {
       message:
         `Cannot add @Action("x") to method 'run': it already has @Action("y"). ${ONE_COMMAND}`,
     });
-    assert.equal(read_metadata_object<{ alias: string }>(run)?.alias, "y");
+    assert.equal(read_metadata_object<{ [ALIAS]: string }>(run)?.[ALIAS], "y");
   });
 
   it("allows @Help with a command, in any order", () => {
@@ -209,16 +206,14 @@ describe("one command per method", () => {
     tc39(Action("b"), b, "b");
     tc39(Help("after"), b, "b");
     assert.deepEqual(read_metadata_object(a), {
-      help: "before",
-      isAction: true,
-      name: "a",
-      alias: "a",
+      [HELP]: "before",
+      [ACTION]: true,
+      [ALIAS]: "a",
     });
     assert.deepEqual(read_metadata_object(b), {
-      isAction: true,
-      name: "b",
-      alias: "b",
-      help: "after",
+      [ACTION]: true,
+      [ALIAS]: "b",
+      [HELP]: "after",
     });
   });
 });
@@ -228,27 +223,27 @@ describe("@Help", () => {
     class Cli {}
     const metadata = {};
     Help("text")(Cli, loose({ kind: "class", name: "Cli", metadata }));
-    assert.deepEqual(read_metadata_object(metadata), { help: "text" });
+    assert.deepEqual(read_metadata_object(metadata), { [HELP]: "text" });
     assert.equal(read_metadata_object(Cli), undefined);
   });
 
   it("writes to the class on a legacy class", () => {
     class Cli {}
     Help("text")(Cli);
-    assert.deepEqual(read_metadata_object(Cli), { help: "text" });
+    assert.deepEqual(read_metadata_object(Cli), { [HELP]: "text" });
   });
 
   it("writes to the method (TC39 and legacy)", () => {
     function run() {}
     tc39(Help("tc39"), run, "run");
-    assert.deepEqual(read_metadata_object(run), { help: "tc39" });
+    assert.deepEqual(read_metadata_object(run), { [HELP]: "tc39" });
 
     class Cli {
       run() {}
     }
     legacy(Help("legacy"), Cli, "run");
     assert.deepEqual(read_metadata_object(Cli.prototype.run), {
-      help: "legacy",
+      [HELP]: "legacy",
     });
   });
 
@@ -256,7 +251,7 @@ describe("@Help", () => {
     function run() {}
     tc39(Help("s"), run, "run", { isStatic: true });
     tc39(Help("p"), run, "#run", { isPrivate: true });
-    assert.deepEqual(read_metadata_object(run), { help: "p" });
+    assert.deepEqual(read_metadata_object(run), { [HELP]: "p" });
   });
 
   it("rejects an empty text", () => {

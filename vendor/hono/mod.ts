@@ -19,6 +19,7 @@
 import type { ChoMiddlewareFn } from "@chojs/core/di";
 import type { Context, ErrorHandler, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
+import { createMiddleware } from "hono/factory";
 import type { AppRef, MethodRef, NodeRef } from "@chojs/web/graph";
 import type { Linked, Linker } from "@chojs/web/linker";
 
@@ -141,10 +142,6 @@ export class HonoLinker implements Linker<Hono> {
   }
 
   #createMiddlewares(middlewares: ChoMiddlewareFn[]): MiddlewareHandler[] {
-    return middlewares.map(this.#createMiddleware.bind(this));
-  }
-
-  #createMiddleware(middleware: unknown): MiddlewareHandler {
-    return middleware as MiddlewareHandler;
+    return middlewares.map(createMiddleware);
   }
 }

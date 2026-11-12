@@ -81,6 +81,7 @@ export * from "./types.ts";
 // expose the graphs.
 export type {
   ControllerMetadata,
+  HandlersMetadata,
   InjectableMetadata,
   MetadataGraph,
   MethodMetadata,
@@ -92,5 +93,12 @@ export type {
   DependencyNode,
   ModuleScope,
 } from "./dependency-graph.ts";
-export * from "./metadata.ts";
+// The metadata store. The records' own types and keys (`keys.ts`) are
+// private: CHO modules read the DI data through the metadata graph.
+export {
+  add_to_metadata_object,
+  type MetaTarget,
+  read_metadata_object,
+  write_metadata_object,
+} from "./metadata.ts";
 export * from "./decorations.ts";

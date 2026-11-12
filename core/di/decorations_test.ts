@@ -15,6 +15,18 @@ import {
   set_module,
 } from "./decorations.ts";
 import { read_metadata_object } from "./metadata.ts";
+import {
+  CONTROLLER,
+  CONTROLLERS,
+  DEPENDENCIES,
+  ERROR_HANDLER,
+  EXPORTS,
+  IMPORTS,
+  INJECTABLE,
+  MIDDLEWARES,
+  MODULE,
+  PROVIDERS,
+} from "./keys.ts";
 import { provider, token } from "./tokens.ts";
 import type { Any, ChoMiddlewareFn } from "./types.ts";
 
@@ -35,8 +47,8 @@ describe("set_injectable", () => {
     class Foo {}
     set_injectable(Foo, { dependencies: [Logger, PORT, CACHE, Base] });
     assert.deepEqual(read_metadata_object(Foo), {
-      isInjectable: true,
-      dependencies: [Logger, PORT, CACHE, Base],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [Logger, PORT, CACHE, Base],
     });
   });
 
@@ -44,8 +56,8 @@ describe("set_injectable", () => {
     const metadata = {};
     set_injectable(metadata, { dependencies: [] });
     assert.deepEqual(read_metadata_object(metadata), {
-      isInjectable: true,
-      dependencies: [],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [],
     });
   });
 
@@ -56,8 +68,8 @@ describe("set_injectable", () => {
     set_injectable(Foo, { dependencies });
     dependencies.push(Logger);
     assert.deepEqual(read_metadata_object(Foo), {
-      isInjectable: true,
-      dependencies: [Logger],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [Logger],
     });
   });
 
@@ -91,18 +103,6 @@ describe("set_injectable", () => {
       );
     });
   }
-
-  it("rejects an option named like a flag", () => {
-    class Foo {}
-    assert.throws(
-      () => set_injectable(Foo, loose({ dependencies: [], isModule: true })),
-      {
-        message:
-          '"isModule" is a reserved option name: the DI decorators set it',
-      },
-    );
-    assert.equal(read_metadata_object(Foo), undefined);
-  });
 
   it("throws when the dependencies are not an array", () => {
     class Logger {}
@@ -155,8 +155,8 @@ describe("set_injectable", () => {
     class Sub extends Base {}
     set_injectable(Sub, { dependencies: [] });
     assert.deepEqual(read_metadata_object(Sub), {
-      isInjectable: true,
-      dependencies: [],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [],
     });
   });
 });
@@ -166,11 +166,11 @@ describe("set_module", () => {
     class App {}
     set_module(App, {});
     assert.deepEqual(read_metadata_object(App), {
-      isModule: true,
-      imports: [],
-      exports: [],
-      providers: [],
-      controllers: [],
+      [MODULE]: true,
+      [IMPORTS]: [],
+      [EXPORTS]: [],
+      [PROVIDERS]: [],
+      [CONTROLLERS]: [],
     });
   });
 
@@ -178,8 +178,9 @@ describe("set_module", () => {
     class Logger {}
     class App {}
     set_module(App, { dependencies: [Logger] });
-    const record = read_metadata_object<Record<string, unknown>>(App)!;
-    assert.equal("isInjectable" in record, false);
+    const record = read_metadata_object<Record<PropertyKey, unknown>>(App)!;
+    assert.equal(INJECTABLE in record, false);
+    assert.equal(DEPENDENCIES in record, false);
     assert.equal("dependencies" in record, false);
   });
 
@@ -202,40 +203,40 @@ describe("set_module", () => {
       exports: [Db, API_URL],
     });
     assert.deepEqual(read_metadata_object(App), {
-      isInjectable: true,
-      dependencies: [Logger],
-      isModule: true,
-      imports: [DbModule],
-      exports: [Db, API_URL],
-      providers: [Db, apiUrl],
-      controllers: [Cli],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [Logger],
+      [MODULE]: true,
+      [IMPORTS]: [DbModule],
+      [EXPORTS]: [Db, API_URL],
+      [PROVIDERS]: [Db, apiUrl],
+      [CONTROLLERS]: [Cli],
     });
   });
 
-  it("stores any other option as is", () => {
+  it("stores any other option as is, whatever its name", () => {
     const auth = () => {};
     class App {}
+    // `middlewares` is a plain option here: @Middlewares writes MIDDLEWARES.
     set_module(App, { route: "api", middlewares: [auth] });
     assert.deepEqual(read_metadata_object(App), {
       route: "api",
       middlewares: [auth],
-      isModule: true,
-      imports: [],
-      exports: [],
-      providers: [],
-      controllers: [],
+      [MODULE]: true,
+      [IMPORTS]: [],
+      [EXPORTS]: [],
+      [PROVIDERS]: [],
+      [CONTROLLERS]: [],
     });
   });
 
-  for (const key of ["isInjectable", "isModule", "isController"]) {
-    it(`rejects an option named ${key}, and writes nothing`, () => {
-      class App {}
-      assert.throws(() => set_module(App, loose({ [key]: true })), {
-        message: `"${key}" is a reserved option name: the DI decorators set it`,
-      });
-      assert.equal(read_metadata_object(App), undefined);
-    });
-  }
+  it("cannot be turned into something else by an option", () => {
+    class App {}
+    set_module(App, { isController: true, isInjectable: false });
+    const record = read_metadata_object<Record<PropertyKey, unknown>>(App)!;
+    assert.equal(record[MODULE], true);
+    assert.equal(record[CONTROLLER], undefined);
+    assert.equal(record["isController"], true); // a plain option
+  });
 
   for (
     const [option, value, got] of [
@@ -287,7 +288,7 @@ describe("set_module", () => {
     class App {}
     set_module(App, { exports: [Db, URL, KEY] });
     assert.deepEqual(
-      read_metadata_object<{ exports: unknown[] }>(App)?.exports,
+      read_metadata_object<{ [EXPORTS]: unknown[] }>(App)?.[EXPORTS],
       [Db, URL, KEY],
     );
   });
@@ -324,7 +325,7 @@ describe("set_module", () => {
       class App {}
       set_module(App, { providers: loose(providers) });
       assert.deepEqual(
-        read_metadata_object<{ providers: unknown[] }>(App)?.providers,
+        read_metadata_object<{ [PROVIDERS]: unknown[] }>(App)?.[PROVIDERS],
         providers,
       );
     });
@@ -428,7 +429,7 @@ describe("set_module", () => {
       const p = { provide: URL, factory, deps: undefined };
       set_module(App, { providers: [loose(p)] });
       assert.deepEqual(
-        read_metadata_object<{ providers: unknown[] }>(App)?.providers,
+        read_metadata_object<{ [PROVIDERS]: unknown[] }>(App)?.[PROVIDERS],
         [p],
       );
     });
@@ -436,15 +437,15 @@ describe("set_module", () => {
 });
 
 describe("set_controller", () => {
-  for (const key of ["isInjectable", "isModule", "isController"]) {
-    it(`rejects an option named ${key}, and writes nothing`, () => {
-      class Cli {}
-      assert.throws(() => set_controller(Cli, loose({ [key]: false })), {
-        message: `"${key}" is a reserved option name: the DI decorators set it`,
-      });
-      assert.equal(read_metadata_object(Cli), undefined);
-    });
-  }
+  it("cannot be turned into something else by an option", () => {
+    class Cli {}
+    set_controller(Cli, { isModule: true, errorHandler: () => 1 });
+    const record = read_metadata_object<Record<PropertyKey, unknown>>(Cli)!;
+    assert.equal(record[CONTROLLER], true);
+    assert.equal(record[MODULE], undefined);
+    assert.equal(record[ERROR_HANDLER], undefined);
+    assert.equal(record["isModule"], true); // a plain option
+  });
 
   it("adds isController to the record written by set_injectable", () => {
     class Logger {}
@@ -452,9 +453,9 @@ describe("set_controller", () => {
     set_injectable(Cli, { dependencies: [Logger] });
     set_controller(Cli, { dependencies: [Logger] });
     assert.deepEqual(read_metadata_object(Cli), {
-      isInjectable: true,
-      isController: true,
-      dependencies: [Logger],
+      [INJECTABLE]: true,
+      [CONTROLLER]: true,
+      [DEPENDENCIES]: [Logger],
     });
   });
 
@@ -462,7 +463,7 @@ describe("set_controller", () => {
     class Logger {}
     class Cli {}
     set_controller(Cli, { dependencies: [Logger] });
-    assert.deepEqual(read_metadata_object(Cli), { isController: true });
+    assert.deepEqual(read_metadata_object(Cli), { [CONTROLLER]: true });
   });
 
   it("stores any other option as is", () => {
@@ -471,7 +472,7 @@ describe("set_controller", () => {
     set_controller(Cli, { name: "cli", tags: ["a"], meta });
     const record = read_metadata_object<Record<string, unknown>>(Cli)!;
     assert.deepEqual(record, {
-      isController: true,
+      [CONTROLLER]: true,
       name: "cli",
       tags: ["a"],
       meta,
@@ -482,7 +483,7 @@ describe("set_controller", () => {
   it("writes to a decorator metadata object", () => {
     const metadata = {};
     set_controller(metadata, {});
-    assert.deepEqual(read_metadata_object(metadata), { isController: true });
+    assert.deepEqual(read_metadata_object(metadata), { [CONTROLLER]: true });
   });
 });
 
@@ -664,21 +665,21 @@ describe("set_middlewares", () => {
   it("writes the middlewares, in order", () => {
     function run() {}
     set_middlewares(run, [a, b]);
-    assert.deepEqual(read_metadata_object(run), { middlewares: [a, b] });
+    assert.deepEqual(read_metadata_object(run), { [MIDDLEWARES]: [a, b] });
   });
 
   it("accepts classes", () => {
     class Auth {}
     function run() {}
     set_middlewares(run, [Auth]);
-    assert.deepEqual(read_metadata_object(run), { middlewares: [Auth] });
+    assert.deepEqual(read_metadata_object(run), { [MIDDLEWARES]: [Auth] });
   });
 
   it("puts a later call first: decorators are applied bottom up", () => {
     function run() {}
     set_middlewares(run, [c]); // the lower decorator
     set_middlewares(run, [a, b]); // the upper decorator
-    assert.deepEqual(read_metadata_object(run), { middlewares: [a, b, c] });
+    assert.deepEqual(read_metadata_object(run), { [MIDDLEWARES]: [a, b, c] });
   });
 
   it("keeps the rest of the record", () => {
@@ -686,22 +687,22 @@ describe("set_middlewares", () => {
     set_injectable(Cli, { dependencies: [] });
     set_middlewares(Cli, [a]);
     assert.deepEqual(read_metadata_object(Cli), {
-      isInjectable: true,
-      dependencies: [],
-      middlewares: [a],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [],
+      [MIDDLEWARES]: [a],
     });
   });
 
   it("accepts an empty list", () => {
     function run() {}
     set_middlewares(run, []);
-    assert.deepEqual(read_metadata_object(run), { middlewares: [] });
+    assert.deepEqual(read_metadata_object(run), { [MIDDLEWARES]: [] });
   });
 
   it("writes to a decorator metadata object", () => {
     const metadata = {};
     set_middlewares(metadata, [a]);
-    assert.deepEqual(read_metadata_object(metadata), { middlewares: [a] });
+    assert.deepEqual(read_metadata_object(metadata), { [MIDDLEWARES]: [a] });
   });
 
   it("rejects a middleware that is not a function", () => {
@@ -735,14 +736,14 @@ describe("set_error_handler", () => {
     const handler = () => 2;
     function run() {}
     set_error_handler(run, handler);
-    assert.deepEqual(read_metadata_object(run), { errorHandler: handler });
+    assert.deepEqual(read_metadata_object(run), { [ERROR_HANDLER]: handler });
   });
 
   it("writes a handler class", () => {
     class Handler {}
     class Cli {}
     set_error_handler(Cli, Handler);
-    assert.deepEqual(read_metadata_object(Cli), { errorHandler: Handler });
+    assert.deepEqual(read_metadata_object(Cli), { [ERROR_HANDLER]: Handler });
   });
 
   it("keeps the rest of the record", () => {
@@ -751,9 +752,9 @@ describe("set_error_handler", () => {
     set_injectable(Cli, { dependencies: [] });
     set_error_handler(Cli, handler);
     assert.deepEqual(read_metadata_object(Cli), {
-      isInjectable: true,
-      dependencies: [],
-      errorHandler: handler,
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [],
+      [ERROR_HANDLER]: handler,
     });
   });
 
@@ -762,7 +763,7 @@ describe("set_error_handler", () => {
     const metadata = {};
     set_error_handler(metadata, handler);
     assert.deepEqual(read_metadata_object(metadata), {
-      errorHandler: handler,
+      [ERROR_HANDLER]: handler,
     });
   });
 
@@ -789,6 +790,6 @@ describe("set_error_handler", () => {
     assert.throws(() => set_error_handler(run, () => 2), {
       message: "an error handler is already set (one @Catch per target)",
     });
-    assert.deepEqual(read_metadata_object(run), { errorHandler: first });
+    assert.deepEqual(read_metadata_object(run), { [ERROR_HANDLER]: first });
   });
 });

@@ -13,6 +13,7 @@ import type {
   ControllerMetadata,
   Ctr,
   Injector,
+  MethodMetadata,
   ModuleMetadata,
   ModuleScope,
 } from "@chojs/core/di";
@@ -22,9 +23,9 @@ import {
   ControllerRef,
   type ErrorHandlerRef,
   FeatureRef,
-  type MethodMetadata,
   MethodRef,
 } from "./graph.ts";
+import { http_route, type HttpRoute } from "./keys.ts";
 
 /**
  * One path segment: RFC 3986 `pchar` characters (unreserved, sub-delims, `:`
@@ -127,12 +128,20 @@ function* controllers_with_methods(
   }
 }
 
+/**
+ * The route handlers of a controller: its methods that an HTTP method
+ * decorator marked, with the route it declared.
+ *
+ * @param meta The controller's metadata.
+ * @returns Each handler method, with its HTTP method and route.
+ */
 function* http_methods(
   meta: ControllerMetadata,
-): IterableIterator<MethodMetadata> {
+): IterableIterator<[MethodMetadata, HttpRoute]> {
   for (const m of meta.methods) {
-    if (m.meta.isHTTP) {
-      yield m.meta as MethodMetadata;
+    const route = http_route(m.meta);
+    if (route) {
+      yield [m, route];
     }
   }
 }
@@ -172,8 +181,8 @@ function error_handler_factory(
 function create_middleware_factory(
   mdl: Ctr,
   injector: Injector,
-): (mws: ChoMiddleware[]) => Promise<ChoMiddlewareFn[]> {
-  return async function (mws: ChoMiddleware[]) {
+): (mws: readonly ChoMiddleware[]) => Promise<ChoMiddlewareFn[]> {
+  return async function (mws: readonly ChoMiddleware[]) {
     const fns: ChoMiddlewareFn[] = [];
     for (const mw of mws) {
       if (isClassImplement(mw, "handle")) {
@@ -262,7 +271,7 @@ export async function build_http_graph(
     const meta = mdl.meta;
     const feature = new FeatureRef(
       get_route(meta, `feature ${describe(mdl.ctr)}`),
-      await create_middlewares((meta.middlewares ?? []) as ChoMiddleware[]),
+      await create_middlewares(meta.middlewares),
       await error_handler(meta.errorHandler),
     );
 
@@ -273,19 +282,19 @@ export async function build_http_graph(
       const instance = await injector.resolve(ctrl.provider.provide, mdl.ctr);
       const controller = new ControllerRef(
         route,
-        await create_middlewares((ctrl.middlewares ?? []) as ChoMiddleware[]),
+        await create_middlewares(ctrl.middlewares),
         await error_handler(ctrl.errorHandler),
         instance,
       );
 
-      for (const m of http_methods(ctrl)) {
+      for (const [m, http] of http_methods(ctrl)) {
         const handler = instance[m.name].bind(instance);
         const method = new MethodRef(
           m.name,
-          normalize_route(m.route, `method ${m.name} of controller ${name}`),
-          m.method,
-          m.type,
-          await create_middlewares(m.middlewares ?? []),
+          normalize_route(http.route, `method ${m.name} of controller ${name}`),
+          http.method,
+          "HTTP",
+          await create_middlewares(m.middlewares),
           await error_handler(m.errorHandler),
           handler,
         );

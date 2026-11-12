@@ -19,6 +19,18 @@ import {
 } from "./decorators.ts";
 import { legacy, loose, tc39 } from "../utils/test_utils.ts";
 import { read_metadata_object } from "./metadata.ts";
+import {
+  CONTROLLER,
+  CONTROLLERS,
+  DEPENDENCIES,
+  ERROR_HANDLER,
+  EXPORTS,
+  IMPORTS,
+  INJECTABLE,
+  MIDDLEWARES,
+  MODULE,
+  PROVIDERS,
+} from "./keys.ts";
 import { provider, token } from "./tokens.ts";
 import type { ChoMiddlewareFn } from "./types.ts";
 
@@ -40,8 +52,8 @@ describe("@Injectable", () => {
     class Foo {}
     Injectable()(Foo);
     assert.deepEqual(read_metadata_object(Foo), {
-      isInjectable: true,
-      dependencies: [],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [],
     });
   });
 
@@ -52,8 +64,8 @@ describe("@Injectable", () => {
     class Server {}
     Injectable([Logger, PORT, CACHE])(Server);
     assert.deepEqual(read_metadata_object(Server), {
-      isInjectable: true,
-      dependencies: [Logger, PORT, CACHE],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [Logger, PORT, CACHE],
     });
   });
 
@@ -62,8 +74,8 @@ describe("@Injectable", () => {
     const context = tc39_context();
     Injectable()(Foo, context);
     assert.deepEqual(read_metadata_object(context.metadata), {
-      isInjectable: true,
-      dependencies: [],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [],
     });
     assert.equal(read_metadata_object(Foo), undefined);
   });
@@ -99,25 +111,25 @@ describe("@Injectable", () => {
 });
 
 describe("@Module", () => {
-  it("rejects an option that would turn the module into a controller", () => {
+  it("cannot be turned into a controller by an option", () => {
     class App {}
-    assert.throws(() => Module(loose({ isController: true }))(App), {
-      message:
-        '"isController" is a reserved option name: the DI decorators set it',
-    });
+    Module({ isController: true })(App);
+    const record = read_metadata_object<Record<PropertyKey, unknown>>(App)!;
+    assert.equal(record[MODULE], true);
+    assert.equal(record[CONTROLLER], undefined);
   });
 
   it("marks a class as an injectable module, every field defaulting to []", () => {
     class App {}
     Module()(App);
     assert.deepEqual(read_metadata_object(App), {
-      isInjectable: true,
-      isModule: true,
-      dependencies: [],
-      imports: [],
-      exports: [],
-      providers: [],
-      controllers: [],
+      [INJECTABLE]: true,
+      [MODULE]: true,
+      [DEPENDENCIES]: [],
+      [IMPORTS]: [],
+      [EXPORTS]: [],
+      [PROVIDERS]: [],
+      [CONTROLLERS]: [],
     });
   });
 
@@ -140,13 +152,13 @@ describe("@Module", () => {
       exports: [Db, API_URL],
     })(App);
     assert.deepEqual(read_metadata_object(App), {
-      isInjectable: true,
-      isModule: true,
-      dependencies: [Logger],
-      imports: [DbModule],
-      exports: [Db, API_URL],
-      providers: [Db, apiUrl],
-      controllers: [Cli],
+      [INJECTABLE]: true,
+      [MODULE]: true,
+      [DEPENDENCIES]: [Logger],
+      [IMPORTS]: [DbModule],
+      [EXPORTS]: [Db, API_URL],
+      [PROVIDERS]: [Db, apiUrl],
+      [CONTROLLERS]: [Cli],
     });
   });
 
@@ -155,14 +167,14 @@ describe("@Module", () => {
     class App {}
     Module({ dependencies: [Logger], route: "api" })(App);
     assert.deepEqual(read_metadata_object(App), {
-      isInjectable: true,
-      isModule: true,
-      dependencies: [Logger],
+      [INJECTABLE]: true,
+      [MODULE]: true,
+      [DEPENDENCIES]: [Logger],
       route: "api",
-      imports: [],
-      exports: [],
-      providers: [],
-      controllers: [],
+      [IMPORTS]: [],
+      [EXPORTS]: [],
+      [PROVIDERS]: [],
+      [CONTROLLERS]: [],
     });
   });
 
@@ -171,7 +183,7 @@ describe("@Module", () => {
     const context = tc39_context();
     Module()(App, context);
     assert.equal(
-      read_metadata_object<{ isModule: true }>(context.metadata)?.isModule,
+      read_metadata_object<{ [MODULE]: true }>(context.metadata)?.[MODULE],
       true,
     );
     assert.equal(read_metadata_object(App), undefined);
@@ -193,20 +205,21 @@ describe("@Module", () => {
 });
 
 describe("@Controller", () => {
-  it("rejects an option that would turn the controller into a module", () => {
+  it("cannot be turned into a module by an option", () => {
     class Cli {}
-    assert.throws(() => Controller(loose({ isModule: true }))(Cli), {
-      message: '"isModule" is a reserved option name: the DI decorators set it',
-    });
+    Controller({ isModule: true })(Cli);
+    const record = read_metadata_object<Record<PropertyKey, unknown>>(Cli)!;
+    assert.equal(record[CONTROLLER], true);
+    assert.equal(record[MODULE], undefined);
   });
 
   it("marks a class as an injectable controller, with no dependencies by default", () => {
     class Cli {}
     Controller()(Cli);
     assert.deepEqual(read_metadata_object(Cli), {
-      isInjectable: true,
-      isController: true,
-      dependencies: [],
+      [INJECTABLE]: true,
+      [CONTROLLER]: true,
+      [DEPENDENCIES]: [],
     });
   });
 
@@ -215,9 +228,9 @@ describe("@Controller", () => {
     class Cli {}
     Controller({ dependencies: [Logger] })(Cli);
     assert.deepEqual(read_metadata_object(Cli), {
-      isInjectable: true,
-      isController: true,
-      dependencies: [Logger],
+      [INJECTABLE]: true,
+      [CONTROLLER]: true,
+      [DEPENDENCIES]: [Logger],
     });
   });
 
@@ -225,11 +238,11 @@ describe("@Controller", () => {
     class Cli {}
     Controller({ name: "cli", description: "the CLI" })(Cli);
     assert.deepEqual(read_metadata_object(Cli), {
-      isInjectable: true,
-      isController: true,
+      [INJECTABLE]: true,
+      [CONTROLLER]: true,
       name: "cli",
       description: "the CLI",
-      dependencies: [],
+      [DEPENDENCIES]: [],
     });
   });
 
@@ -257,12 +270,12 @@ describe("inheritance", () => {
     class Sub extends Base {}
     Injectable([Logger])(Sub);
     assert.deepEqual(read_metadata_object(Sub), {
-      isInjectable: true,
-      dependencies: [Logger],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [Logger],
     });
     assert.deepEqual(read_metadata_object(Base), {
-      isInjectable: true,
-      dependencies: [],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [],
     });
   });
 });
@@ -277,27 +290,27 @@ describe("@Middlewares", () => {
     const context = tc39_context();
     Middlewares(a, b)(Cli, context);
     assert.deepEqual(read_metadata_object(context.metadata), {
-      middlewares: [a, b],
+      [MIDDLEWARES]: [a, b],
     });
   });
 
   it("writes the middlewares on a legacy class", () => {
     class Cli {}
     Middlewares(a)(Cli);
-    assert.deepEqual(read_metadata_object(Cli), { middlewares: [a] });
+    assert.deepEqual(read_metadata_object(Cli), { [MIDDLEWARES]: [a] });
   });
 
   it("writes the middlewares on a method (TC39 and legacy)", () => {
     function run() {}
     tc39(Middlewares(a), run, "run");
-    assert.deepEqual(read_metadata_object(run), { middlewares: [a] });
+    assert.deepEqual(read_metadata_object(run), { [MIDDLEWARES]: [a] });
 
     class Cli {
       run() {}
     }
     legacy(Middlewares(b), Cli, "run");
     assert.deepEqual(read_metadata_object(Cli.prototype.run), {
-      middlewares: [b],
+      [MIDDLEWARES]: [b],
     });
   });
 
@@ -308,7 +321,7 @@ describe("@Middlewares", () => {
     function run() {}
     tc39(Middlewares(c), run, "run"); // the lower one is applied first
     tc39(Middlewares(a, b), run, "run");
-    assert.deepEqual(read_metadata_object(run), { middlewares: [a, b, c] });
+    assert.deepEqual(read_metadata_object(run), { [MIDDLEWARES]: [a, b, c] });
   });
 
   it("combines with @Controller, in either order", () => {
@@ -323,10 +336,10 @@ describe("@Middlewares", () => {
 
     for (const context of [above, below]) {
       assert.deepEqual(read_metadata_object(context.metadata), {
-        isInjectable: true,
-        dependencies: [],
-        isController: true,
-        middlewares: [a],
+        [INJECTABLE]: true,
+        [DEPENDENCIES]: [],
+        [CONTROLLER]: true,
+        [MIDDLEWARES]: [a],
       });
     }
   });
@@ -357,27 +370,27 @@ describe("@Catch", () => {
     const context = tc39_context();
     Catch(handler)(Cli, context);
     assert.deepEqual(read_metadata_object(context.metadata), {
-      errorHandler: handler,
+      [ERROR_HANDLER]: handler,
     });
   });
 
   it("writes the handler on a legacy class", () => {
     class Cli {}
     Catch(handler)(Cli);
-    assert.deepEqual(read_metadata_object(Cli), { errorHandler: handler });
+    assert.deepEqual(read_metadata_object(Cli), { [ERROR_HANDLER]: handler });
   });
 
   it("writes the handler on a method (TC39 and legacy)", () => {
     function run() {}
     tc39(Catch(handler), run, "run");
-    assert.deepEqual(read_metadata_object(run), { errorHandler: handler });
+    assert.deepEqual(read_metadata_object(run), { [ERROR_HANDLER]: handler });
 
     class Cli {
       run() {}
     }
     legacy(Catch(handler), Cli, "run");
     assert.deepEqual(read_metadata_object(Cli.prototype.run), {
-      errorHandler: handler,
+      [ERROR_HANDLER]: handler,
     });
   });
 
@@ -386,7 +399,7 @@ describe("@Catch", () => {
     Injectable()(Handler);
     function run() {}
     tc39(Catch(Handler), run, "run");
-    assert.deepEqual(read_metadata_object(run), { errorHandler: Handler });
+    assert.deepEqual(read_metadata_object(run), { [ERROR_HANDLER]: Handler });
   });
 
   it("combines with @Controller and @Middlewares", () => {
@@ -397,11 +410,11 @@ describe("@Catch", () => {
     Middlewares(mw)(Cli, context);
     Controller()(Cli, context);
     assert.deepEqual(read_metadata_object(context.metadata), {
-      errorHandler: handler,
-      middlewares: [mw],
-      isInjectable: true,
-      dependencies: [],
-      isController: true,
+      [ERROR_HANDLER]: handler,
+      [MIDDLEWARES]: [mw],
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [],
+      [CONTROLLER]: true,
     });
   });
 
@@ -421,12 +434,12 @@ describe("@Catch", () => {
     Catch(handler)(Cli);
     legacy(Catch(other), Cli, "run");
     assert.equal(
-      read_metadata_object<{ errorHandler: unknown }>(Cli)?.errorHandler,
+      read_metadata_object<{ [ERROR_HANDLER]: unknown }>(Cli)?.[ERROR_HANDLER],
       handler,
     );
     assert.equal(
-      read_metadata_object<{ errorHandler: unknown }>(Cli.prototype.run)
-        ?.errorHandler,
+      read_metadata_object<{ [ERROR_HANDLER]: unknown }>(Cli.prototype.run)
+        ?.[ERROR_HANDLER],
       other,
     );
   });

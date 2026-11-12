@@ -19,13 +19,19 @@
  * that already has a DI decorator. `set_module` and `set_controller` add
  * their fields to the record it wrote (see `add_to_metadata_object`).
  *
+ * ## Record keys
+ *
+ * Everything these functions write is stored under the private symbol keys
+ * of `keys.ts`. The extra options of `@Module` and `@Controller` (such as
+ * `route`) are stored next to them as plain string keys, as given. A user
+ * option can therefore never overwrite what the DI system wrote, whatever its
+ * name: `@Controller({ isModule: true })` is just an extra option.
+ *
  * ## What is validated here
  *
  * Only the shape of the options, so that a mistake fails at the decorator
  * that made it, with a message naming the bad value:
  *
- * - no option uses a reserved name (`isInjectable`, `isModule`,
- *   `isController`), which would change what the class is;
  * - every list option is an array;
  * - dependencies and exports are tokens (classes, symbols or injection
  *   tokens);
@@ -48,12 +54,25 @@
 
 import {
   add_to_metadata_object,
-  type InjectableDescriptor,
   type MetaTarget,
-  type ModuleDescriptor,
   read_metadata_object,
   write_metadata_object,
 } from "./metadata.ts";
+import {
+  CONTROLLER,
+  CONTROLLERS,
+  DEPENDENCIES,
+  ERROR_HANDLER,
+  EXPORTS,
+  type HandlersRecord,
+  IMPORTS,
+  INJECTABLE,
+  type InjectableRecord,
+  MIDDLEWARES,
+  MODULE,
+  type ModuleRecord,
+  PROVIDERS,
+} from "./keys.ts";
 import type {
   ChoClassOrMethodDecorator,
   ChoErrorHandler,
@@ -78,8 +97,8 @@ export type InjectableOptions = {
  *
  * Besides the fields below, any key is accepted and stored as is in the
  * module's record, for the application module (for example the route prefix
- * of a web feature). The DI system ignores those keys, except the reserved
- * names `isInjectable`, `isModule` and `isController`, which throw.
+ * of a web feature). The DI system ignores those keys, whatever their names:
+ * its own data is stored under private symbol keys.
  *
  * @example
  * ```ts
@@ -120,8 +139,8 @@ export type ModuleOptions = InjectableOptions & {
  * Besides `dependencies`, any key is accepted and stored as is in the
  * controller's record, for the application module that invokes the controller
  * (for example the description of a CLI command). The DI system ignores those
- * keys, except the reserved names `isInjectable`, `isModule` and
- * `isController`, which throw.
+ * keys, whatever their names: its own data is stored under private symbol
+ * keys.
  *
  * @example
  * ```ts
@@ -147,8 +166,8 @@ export type ControllerOptions = InjectableOptions & {
 /**
  * Throw if the target already has a DI decorator.
  *
- * Every DI record has `isInjectable`, so this catches `@Injectable`, `@Module`
- * and `@Controller` alike. Only the target's own record counts: a subclass of
+ * Every DI record has the `INJECTABLE` flag, so this catches `@Injectable`,
+ * `@Module` and `@Controller` alike. Only the target's own record counts: a subclass of
  * a decorated class can be decorated.
  *
  * @param target The class, or its decorator metadata object.
@@ -156,7 +175,7 @@ export type ControllerOptions = InjectableOptions & {
  *   `@Module` or `@Controller`.
  */
 function assert_decorated(target: MetaTarget): void {
-  if (read_metadata_object<InjectableDescriptor>(target)?.isInjectable) {
+  if (read_metadata_object<Partial<InjectableRecord>>(target)?.[INJECTABLE]) {
     throw new Error(
       `class is already decorated with @Injectable, @Module or @Controller`,
     );
@@ -199,30 +218,6 @@ function describe_value(value: unknown): string {
     shown.push("...");
   }
   return `{ ${shown.join(", ")} }`;
-}
-
-/**
- * The record keys that only the DI decorators write: the flags the metadata
- * graph reads to tell an injectable class, a module and a controller apart.
- * An option with one of these names would change what the class is, e.g.
- * `@Controller({ isModule: true })` would make the controller a module.
- */
-const RESERVED_OPTIONS = ["isInjectable", "isModule", "isController"] as const;
-
-/**
- * Assert that the options use none of the {@link RESERVED_OPTIONS} names.
- *
- * @param options The decorator options.
- * @throws {Error} When an option has a reserved name.
- */
-function assert_no_reserved_option(options: object): void {
-  for (const key of RESERVED_OPTIONS) {
-    if (Object.hasOwn(options, key)) {
-      throw new Error(
-        `"${key}" is a reserved option name: the DI decorators set it`,
-      );
-    }
-  }
 }
 
 /**
@@ -388,16 +383,14 @@ function assert_provider(provider: unknown): asserts provider is Provider {
  * Mark a target as injectable: what `@Injectable` does, and the first step of
  * `@Module` and `@Controller`.
  *
- * Writes `{ isInjectable: true, dependencies }` to the target's record (see
- * `InjectableDescriptor`). Any other key of `options` is stored too.
+ * Writes the `INJECTABLE` flag and the `DEPENDENCIES` to the target's record
+ * (see `InjectableRecord` in `keys.ts`).
  *
  * @param target The class, or its decorator metadata object
  *   (`context.metadata` with TC39 decorators).
  * @param options The constructor's dependencies, in argument order.
  * @throws {Error} When the target already has a DI decorator. This is checked
  *   first, before the dependencies.
- * @throws {Error} When an option is named `isInjectable`, `isModule` or
- *   `isController`.
  * @throws {Error} When `dependencies` is not an array, or a dependency is not
  *   a class, symbol or injection token.
  *   Nothing is written.
@@ -406,7 +399,7 @@ function assert_provider(provider: unknown): asserts provider is Provider {
  * ```ts
  * set_injectable(Server, { dependencies: [Logger, PORT] });
  * read_metadata_object(Server);
- * // { isInjectable: true, dependencies: [Logger, PORT] }
+ * // { [INJECTABLE]: true, [DEPENDENCIES]: [Logger, PORT] }
  * ```
  *
  * @internal
@@ -416,7 +409,6 @@ export function set_injectable(
   options: InjectableOptions,
 ): void {
   assert_decorated(target);
-  assert_no_reserved_option(options);
   assert_array("dependencies", options.dependencies);
   options.dependencies.forEach(
     assert_dependency(
@@ -427,10 +419,9 @@ export function set_injectable(
   add_to_metadata_object(
     target,
     {
-      ...options,
-      isInjectable: true,
-      dependencies: options.dependencies,
-    } satisfies InjectableDescriptor,
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: options.dependencies,
+    } satisfies InjectableRecord,
   );
 }
 
@@ -438,16 +429,15 @@ export function set_injectable(
  * Add the module fields to a target's record: the second step of `@Module`,
  * after {@link set_injectable}.
  *
- * Writes `isModule: true` and `imports`, `exports`, `providers` and
- * `controllers`, each defaulting to `[]` (see `ModuleDescriptor`), plus every
- * other key of `options`, as is. Those extra keys are metadata for the
- * application module (such as a web route prefix); the DI system ignores
- * them. Values are stored by reference, except top-level arrays, which are
- * copied.
+ * Writes the `MODULE` flag and the `IMPORTS`, `EXPORTS`, `PROVIDERS` and
+ * `CONTROLLERS` lists, each defaulting to `[]` (see `ModuleRecord` in
+ * `keys.ts`), plus every other option, as is, under its own string key. Those
+ * extra options are metadata for the application module (such as a web route
+ * prefix); the DI system ignores them. Values are stored by reference, except
+ * top-level arrays, which are copied.
  *
- * It does not write `isInjectable` or `dependencies`, and ignores those keys
- * of `options`: that is `set_injectable`'s job. An option named `isModule`
- * cannot overwrite the flag either.
+ * It does not write the `dependencies` option: that is `set_injectable`'s
+ * job.
  *
  * It does not check for an existing DI decorator either. Calling it twice on
  * the same target concatenates the lists; `@Module` never does, since its
@@ -458,8 +448,6 @@ export function set_injectable(
  *
  * @param target The class, or its decorator metadata object.
  * @param options The module's options. Every field is optional.
- * @throws {Error} When an option is named `isInjectable`, `isModule` or
- *   `isController`.
  * @throws {Error} When `imports`, `controllers`, `exports` or `providers` is
  *   not an array.
  * @throws {Error} When an import or a controller is not a class.
@@ -474,9 +462,9 @@ export function set_injectable(
  * set_injectable(App, { dependencies: [] });
  * set_module(App, { imports: [DbModule], providers: [UserService], route: "users" });
  * read_metadata_object(App);
- * // { isInjectable: true, dependencies: [], route: "users", isModule: true,
- * //   imports: [DbModule], exports: [], providers: [UserService],
- * //   controllers: [] }
+ * // { [INJECTABLE]: true, [DEPENDENCIES]: [], route: "users", [MODULE]: true,
+ * //   [IMPORTS]: [DbModule], [EXPORTS]: [], [PROVIDERS]: [UserService],
+ * //   [CONTROLLERS]: [] }
  * ```
  *
  * @internal
@@ -485,15 +473,20 @@ export function set_module(
   target: MetaTarget,
   options: Partial<ModuleOptions>,
 ): void {
-  assert_no_reserved_option(options);
-  // `dependencies` is written by `set_injectable`. Writing it again would
-  // append a second copy, since array values are concatenated on merge.
-  const { dependencies: _, ...extra } = options;
+  // The options the DI system uses; everything else is an extra option.
+  const {
+    dependencies: _,
+    imports,
+    exports,
+    providers,
+    controllers,
+    ...extra
+  } = options;
   const norm = {
-    imports: options.imports ?? [],
-    exports: options.exports ?? [],
-    providers: options.providers ?? [],
-    controllers: options.controllers ?? [],
+    imports: imports ?? [],
+    exports: exports ?? [],
+    providers: providers ?? [],
+    controllers: controllers ?? [],
   };
 
   assert_array("imports", norm.imports);
@@ -512,11 +505,13 @@ export function set_module(
   add_to_metadata_object(
     target,
     {
-      // the extra options first: the module keys below always win
       ...extra,
-      isModule: true,
-      ...norm,
-    } satisfies Omit<ModuleDescriptor, keyof InjectableDescriptor>,
+      [MODULE]: true,
+      [IMPORTS]: norm.imports,
+      [EXPORTS]: norm.exports,
+      [PROVIDERS]: norm.providers,
+      [CONTROLLERS]: norm.controllers,
+    } satisfies Omit<ModuleRecord, keyof InjectableRecord>,
   );
 }
 
@@ -524,32 +519,26 @@ export function set_module(
  * Add the controller fields to a target's record: the second step of
  * `@Controller`, after {@link set_injectable}.
  *
- * Writes `isController: true` and every key of `options` except
- * `dependencies`, as is (see `ControllerDescriptor`). Those extra keys are
- * metadata for the application module that invokes the controller, such as a
- * CLI command's name; the DI system ignores them. Values are stored by
- * reference, except top-level arrays, which are copied.
+ * Writes the `CONTROLLER` flag (see `ControllerRecord` in `keys.ts`) and
+ * every option except `dependencies`, as is, under its own string key. Those
+ * extra options are metadata for the application module that invokes the
+ * controller, such as a CLI command's name; the DI system ignores them.
+ * Values are stored by reference, except top-level arrays, which are copied.
  *
- * `dependencies` is skipped because `set_injectable` already wrote it: arrays
- * are concatenated on merge, so writing it again would duplicate every
- * dependency.
+ * `dependencies` is skipped: `set_injectable` already wrote it.
  *
- * Only the option names are validated: an option named `isInjectable`,
- * `isModule` or `isController` throws, since it would change what the class
- * is. An existing DI decorator is not checked for: `@Controller` relies on
- * its `set_injectable` call for that.
+ * Nothing is validated, and an existing DI decorator is not checked for:
+ * `@Controller` relies on its `set_injectable` call for both.
  *
  * @param target The class, or its decorator metadata object.
  * @param options The controller's options.
- * @throws {Error} When an option is named `isInjectable`, `isModule` or
- *   `isController`. Nothing is written then.
  *
  * @example
  * ```ts
  * set_injectable(Cli, { dependencies: [Logger] });
  * set_controller(Cli, { dependencies: [Logger], name: "cli" });
  * read_metadata_object(Cli);
- * // { isInjectable: true, dependencies: [Logger], isController: true,
+ * // { [INJECTABLE]: true, [DEPENDENCIES]: [Logger], [CONTROLLER]: true,
  * //   name: "cli" }
  * ```
  *
@@ -559,17 +548,8 @@ export function set_controller(
   target: MetaTarget,
   options: Partial<ControllerOptions>,
 ): void {
-  assert_no_reserved_option(options);
-  // `dependencies` is written by `set_injectable`; spreading it again would
-  // append a second copy, since array values are concatenated on merge.
-  const { dependencies: _, ...rest } = options;
-  add_to_metadata_object(
-    target,
-    {
-      ...rest,
-      isController: true,
-    },
-  );
+  const { dependencies: _, ...extra } = options;
+  add_to_metadata_object(target, { ...extra, [CONTROLLER]: true });
 }
 
 // Decorator call shapes
@@ -707,7 +687,7 @@ export function decorated_target(
 /**
  * Add middlewares to a target's record: what `@Middlewares` does.
  *
- * Writes `middlewares`, an array. Middlewares from several calls are kept
+ * Writes the `MIDDLEWARES` list (see `keys.ts`). Middlewares from several calls are kept
  * all, in **source order of the decorators**: decorators are applied bottom
  * up, so each call puts its middlewares *before* the existing ones.
  *
@@ -725,7 +705,7 @@ export function decorated_target(
  * @example
  * ```ts
  * set_middlewares(Cli.prototype.run, [auth, timing]);
- * read_metadata_object(Cli.prototype.run); // { middlewares: [auth, timing] }
+ * read_metadata_object(Cli.prototype.run); // { [MIDDLEWARES]: [auth, timing] }
  * ```
  */
 export function set_middlewares(
@@ -735,18 +715,18 @@ export function set_middlewares(
   assert_array("middlewares", middlewares);
   middlewares.forEach(assert_function("all middlewares must be functions"));
 
-  const record = read_metadata_object<Record<string, unknown>>(target) ?? {};
-  const existing = (record["middlewares"] ?? []) as readonly ChoMiddleware[];
+  const record = read_metadata_object<HandlersRecord>(target) ?? {};
   write_metadata_object(target, {
     ...record,
-    middlewares: [...middlewares, ...existing],
+    [MIDDLEWARES]: [...middlewares, ...(record[MIDDLEWARES] ?? [])],
   });
 }
 
 /**
  * Set the error handler of a target: what `@Catch` does.
  *
- * Writes `errorHandler`. A target has at most one error handler.
+ * Writes the `ERROR_HANDLER` (see `keys.ts`). A target has at most one error
+ * handler.
  *
  * @param target The class, the method, or a decorator metadata object.
  * @param errorHandler A function called with the error, or an injectable
@@ -772,11 +752,8 @@ export function set_error_handler(
       }`,
     );
   }
-  if (
-    read_metadata_object<Record<string, unknown>>(target)?.["errorHandler"] !==
-      undefined
-  ) {
+  if (read_metadata_object<HandlersRecord>(target)?.[ERROR_HANDLER]) {
     throw new Error("an error handler is already set (one @Catch per target)");
   }
-  add_to_metadata_object(target, { errorHandler });
+  add_to_metadata_object(target, { [ERROR_HANDLER]: errorHandler });
 }

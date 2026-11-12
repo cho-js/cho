@@ -15,33 +15,73 @@
  * - **deduplicates** modules: a module imported through several paths is read
  *   once and shared.
  *
+ * The records store the DI data under private symbol keys (`keys.ts`). The
+ * normalized metadata exposes it as plain, typed fields, so CHO modules never
+ * need those keys. The other keys of a record (user options, and what CHO
+ * modules' own decorators wrote) are passed on as they are.
+ *
  * The result is the input of the dependency graph (`dependency-graph.ts`),
  * which resolves every dependency to the provider that satisfies it.
  *
  * @module
  */
 
-import type { Ctr, Factory, Provider, Token } from "./types.ts";
 import type {
-  ControllerDescriptor,
-  InjectableDescriptor,
-  ModuleDescriptor,
-} from "./metadata.ts";
-import { read_metadata_object } from "./metadata.ts";
+  ChoErrorHandler,
+  ChoMiddleware,
+  Ctr,
+  Factory,
+  Provider,
+  Token,
+} from "./types.ts";
+import { own_keys, read_metadata_object } from "./metadata.ts";
+import {
+  CONTROLLER,
+  type ControllerRecord,
+  CONTROLLERS,
+  CORE_KEYS,
+  DEPENDENCIES,
+  ERROR_HANDLER,
+  EXPORTS,
+  type HandlersRecord,
+  IMPORTS,
+  INJECTABLE,
+  type InjectableRecord,
+  MIDDLEWARES,
+  MODULE,
+  type ModuleRecord,
+  PROVIDERS,
+} from "./keys.ts";
 import { provider } from "./tokens.ts";
 
 // Types
 // -----------------------------------------------------------------------------
 
 /**
- * Metadata that an application module attached to a method of a controller,
- * such as the description of a CLI command.
+ * What `@Middlewares` and `@Catch` declared on a module, a controller or a
+ * method. The DI system only stores them; the CHO module that runs the class
+ * or method uses them.
  */
-export type MethodMetadata = {
+export type HandlersMetadata = {
+  /** The middlewares of `@Middlewares`, in source order; `[]` when none. */
+  middlewares: readonly ChoMiddleware[];
+  /** The error handler of `@Catch`, or `undefined` when none. */
+  errorHandler: ChoErrorHandler | undefined;
+};
+
+/**
+ * A method of a controller that carries metadata: what CHO modules' own
+ * decorators wrote on it (such as `@Action`), and its middlewares and error
+ * handler.
+ */
+export type MethodMetadata = HandlersMetadata & {
   /** The method name. */
   name: string;
-  /** The metadata record attached to the method. */
-  meta: Record<string, unknown>;
+  /**
+   * The method's record, as CHO modules' decorators wrote it, without the
+   * core's own keys. Each CHO module reads its own keys from it.
+   */
+  meta: Readonly<Record<PropertyKey, unknown>>;
 };
 
 /**
@@ -70,13 +110,13 @@ export type InjectableMetadata = ProviderMetadata & {
 /**
  * A normalized `@Controller` class.
  *
- * Besides the keys below, it keeps every other key of the controller's record
- * as is: the extra `@Controller` options and what other decorators wrote on
- * the class (such as `errorHandler` from `@Catch`, `middlewares` from
- * `@Middlewares`, or an application module's own keys). The DI system ignores
- * them; they are for the application module that invokes the controller.
+ * Besides the fields below, it keeps the other keys of the controller's
+ * record as they are: the extra `@Controller` options (string keys, such as
+ * `route`) and what CHO modules' own decorators wrote on the class. The DI
+ * system ignores them; they are for the CHO module that invokes the
+ * controller. The fields below always win over a record key of the same name.
  */
-export type ControllerMetadata = InjectableMetadata & {
+export type ControllerMetadata = InjectableMetadata & HandlersMetadata & {
   /** Marks the declaration as a controller. */
   isController: true;
   /**
@@ -86,17 +126,20 @@ export type ControllerMetadata = InjectableMetadata & {
   methods: readonly MethodMetadata[];
   /** Any other key of the controller's record, as is. */
   readonly [key: string]: unknown;
+  /** CHO modules' own keys on the controller's record, as is. */
+  readonly [key: symbol]: unknown;
 };
 
 /**
  * A normalized `@Module` class, with everything it declares.
  *
- * Besides the keys below, it keeps every other key of the module's record as
- * is: the extra `@Module` options and what other decorators wrote on the class
- * (such as `errorHandler` from `@Catch` or `middlewares` from `@Middlewares`).
- * The DI system ignores them; they are for the application module.
+ * Besides the fields below, it keeps the other keys of the module's record as
+ * they are: the extra `@Module` options (string keys, such as `route`) and
+ * what CHO modules' own decorators wrote on the class. The DI system ignores
+ * them; they are for the CHO module. The fields below always win over a
+ * record key of the same name.
  */
-export type ModuleMetadata = InjectableMetadata & {
+export type ModuleMetadata = InjectableMetadata & HandlersMetadata & {
   /** Marks the declaration as a module. */
   isModule: true;
   /** The imported modules, normalized, in `imports` order. */
@@ -109,6 +152,8 @@ export type ModuleMetadata = InjectableMetadata & {
   controllers: readonly ControllerMetadata[];
   /** Any other key of the module's record, as is. */
   readonly [key: string]: unknown;
+  /** CHO modules' own keys on the module's record, as is. */
+  readonly [key: symbol]: unknown;
 };
 
 /** The normalized metadata of an application, from its root module. */
@@ -139,13 +184,42 @@ function class_factory(ctr: Ctr): Factory {
 }
 
 /**
+ * The keys of a record that are not the core's: user options and CHO
+ * modules' own keys.
+ *
+ * @param record A class or method record.
+ * @returns A copy of the record without the core's keys.
+ */
+function extras(record: object): Record<PropertyKey, unknown> {
+  const out: Record<PropertyKey, unknown> = {};
+  for (const key of own_keys(record)) {
+    if (!CORE_KEYS.has(key)) {
+      out[key] = (record as Record<PropertyKey, unknown>)[key];
+    }
+  }
+  return out;
+}
+
+/**
+ * The middlewares and error handler of a record.
+ *
+ * @param record A class or method record.
+ * @returns Its `@Middlewares` and `@Catch` data, normalized.
+ */
+function handlers(record: HandlersRecord): HandlersMetadata {
+  return {
+    middlewares: record[MIDDLEWARES] ?? [],
+    errorHandler: record[ERROR_HANDLER],
+  };
+}
+
+/**
  * Normalize a `controllers` entry.
  *
  * @param ctr The entry: must be a `@Controller` class.
- * Every key of the controller's record is kept, so the application module can
- * read its options. The normalized keys are set after them, so a record key
- * can never override them (an option named `isController` or `provider`, for
- * example).
+ * The other keys of the controller's record are kept, so the CHO module can
+ * read its options. The normalized fields are set after them, so a record key
+ * can never override them (an option named `provider`, for example).
  *
  * @returns The controller's normalized metadata, including the metadata of its
  *   methods and every key of its record.
@@ -157,8 +231,8 @@ function controller_metadata(ctr: Ctr): ControllerMetadata {
     throw new TypeError(`Expected a controller class, got ${typeof ctr}`);
   }
 
-  const meta = read_metadata_object<ControllerDescriptor>(ctr);
-  if (!meta?.isController) {
+  const record = read_metadata_object<ControllerRecord>(ctr);
+  if (!record?.[CONTROLLER]) {
     throw new Error(
       `Class ${ctr.name} is not a controller. Did you forget @Controller?`,
     );
@@ -171,22 +245,24 @@ function controller_metadata(ctr: Ctr): ControllerMetadata {
   )
     .filter(([name]) => name !== "constructor")
     .filter(([, descriptor]) => typeof descriptor.value === "function")
-    .map(([name, descriptor]) => ({
-      name,
-      meta: read_metadata_object(descriptor.value),
-    }))
-    .filter(({ meta }) => meta !== undefined) as MethodMetadata[];
+    .flatMap(([name, descriptor]): MethodMetadata[] => {
+      const method = read_metadata_object<HandlersRecord>(descriptor.value);
+      return method
+        ? [{ name, meta: extras(method), ...handlers(method) }]
+        : [];
+    });
 
   return {
-    // the user's options first: the normalized keys below always win
-    ...meta,
+    // the other keys first: the normalized fields below always win
+    ...extras(record),
     isProvider: true,
     isInjectable: true,
     isController: true,
+    ...handlers(record),
     methods,
     provider: provider({
       provide: ctr,
-      deps: meta.dependencies,
+      deps: record[DEPENDENCIES],
       factory: class_factory(ctr),
     }),
   } satisfies ControllerMetadata;
@@ -206,8 +282,8 @@ function provider_metadata(
   p: Provider | Ctr,
 ): ProviderMetadata | InjectableMetadata {
   if (typeof p === "function") {
-    const meta = read_metadata_object<InjectableDescriptor>(p);
-    if (!meta?.isInjectable) {
+    const record = read_metadata_object<InjectableRecord>(p);
+    if (!record?.[INJECTABLE]) {
       throw new Error(
         `Class ${p.name} is not injectable. Did you forget @Injectable?`,
       );
@@ -217,7 +293,7 @@ function provider_metadata(
       isInjectable: true,
       provider: provider({
         provide: p,
-        deps: meta.dependencies,
+        deps: record[DEPENDENCIES],
         factory: class_factory(p),
       }),
     } satisfies InjectableMetadata;
@@ -264,28 +340,29 @@ function module_metadata(
     return known;
   }
 
-  const meta = read_metadata_object<ModuleDescriptor>(mdl);
-  if (!meta?.isModule) {
+  const record = read_metadata_object<ModuleRecord>(mdl);
+  if (!record?.[MODULE]) {
     throw new Error(
       `Class ${mdl.name} is not a module. Did you forget @Module?`,
     );
   }
 
   const moduleMeta: ModuleMetadata = {
-    // the record's other keys first: the normalized keys below always win
-    ...meta,
+    // the record's other keys first: the normalized fields below always win
+    ...extras(record),
     isModule: true,
     isInjectable: true,
     isProvider: true,
-    exports: meta.exports,
-    imports: meta.imports.map((imp) =>
+    ...handlers(record),
+    exports: record[EXPORTS],
+    imports: record[IMPORTS].map((imp) =>
       module_metadata(imp, modules, [...path, mdl])
     ),
-    providers: meta.providers.map(provider_metadata),
-    controllers: meta.controllers.map(controller_metadata),
+    providers: record[PROVIDERS].map(provider_metadata),
+    controllers: record[CONTROLLERS].map(controller_metadata),
     provider: provider({
       provide: mdl,
-      deps: meta.dependencies,
+      deps: record[DEPENDENCIES],
       factory: class_factory(mdl),
     }),
   };

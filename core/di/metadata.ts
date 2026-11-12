@@ -26,15 +26,14 @@
  *   class itself). Runtimes without a native `Symbol.metadata` use
  *   `Symbol.for("Symbol.metadata")`, the same fallback transpilers use.
  *
- * The second part of this module declares the records the DI decorators write
- * ({@link InjectableDescriptor}, {@link ControllerDescriptor} and
- * {@link ModuleDescriptor}). They are the contract between the decorators,
- * which write them, and the metadata graph, which reads them.
+ * A record's keys can be strings or symbols. The framework writes its own
+ * data under symbol keys (core's are in `keys.ts`), so they never collide
+ * with the string keys of user options.
  *
  * @module
  */
 
-import type { Any, Ctr, Dependency, Provider, Target, Token } from "./types.ts";
+import type { Any, Target } from "./types.ts";
 
 // Storage
 // -----------------------------------------------------------------------------
@@ -114,7 +113,9 @@ function own_bag(target: MetaTarget, create: boolean): Bag | undefined {
  * @Injectable([Logger])
  * class Db {}
  *
- * read_metadata_object(Db); // { isInjectable: true, dependencies: [Logger] }
+ * read_metadata_object(Db);
+ * // { [Symbol(chojs.core.isInjectable)]: true,
+ * //   [Symbol(chojs.core.dependencies)]: [Logger] }
  * ```
  */
 export function read_metadata_object<T>(target: MetaTarget): T | undefined {
@@ -128,9 +129,10 @@ export function read_metadata_object<T>(target: MetaTarget): T | undefined {
 /**
  * Write the CHO record of a target, replacing any existing one.
  *
- * The stored record is a frozen copy of `obj`. Top-level arrays are copied and
- * frozen too; nested values (such as provider objects inside an array) are
- * stored by reference.
+ * The stored record is a frozen copy of the own enumerable properties of
+ * `obj`, string and symbol keys alike. Top-level arrays are copied and frozen
+ * too; nested values (such as provider objects inside an array) are stored by
+ * reference.
  *
  * @param target A class, or a decorator metadata object.
  * @param obj The new record.
@@ -143,13 +145,15 @@ export function read_metadata_object<T>(target: MetaTarget): T | undefined {
  */
 export function write_metadata_object(
   target: MetaTarget,
-  obj: Record<string, unknown>,
+  obj: Record<PropertyKey, unknown>,
 ): void {
-  const entries = Object.entries(obj).map(([key, value]) =>
-    [key, Array.isArray(value) ? Object.freeze([...value]) : value] as const
-  );
+  const record: Record<PropertyKey, unknown> = {};
+  for (const key of own_keys(obj)) {
+    const value = obj[key];
+    record[key] = Array.isArray(value) ? Object.freeze([...value]) : value;
+  }
   Object.defineProperty(own_bag(target, true), MetaKey, {
-    value: Object.freeze(Object.fromEntries(entries)),
+    value: Object.freeze(record),
     writable: false,
     enumerable: false,
     configurable: true,
@@ -159,7 +163,7 @@ export function write_metadata_object(
 /**
  * Merge properties into the CHO record of a target.
  *
- * Merge rules, per key:
+ * Merge rules, per key (string and symbol keys alike):
  *
  * - when both the existing and the added value are arrays, they are
  *   concatenated, existing values first, without removing duplicates;
@@ -180,65 +184,29 @@ export function write_metadata_object(
  */
 export function add_to_metadata_object(
   target: MetaTarget,
-  obj: Record<string, unknown>,
+  obj: Record<PropertyKey, unknown>,
 ): void {
-  const merged = new Map(
-    Object.entries(read_metadata_object<Record<string, unknown>>(target) ?? {}),
-  );
-  for (const [key, value] of Object.entries(obj)) {
-    const prev = merged.get(key);
-    merged.set(
-      key,
-      Array.isArray(prev) && Array.isArray(value) ? [...prev, ...value] : value,
-    );
+  const merged: Record<PropertyKey, unknown> = {
+    ...read_metadata_object<Record<PropertyKey, unknown>>(target),
+  };
+  for (const key of own_keys(obj)) {
+    const prev = merged[key];
+    const value = obj[key];
+    merged[key] = Array.isArray(prev) && Array.isArray(value)
+      ? [...prev, ...value]
+      : value;
   }
-  write_metadata_object(target, Object.fromEntries(merged));
+  write_metadata_object(target, merged);
 }
 
-// Records written by the DI decorators
-// -----------------------------------------------------------------------------
-
 /**
- * The record `@Injectable` writes on a class.
+ * The own enumerable keys of an object, strings and symbols.
  *
- * It is also the base of the `@Module` and `@Controller` records: modules and
- * controllers are injectable too.
+ * @param obj The object.
+ * @returns Its keys: what object spread copies.
  */
-export type InjectableDescriptor = {
-  /** Marks the class as injectable. */
-  readonly isInjectable: true;
-  /** The dependencies passed to the constructor, in argument order. */
-  readonly dependencies: readonly Dependency[];
-};
-
-/**
- * The record `@Controller` writes on a class.
- *
- * A controller is an injectable class that an application module invokes
- * (for example a CLI command handler). Application modules can add their own
- * keys to this record; the DI system ignores them.
- */
-export type ControllerDescriptor = InjectableDescriptor & {
-  /** Marks the class as a controller. */
-  readonly isController: true;
-};
-
-/**
- * The record `@Module` writes on a class.
- *
- * A module is injectable itself: `dependencies` are passed to its own
- * constructor. Extra `@Module` options and application modules' own keys are
- * stored in this record too; the DI system ignores them.
- */
-export type ModuleDescriptor = InjectableDescriptor & {
-  /** Marks the class as a module. */
-  readonly isModule: true;
-  /** Modules whose exported tokens this module can inject. */
-  readonly imports: readonly Ctr[];
-  /** Tokens that modules importing this module can inject. */
-  readonly exports: readonly Token[];
-  /** `@Injectable` classes and provider objects this module declares. */
-  readonly providers: readonly (Provider | Ctr)[];
-  /** `@Controller` classes this module declares. */
-  readonly controllers: readonly Ctr[];
-};
+export function own_keys(obj: object): PropertyKey[] {
+  return Reflect.ownKeys(obj).filter((key) =>
+    Object.prototype.propertyIsEnumerable.call(obj, key)
+  );
+}

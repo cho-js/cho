@@ -7,10 +7,28 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Controller, Injectable, Module } from "./decorators.ts";
+import {
+  Catch,
+  Controller,
+  Injectable,
+  Middlewares,
+  Module,
+} from "./decorators.ts";
 import { build_meta_graph } from "./metadata-graph.ts";
-import { read_metadata_object, write_metadata_object } from "./metadata.ts";
+import { add_to_metadata_object, write_metadata_object } from "./metadata.ts";
+import {
+  CONTROLLERS,
+  DEPENDENCIES,
+  ERROR_HANDLER,
+  EXPORTS,
+  IMPORTS,
+  INJECTABLE,
+  MIDDLEWARES,
+  MODULE,
+  PROVIDERS,
+} from "./keys.ts";
 import { provider, token } from "./tokens.ts";
+import { legacy } from "../utils/test_utils.ts";
 import type { Ctr } from "./types.ts";
 
 /** A value that is not a class, typed as one to reach the runtime checks. */
@@ -90,18 +108,51 @@ describe("build_meta_graph", () => {
       const { modules } = build_meta_graph(App);
       assert.deepEqual([...modules.keys()], [Shared, Left, Right, App]);
     });
-    it("keeps every other key of the module's record", () => {
-      const onError = () => {};
+    it("keeps the options and CHO modules' keys, not the core's keys", () => {
+      const EXT = Symbol.for("test.ext");
       class App {}
       Module({ route: "api" })(App);
-      write_metadata_object(App, {
-        ...read_metadata_object<Record<string, unknown>>(App),
-        errorHandler: onError,
-      });
+      add_to_metadata_object(App, { [EXT]: "ext" });
 
       const { root } = build_meta_graph(App);
       assert.equal(root["route"], "api");
-      assert.equal(root["errorHandler"], onError);
+      assert.equal(root[EXT], "ext");
+      for (const key of [MODULE, INJECTABLE, DEPENDENCIES, IMPORTS]) {
+        assert.equal(key in root, false);
+      }
+    });
+
+    it("exposes @Middlewares and @Catch as typed fields", () => {
+      const mw = () => Promise.resolve();
+      const onError = () => {};
+      class App {}
+      Module()(App);
+      Middlewares(mw)(App);
+      Catch(onError)(App);
+
+      const { root } = build_meta_graph(App);
+      assert.deepEqual(root.middlewares, [mw]);
+      assert.equal(root.errorHandler, onError);
+    });
+
+    it("has no middlewares and no error handler by default", () => {
+      class App {}
+      Module()(App);
+
+      const { root } = build_meta_graph(App);
+      assert.deepEqual(root.middlewares, []);
+      assert.equal(root.errorHandler, undefined);
+    });
+
+    it("treats options named like the typed fields as plain options", () => {
+      const mw = () => Promise.resolve();
+      class App {}
+      Module({ isController: true, middlewares: [mw], errorHandler: mw })(App);
+
+      const { root } = build_meta_graph(App);
+      assert.deepEqual(root.middlewares, []);
+      assert.equal(root.errorHandler, undefined);
+      assert.equal(root["isController"], true);
     });
 
     it("does not let a record key override the normalized keys", () => {
@@ -226,23 +277,61 @@ describe("build_meta_graph", () => {
       assert.ok((await cli!.provider.factory()) instanceof Cli);
     });
 
-    it("keeps every other key of the controller's record", () => {
+    it("keeps the options and CHO modules' keys, not the core's keys", () => {
+      const EXT = Symbol.for("test.ext");
       class Logger {}
-      const onError = () => {};
       class Cli {}
       Controller({ dependencies: [Logger], name: "cli", tags: ["a"] })(Cli);
-      write_metadata_object(Cli, {
-        ...read_metadata_object<Record<string, unknown>>(Cli),
-        errorHandler: onError,
-      });
+      add_to_metadata_object(Cli, { [EXT]: "ext" });
       class App {}
       Module({ controllers: [Cli] })(App);
 
       const [cli] = build_meta_graph(App).root.controllers;
       assert.equal(cli!["name"], "cli");
       assert.deepEqual(cli!["tags"], ["a"]);
-      assert.equal(cli!["errorHandler"], onError);
-      assert.deepEqual(cli!["dependencies"], [Logger]);
+      assert.equal(cli![EXT], "ext");
+      assert.equal(DEPENDENCIES in cli!, false);
+      assert.equal("dependencies" in cli!, false);
+    });
+
+    it("exposes @Middlewares and @Catch as typed fields", () => {
+      const mw = () => Promise.resolve();
+      const onError = () => {};
+      class Cli {}
+      Controller()(Cli);
+      Middlewares(mw)(Cli);
+      Catch(onError)(Cli);
+      class App {}
+      Module({ controllers: [Cli] })(App);
+
+      const [cli] = build_meta_graph(App).root.controllers;
+      assert.deepEqual(cli!.middlewares, [mw]);
+      assert.equal(cli!.errorHandler, onError);
+    });
+
+    it("exposes a method's @Middlewares and @Catch, out of its meta", () => {
+      const EXT = Symbol.for("test.ext");
+      const mw = () => Promise.resolve();
+      const onError = () => {};
+      class Cli {
+        run() {}
+      }
+      add_to_metadata_object(Cli.prototype.run, { [EXT]: "run" });
+      legacy(Middlewares(mw), Cli, "run");
+      legacy(Catch(onError), Cli, "run");
+      Controller()(Cli);
+      class App {}
+      Module({ controllers: [Cli] })(App);
+
+      const [cli] = build_meta_graph(App).root.controllers;
+      assert.deepEqual(cli!.methods, [{
+        name: "run",
+        meta: { [EXT]: "run" },
+        middlewares: [mw],
+        errorHandler: onError,
+      }]);
+      assert.equal(MIDDLEWARES in cli!.methods[0]!.meta, false);
+      assert.equal(ERROR_HANDLER in cli!.methods[0]!.meta, false);
     });
 
     it("does not let a record key override the normalized keys", () => {
@@ -266,6 +355,8 @@ describe("build_meta_graph", () => {
       assert.deepEqual(cli!.methods, [{
         name: "run",
         meta: { command: "run" },
+        middlewares: [],
+        errorHandler: undefined,
       }]);
       assert.equal(cli!.provider.provide, Cli);
     });
@@ -282,9 +373,10 @@ describe("build_meta_graph", () => {
       Module({ controllers: [Cli] })(App);
 
       const [cli] = build_meta_graph(App).root.controllers;
+      const none = { middlewares: [], errorHandler: undefined };
       assert.deepEqual(cli!.methods, [
-        { name: "run", meta: { command: "run" } },
-        { name: "help", meta: { command: "help" } },
+        { name: "run", meta: { command: "run" }, ...none },
+        { name: "help", meta: { command: "help" }, ...none },
       ]);
     });
 
@@ -346,16 +438,17 @@ describe("build_meta_graph", () => {
     });
 
     it("throws a TypeError when an import is not a class", () => {
-      // @Module rejects a non-class import, so write the record directly.
+      // @Module rejects a non-class import, so write the record directly,
+      // with the keys spelled out: what another copy of the package writes.
       class App {}
       write_metadata_object(App, {
-        isInjectable: true,
-        isModule: true,
-        dependencies: [],
-        imports: [not_a_class],
-        exports: [],
-        providers: [],
-        controllers: [],
+        [Symbol.for("chojs.core.isInjectable")]: true,
+        [Symbol.for("chojs.core.isModule")]: true,
+        [Symbol.for("chojs.core.dependencies")]: [],
+        [Symbol.for("chojs.core.imports")]: [not_a_class],
+        [Symbol.for("chojs.core.exports")]: [],
+        [Symbol.for("chojs.core.providers")]: [],
+        [Symbol.for("chojs.core.controllers")]: [],
       });
       assert.throws(() => build_meta_graph(App), {
         name: "TypeError",
@@ -405,13 +498,13 @@ describe("build_meta_graph", () => {
       // @Module rejects a non-class controller, so write the record directly.
       class App {}
       write_metadata_object(App, {
-        isInjectable: true,
-        isModule: true,
-        dependencies: [],
-        imports: [],
-        exports: [],
-        providers: [],
-        controllers: [not_a_class],
+        [INJECTABLE]: true,
+        [MODULE]: true,
+        [DEPENDENCIES]: [],
+        [IMPORTS]: [],
+        [EXPORTS]: [],
+        [PROVIDERS]: [],
+        [CONTROLLERS]: [not_a_class],
       });
       assert.throws(() => build_meta_graph(App), {
         name: "TypeError",

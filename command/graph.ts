@@ -12,6 +12,7 @@ import type {
   MethodMetadata,
 } from "@chojs/core/di";
 import { describe } from "@chojs/core/utils";
+import { ACTION, ALIAS, command_record, MAIN } from "./keys.ts";
 
 /** A controller of the injector: its class, module and method metadata. */
 export type ControllerNode = DependencyNode<ControllerMetadata>;
@@ -53,18 +54,19 @@ export function command_graph(inj: Injector): CommandGraph {
   const actionsByName = new Map<unknown, [ControllerNode, MethodMetadata]>();
   for (const c of inj.controllers()) {
     for (const m of c.meta.methods) {
-      if (m.meta.isMain) {
+      const record = command_record(m.meta);
+      if (record[MAIN]) {
         mainMethods.push([c, m]);
-      } else if (m.meta.isAction) {
-        const prev = actionsByName.get(m.meta.alias);
+      } else if (record[ACTION]) {
+        const prev = actionsByName.get(record[ALIAS]);
         if (prev) {
           throw new Error(
-            `Duplicate @Action("${m.meta.alias}"): declared on ${
+            `Duplicate @Action("${record[ALIAS]}"): declared on ${
               describe(prev[0].token)
             }.${prev[1].name} and ${describe(c.token)}.${m.name}`,
           );
         }
-        actionsByName.set(m.meta.alias, [c, m]);
+        actionsByName.set(record[ALIAS], [c, m]);
         actionMethods.push([c, m]);
       }
     }

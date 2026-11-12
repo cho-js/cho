@@ -1,7 +1,8 @@
 /**
  * The HTTP method decorators: `@Get`, `@Post`, `@Put` and `@Delete` mark the
- * route handlers of a controller. They write a record on the decorated method,
- * which the web graph reads (see `graph.ts`).
+ * route handlers of a controller. They write the handler's method and route on
+ * the decorated method, under the private `HTTP` key (`keys.ts`), which the
+ * web graph builder reads (see `build-graph.ts`).
  *
  * @module
  */
@@ -11,6 +12,7 @@ import {
   type ChoMethodDecorator,
   decorated_method,
 } from "@chojs/core/di";
+import { HTTP, type HttpRoute } from "./keys.ts";
 
 /**
  * Create the decorator of one HTTP method. It works with both decorator
@@ -35,11 +37,7 @@ function create_http_decorator(
       descriptor,
     );
     add_to_metadata_object(decorated.fn, {
-      isHTTP: true,
-      type: "HTTP",
-      method,
-      name: decorated.name,
-      route,
+      [HTTP]: { method, route } satisfies HttpRoute,
     });
   };
 }

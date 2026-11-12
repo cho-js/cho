@@ -3,7 +3,8 @@
  * controller, `@Help` adds help text to a controller or a method.
  *
  * They validate their input when the class is defined and write a record on
- * the decorated method (or class), which the command graph reads.
+ * the decorated method (or class), which the command graph reads. The record
+ * keys are the private symbols of `keys.ts`.
  *
  * @module
  */
@@ -17,6 +18,7 @@ import {
   type DecoratedMethod,
   read_metadata_object,
 } from "@chojs/core/di";
+import { ACTION, ALIAS, command_record, HELP, MAIN } from "./keys.ts";
 
 /**
  * Assert that a decorator argument is a non-empty string.
@@ -89,9 +91,9 @@ function assert_command_method(method: DecoratedMethod, adding: string) {
  * first one's `alias`.
  */
 function assert_no_command(method: DecoratedMethod, adding: string) {
-  const prev = read_metadata_object<Record<string, unknown>>(method.fn);
-  if (prev?.isMain || prev?.isAction) {
-    const existing = prev.isMain ? "@Main()" : `@Action("${prev.alias}")`;
+  const prev = command_record(read_metadata_object(method.fn) ?? {});
+  if (prev[MAIN] || prev[ACTION]) {
+    const existing = prev[MAIN] ? "@Main()" : `@Action("${prev[ALIAS]}")`;
     throw new Error(
       `Cannot add ${adding} to method '${
         String(method.name)
@@ -136,11 +138,7 @@ export function Main(): ChoMethodDecorator {
     const method = decorated_method("@Main()", target, context, descriptor);
     assert_command_method(method, "@Main()");
     assert_no_command(method, "@Main()");
-    add_to_metadata_object(method.fn, {
-      isMain: true,
-      name: method.name,
-      alias: "main",
-    });
+    add_to_metadata_object(method.fn, { [MAIN]: true, [ALIAS]: "main" });
   };
 }
 
@@ -187,11 +185,7 @@ export function Action(alias: string): ChoMethodDecorator {
     const method = decorated_method(adding, target, context, descriptor);
     assert_command_method(method, adding);
     assert_no_command(method, adding);
-    add_to_metadata_object(method.fn, {
-      isAction: true,
-      name: method.name,
-      alias,
-    });
+    add_to_metadata_object(method.fn, { [ACTION]: true, [ALIAS]: alias });
   };
 }
 
@@ -226,6 +220,6 @@ export function Help(help: string): ChoClassOrMethodDecorator {
   return function (target, context, descriptor) {
     assert_non_empty_string(help, "Help");
     const meta = decorated_target("@Help()", target, context, descriptor);
-    add_to_metadata_object(meta, { help });
+    add_to_metadata_object(meta, { [HELP]: help });
   };
 }

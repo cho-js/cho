@@ -24,6 +24,7 @@ import {
   type ControllerNode,
 } from "./graph.ts";
 import { format_help } from "./help.ts";
+import { ALIAS, command_record } from "./keys.ts";
 
 /**
  * Assert that a value is truthy.
@@ -73,9 +74,7 @@ function is_positive_integer(n: unknown): n is number {
 function find_error_handler(
   [node, method]: [ControllerNode, MethodMetadata],
 ): ChoErrorHandler | undefined {
-  return (method.meta["errorHandler"] ?? node.meta["errorHandler"]) as
-    | ChoErrorHandler
-    | undefined;
+  return method.errorHandler ?? node.meta.errorHandler;
 }
 
 /**
@@ -353,6 +352,8 @@ export class ChoCommand {
   #find_controller(
     route: string,
   ): [ControllerNode, MethodMetadata] | undefined {
-    return this.#graph.actions.find(([, { meta }]) => meta.alias === route);
+    return this.#graph.actions.find(([, { meta }]) =>
+      command_record(meta)[ALIAS] === route
+    );
   }
 }
