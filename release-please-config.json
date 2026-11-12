@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "include-component-in-tag": true,
+  "separate-pull-requests": false,
+  "bootstrap-sha": "e5dca1df318d23a40a7ebad877d38b1927f7b7fc",
+  "packages": {
+    "core": {
+      "component": "core",
+      "package-name": "@chojs/core",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ],
+      "release-as": "3.0.0"
+    },
+    "command": {
+      "component": "command",
+      "package-name": "@chojs/command",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ],
+      "release-as": "3.0.0"
+    },
+    "web": {
+      "component": "web",
+      "package-name": "@chojs/web",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ],
+      "release-as": "3.0.0"
+    },
+    "vendor/hono": {
+      "component": "vendor-hono",
+      "package-name": "@chojs/vendor-hono",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ],
+      "release-as": "3.0.0"
+    }
+  }
+}

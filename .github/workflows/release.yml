@@ -1,57 +1,58 @@
+# Releases on merge to main, with release-please:
+#
+# 1. Every push to main updates a release pull request, built from the
+#    conventional commits since the last release: version bumps in each
+#    package's deno.json, and CHANGELOG.md entries.
+# 2. Merging that pull request tags a GitHub release per package
+#    (core-v3.0.0, command-v3.0.0, ...), then publishes to JSR.
+#
+# `deno publish` from the workspace root publishes every package whose version
+# is not on JSR yet, and skips the others.
 name: Release
+
 on:
-  workflow_dispatch:
-#  push:
-#    branches:
-#      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
   publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      issues: write
-      id-token: write
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      contents: read
+      id-token: write # JSR authenticates GitHub Actions with OIDC
     steps:
       - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
         with:
-          fetch-depth: 0
+          deno-version: v2.x
 
-      - name: 🌸 Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
+      - name: Install
+        run: deno install
 
-      #      - name: 🌼 Setup Deno
-      #        uses: denoland/setup-deno@v2
-      #        with:
-      #          deno-version: v2.x
+      - name: Check
+        run: |
+          deno check .
+          deno lint
+          deno task test
 
-      #      - name: 🧪 testing
-      #        run: deno test --allow-env
-
-      - name: 🛫 install semantic-release
-        run: npm ci --no-fund
-
-      - name: 🦋release core
-        #        if: contains(github.event.head_commit.message, '(core)')
-        run: cd core && npx semantic-release
-
-      - name: 🦋release web
-
-        #        if: contains(github.event.head_commit.message, '(web)')
-        run: cd web && npx semantic-release
-
-      #      - name: 🦋release vendor-hono
-      #        if: contains(github.event.head_commit.message, '(hono)')
-      #        run: cd vendor/hono && npx semantic-release
-
-      #      - name: 🦋release dev
-      #        if: contains(github.event.head_commit.message, '(dev)')
-      #        run: cd dev && npx semantic-release
-
-      - name: 🦋release command
-        #        if: contains(github.event.head_commit.message, '(command)')
-        run: cd command && npx semantic-release
+      - name: Publish to JSR
+        run: deno publish
