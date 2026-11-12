@@ -99,6 +99,14 @@ describe("@Injectable", () => {
 });
 
 describe("@Module", () => {
+  it("rejects an option that would turn the module into a controller", () => {
+    class App {}
+    assert.throws(() => Module(loose({ isController: true }))(App), {
+      message:
+        '"isController" is a reserved option name: the DI decorators set it',
+    });
+  });
+
   it("marks a class as an injectable module, every field defaulting to []", () => {
     class App {}
     Module()(App);
@@ -185,6 +193,13 @@ describe("@Module", () => {
 });
 
 describe("@Controller", () => {
+  it("rejects an option that would turn the controller into a module", () => {
+    class Cli {}
+    assert.throws(() => Controller(loose({ isModule: true }))(Cli), {
+      message: '"isModule" is a reserved option name: the DI decorators set it',
+    });
+  });
+
   it("marks a class as an injectable controller, with no dependencies by default", () => {
     class Cli {}
     Controller()(Cli);

@@ -92,6 +92,18 @@ describe("set_injectable", () => {
     });
   }
 
+  it("rejects an option named like a flag", () => {
+    class Foo {}
+    assert.throws(
+      () => set_injectable(Foo, loose({ dependencies: [], isModule: true })),
+      {
+        message:
+          '"isModule" is a reserved option name: the DI decorators set it',
+      },
+    );
+    assert.equal(read_metadata_object(Foo), undefined);
+  });
+
   it("throws when the dependencies are not an array", () => {
     class Logger {}
     class Foo {}
@@ -215,14 +227,15 @@ describe("set_module", () => {
     });
   });
 
-  it("does not let an option overwrite the flags", () => {
-    class App {}
-    set_injectable(App, { dependencies: [] });
-    set_module(App, loose({ isModule: "no", isInjectable: "no" }));
-    const record = read_metadata_object<Record<string, unknown>>(App)!;
-    assert.equal(record["isModule"], true);
-    assert.equal(record["isInjectable"], true);
-  });
+  for (const key of ["isInjectable", "isModule", "isController"]) {
+    it(`rejects an option named ${key}, and writes nothing`, () => {
+      class App {}
+      assert.throws(() => set_module(App, loose({ [key]: true })), {
+        message: `"${key}" is a reserved option name: the DI decorators set it`,
+      });
+      assert.equal(read_metadata_object(App), undefined);
+    });
+  }
 
   for (
     const [option, value, got] of [
@@ -423,6 +436,16 @@ describe("set_module", () => {
 });
 
 describe("set_controller", () => {
+  for (const key of ["isInjectable", "isModule", "isController"]) {
+    it(`rejects an option named ${key}, and writes nothing`, () => {
+      class Cli {}
+      assert.throws(() => set_controller(Cli, loose({ [key]: false })), {
+        message: `"${key}" is a reserved option name: the DI decorators set it`,
+      });
+      assert.equal(read_metadata_object(Cli), undefined);
+    });
+  }
+
   it("adds isController to the record written by set_injectable", () => {
     class Logger {}
     class Cli {}

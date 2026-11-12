@@ -24,6 +24,8 @@
  * Only the shape of the options, so that a mistake fails at the decorator
  * that made it, with a message naming the bad value:
  *
+ * - no option uses a reserved name (`isInjectable`, `isModule`,
+ *   `isController`), which would change what the class is;
  * - every list option is an array;
  * - dependencies and exports are tokens (classes, symbols or injection
  *   tokens);
@@ -76,7 +78,8 @@ export type InjectableOptions = {
  *
  * Besides the fields below, any key is accepted and stored as is in the
  * module's record, for the application module (for example the route prefix
- * of a web feature). The DI system ignores those keys.
+ * of a web feature). The DI system ignores those keys, except the reserved
+ * names `isInjectable`, `isModule` and `isController`, which throw.
  *
  * @example
  * ```ts
@@ -117,7 +120,8 @@ export type ModuleOptions = InjectableOptions & {
  * Besides `dependencies`, any key is accepted and stored as is in the
  * controller's record, for the application module that invokes the controller
  * (for example the description of a CLI command). The DI system ignores those
- * keys.
+ * keys, except the reserved names `isInjectable`, `isModule` and
+ * `isController`, which throw.
  *
  * @example
  * ```ts
@@ -195,6 +199,30 @@ function describe_value(value: unknown): string {
     shown.push("...");
   }
   return `{ ${shown.join(", ")} }`;
+}
+
+/**
+ * The record keys that only the DI decorators write: the flags the metadata
+ * graph reads to tell an injectable class, a module and a controller apart.
+ * An option with one of these names would change what the class is, e.g.
+ * `@Controller({ isModule: true })` would make the controller a module.
+ */
+const RESERVED_OPTIONS = ["isInjectable", "isModule", "isController"] as const;
+
+/**
+ * Assert that the options use none of the {@link RESERVED_OPTIONS} names.
+ *
+ * @param options The decorator options.
+ * @throws {Error} When an option has a reserved name.
+ */
+function assert_no_reserved_option(options: object): void {
+  for (const key of RESERVED_OPTIONS) {
+    if (Object.hasOwn(options, key)) {
+      throw new Error(
+        `"${key}" is a reserved option name: the DI decorators set it`,
+      );
+    }
+  }
 }
 
 /**
@@ -368,6 +396,8 @@ function assert_provider(provider: unknown): asserts provider is Provider {
  * @param options The constructor's dependencies, in argument order.
  * @throws {Error} When the target already has a DI decorator. This is checked
  *   first, before the dependencies.
+ * @throws {Error} When an option is named `isInjectable`, `isModule` or
+ *   `isController`.
  * @throws {Error} When `dependencies` is not an array, or a dependency is not
  *   a class, symbol or injection token.
  *   Nothing is written.
@@ -386,6 +416,7 @@ export function set_injectable(
   options: InjectableOptions,
 ): void {
   assert_decorated(target);
+  assert_no_reserved_option(options);
   assert_array("dependencies", options.dependencies);
   options.dependencies.forEach(
     assert_dependency(
@@ -427,6 +458,8 @@ export function set_injectable(
  *
  * @param target The class, or its decorator metadata object.
  * @param options The module's options. Every field is optional.
+ * @throws {Error} When an option is named `isInjectable`, `isModule` or
+ *   `isController`.
  * @throws {Error} When `imports`, `controllers`, `exports` or `providers` is
  *   not an array.
  * @throws {Error} When an import or a controller is not a class.
@@ -452,11 +485,10 @@ export function set_module(
   target: MetaTarget,
   options: Partial<ModuleOptions>,
 ): void {
-  // `dependencies` and `isInjectable` are written by `set_injectable`.
-  // Writing `dependencies` again would append a second copy, since array
-  // values are concatenated on merge, and an `isInjectable` option would
-  // overwrite the flag.
-  const { dependencies: _deps, isInjectable: _flag, ...extra } = options;
+  assert_no_reserved_option(options);
+  // `dependencies` is written by `set_injectable`. Writing it again would
+  // append a second copy, since array values are concatenated on merge.
+  const { dependencies: _, ...extra } = options;
   const norm = {
     imports: options.imports ?? [],
     exports: options.exports ?? [],
@@ -502,11 +534,15 @@ export function set_module(
  * are concatenated on merge, so writing it again would duplicate every
  * dependency.
  *
- * Nothing is validated, and an existing DI decorator is not checked for:
- * `@Controller` relies on its `set_injectable` call for both.
+ * Only the option names are validated: an option named `isInjectable`,
+ * `isModule` or `isController` throws, since it would change what the class
+ * is. An existing DI decorator is not checked for: `@Controller` relies on
+ * its `set_injectable` call for that.
  *
  * @param target The class, or its decorator metadata object.
  * @param options The controller's options.
+ * @throws {Error} When an option is named `isInjectable`, `isModule` or
+ *   `isController`. Nothing is written then.
  *
  * @example
  * ```ts
@@ -523,6 +559,7 @@ export function set_controller(
   target: MetaTarget,
   options: Partial<ControllerOptions>,
 ): void {
+  assert_no_reserved_option(options);
   // `dependencies` is written by `set_injectable`; spreading it again would
   // append a second copy, since array values are concatenated on merge.
   const { dependencies: _, ...rest } = options;

@@ -91,6 +91,8 @@ export function Injectable(dependencies: Dependency[] = []): ChoClassDecorator {
  *   defaults to `[]`.
  * @returns The class decorator.
  * @throws {Error} When the class already has a DI decorator.
+ * @throws {Error} When an option is invalid, or named `isInjectable`,
+ *   `isModule` or `isController` (reserved).
  *
  * @example
  * ```ts
@@ -126,7 +128,8 @@ export function Module(
  * `dependencies`, which resolve in the scope of the module that declares it.
  *
  * Any option other than `dependencies` is stored as is in the controller's
- * record, for the application module. Application modules can also attach
+ * record, for the application module, except the reserved names
+ * `isInjectable`, `isModule` and `isController`, which throw. Application modules can also attach
  * metadata to the controller's methods; the DI system collects it (see
  * `ControllerMetadata.methods`) but does not interpret it.
  *
@@ -134,6 +137,8 @@ export function Module(
  *   metadata for the application module.
  * @returns The class decorator.
  * @throws {Error} When the class already has a DI decorator.
+ * @throws {Error} When an option is named `isInjectable`, `isModule` or
+ *   `isController` (reserved).
  *
  * @example
  * ```ts

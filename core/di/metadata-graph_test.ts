@@ -250,9 +250,8 @@ describe("build_meta_graph", () => {
         run() {}
       }
       write_metadata_object(Cli.prototype.run, { command: "run" });
+      // isController and isInjectable are reserved: @Controller rejects them.
       Controller({
-        isController: "no",
-        isInjectable: "no",
         isProvider: "no",
         methods: "no",
         provider: "no",
