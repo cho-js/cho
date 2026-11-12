@@ -3,15 +3,19 @@
  * a module, parses the command line and runs the matching command method.
  *
  * Errors in a command are handled by its `@Catch` error handler (the method's,
- * then the controller's), or by the default one, which logs to the `cho`
- * debug logger and exits `1`.
+ * then the controller's), or by the default one, which prints
+ * `Error: <message>` to stderr and exits `1`.
+ *
+ * `ChoCommand` logs to the `cho:command` debug context (`CHO_DEBUGLOG=cho:command`
+ * or `CHO_DEBUG=1`): the commands it found, each run with its exit code, and
+ * each error.
  *
  * @module
  */
 
 import type { ChoErrorHandler, Ctr, MethodMetadata } from "@chojs/core/di";
 import { Injector } from "@chojs/core/di";
-import { describe, isClass } from "@chojs/core/utils";
+import { type Debuglog, debuglog, describe, isClass } from "@chojs/core/utils";
 import {
   ChoActionsParser,
   type ChoArgsParser,
@@ -163,6 +167,11 @@ export class ChoCommand {
   readonly #options: Partial<ChoCommandOptions>;
   /** The command-line parser of the mode. */
   readonly #parser: ChoArgsParser;
+  /**
+   * The `cho:command` debug logger, created with the application, so it
+   * follows `set_env` and the environment at that time.
+   */
+  readonly #log: Debuglog = debuglog("cho:command");
 
   /**
    * Use {@link ChoCommand.create}, which builds the arguments from a module.
@@ -186,6 +195,14 @@ export class ChoCommand {
       version: options.version ?? "1.0.0",
     };
     this.#parser = parser;
+    if (this.#log.enabled) {
+      const commands = this.#graph.actions.map(([node, method]) =>
+        `${command_record(method.meta)[ALIAS]} (${
+          describe(node.token)
+        }.${method.name})`
+      );
+      this.#log(`${this.#graph.mode} mode: ${commands.join(", ")}`);
+    }
   }
 
   /**
@@ -227,18 +244,22 @@ export class ChoCommand {
       argv,
       this.#options.parseOptions,
     );
+    this.#log("run", argv);
 
     if (help) {
+      this.#log(`help for ${JSON.stringify(route)}`);
       this.#show_help(route);
       return 0;
     }
 
     if (version) {
+      this.#log("version");
       console.log(`${this.#options.name} version ${this.#options.version}`);
       return 0;
     }
 
     if (!route && this.#graph.mode === "actions") {
+      this.#log("no action: help");
       this.#show_help("");
       return 0;
     }
@@ -280,11 +301,18 @@ export class ChoCommand {
       );
 
       const handler = method.bind(ctrl);
+      const done = this.#log.start();
       const ret = await handler(args);
-      return is_positive_integer(ret) ? ret : 0;
+      const code = is_positive_integer(ret) ? ret : 0;
+      done(`${route} (${describe(node.token)}.${meta.name}) exited ${code}`);
+      return code;
     } catch (err) {
+      this.#log.error(`${route || "main"} failed:`, err);
       // the method's error handler, then the controller's
       const errorHandler = action && find_error_handler(action);
+      if (errorHandler) {
+        this.#log(`handled by ${describe(errorHandler)}`);
+      }
 
       // error handler as a resolvable class
       if (action && action[0] && isClass(errorHandler)) {
@@ -297,7 +325,8 @@ export class ChoCommand {
           );
           const ret = await handler.handle(err, args);
           return is_positive_integer(ret) ? ret : 1;
-        } catch (_handlerErr) {
+        } catch (handlerErr) {
+          this.#log.error("the error handler failed:", handlerErr);
           console.error(
             `Error: ${err instanceof Error ? err.message : String(err)}`,
           );
@@ -309,12 +338,13 @@ export class ChoCommand {
       if (typeof errorHandler === "function") {
         try {
           const ret =
-              await (errorHandler as (error: unknown, ctx?: unknown) => unknown)(
-                  err,
-                  args,
-              );
+            await (errorHandler as (error: unknown, ctx?: unknown) => unknown)(
+              err,
+              args,
+            );
           return is_positive_integer(ret) ? ret : 1;
-        } catch (_handlerErr) {
+        } catch (handlerErr) {
+          this.#log.error("the error handler failed:", handlerErr);
           console.error(
             `Error: ${err instanceof Error ? err.message : String(err)}`,
           );

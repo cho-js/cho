@@ -17,6 +17,7 @@
  */
 
 import type { ChoMiddlewareFn } from "@chojs/core/di";
+import { type Debuglog, debuglog } from "@chojs/core/utils";
 import type { Context, ErrorHandler, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
@@ -55,6 +56,10 @@ export class HonoLinked implements Linked<Hono> {
 /**
  * Links the HTTP graph of a CHO web application to a new Hono application.
  *
+ * It logs to the `cho:web:hono` debug context (`CHO_DEBUGLOG=cho:web:hono`,
+ * `CHO_DEBUGLOG=cho:web*` or `CHO_DEBUG=1`): each route it registers, and each
+ * error a `@Catch` handler receives.
+ *
  * Each feature module and each controller becomes a Hono sub-application,
  * mounted at its route, with its middlewares and its error handler. Each
  * handler method becomes a route; what it returns is sent with `ctx.json()`,
@@ -72,6 +77,12 @@ export class HonoLinked implements Linked<Hono> {
  */
 export class HonoLinker implements Linker<Hono> {
   /**
+   * The `cho:web:hono` debug logger, created with the linker, so it follows
+   * `set_env` and the environment at that time.
+   */
+  readonly #log: Debuglog = debuglog("cho:web:hono");
+
+  /**
    * Link an HTTP graph to a new Hono application.
    *
    * @param graph The HTTP graph of the application.
@@ -79,6 +90,8 @@ export class HonoLinker implements Linker<Hono> {
    * @throws {Error} When a handler uses an unsupported HTTP method.
    */
   link(graph: AppRef): HonoLinked {
+    const done = this.#log.start();
+    let count = 0;
     const app = new Hono();
     for (const fr of graph.features) {
       const feature = this.#createController(fr);
@@ -90,11 +103,18 @@ export class HonoLinker implements Linker<Hono> {
           const middlewares = this.#createMiddlewares(mr.middlewares);
           // @ts-ignore: ts unable to infer that action is a key of ctrl
           ctrl[action](`/${mr.route}`, ...middlewares, endpoint);
+          count++;
+          this.#log(
+            `registered ${mr.method} /${
+              [fr.route, cr.route, mr.route].filter(Boolean).join("/")
+            }`,
+          );
         }
         feature.route(cr.route, ctrl);
       }
       app.route(fr.route, feature);
     }
+    done(`linked ${count} routes`);
     return new HonoLinked(app);
   }
 
@@ -105,8 +125,12 @@ export class HonoLinker implements Linker<Hono> {
     if (middlewares.length > 0) {
       ctrl.use(...middlewares);
     }
-    if (ref.errorHandler) {
-      ctrl.onError(ref.errorHandler as ErrorHandler);
+    const handler = ref.errorHandler;
+    if (handler) {
+      ctrl.onError((error, ctx) => {
+        this.#log.error(`${ctx.req.method} ${ctx.req.path} failed:`, error);
+        return handler(error, ctx) as ReturnType<ErrorHandler>;
+      });
     }
     return ctrl;
   }
@@ -134,6 +158,7 @@ export class HonoLinker implements Linker<Hono> {
         return ctx.json(result);
       } catch (error) {
         if (ref.errorHandler) {
+          this.#log.error(`${ctx.req.method} ${ctx.req.path} failed:`, error);
           return ref.errorHandler(error, ctx);
         }
         throw error;

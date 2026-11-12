@@ -183,6 +183,26 @@ links them with the adapter. Every wiring, route, middleware or error handler
 mistake makes it reject, before the server starts. The `name` and `version`
 options are accepted but not used yet.
 
+**Debug logging.** `ChoWeb.create` logs to the `cho:web` debug context, and the
+Hono adapter to `cho:web:hono`, on stderr. They are off by default; enable both
+with `CHO_DEBUGLOG=cho:web*`, all of CHO with `CHO_DEBUGLOG=cho:*` or
+`CHO_DEBUG=1`. The core's `cho:di` context logs the injector (`core/specs.md`,
+section 2.9).
+
+```
+cho:web GET /v1/users/:id -> Users.get
+cho:web GET /v1/users -> Users.list
+cho:web:hono registered GET /v1/users/:id
+cho:web:hono registered GET /v1/users
+cho:web:hono linked 2 routes +0ms
+cho:web application App created +2ms
+cho:web:hono ERROR GET /v1/users/1 failed: Error: db down
+```
+
+`cho:web` logs every route with its handler, and the error that stops the
+application from being created. `cho:web:hono` logs each route it registers, and
+each error a `@Catch` handler receives, with the request's method and path.
+
 ## 7. Runtime adapters
 
 An adapter implements `Linker` (`@chojs/web/linker`): it receives the

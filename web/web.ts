@@ -4,13 +4,50 @@
  * `HonoLinker` from `@chojs/vendor-hono`), which gives a `fetch`-style request
  * handler.
  *
+ * `ChoWeb.create` logs to the `cho:web` debug context (`CHO_DEBUGLOG=cho:web`
+ * or `CHO_DEBUG=1`): every route with its handler, and any error that stops
+ * the application from being created.
+ *
  * @module
  */
 
 import type { Ctr } from "@chojs/core/di";
 import { Injector } from "@chojs/core/di";
+import { debuglog, describe } from "@chojs/core/utils";
 import { build_http_graph } from "./build-graph.ts";
 import type { Linked, Linker } from "./linker.ts";
+import type { AppRef } from "./graph.ts";
+
+/**
+ * The routes of an HTTP graph, for the debug log: `GET /v1/users/:id ->
+ * Users.get`, in registration order.
+ *
+ * @param graph The HTTP graph.
+ * @returns One line per route handler.
+ */
+function routes_of(graph: AppRef): string[] {
+  const lines: string[] = [];
+  for (const feature of graph.features) {
+    for (const controller of feature.controllers) {
+      for (const method of controller.methods) {
+        const path = [
+          graph.route,
+          feature.route,
+          controller.route,
+          method.route,
+        ]
+          .filter((segment) => segment !== "")
+          .join("/");
+        lines.push(
+          `${method.method} /${path} -> ${
+            describe(controller.instance.constructor)
+          }.${method.name}`,
+        );
+      }
+    }
+  }
+  return lines;
+}
 
 /**
  * Options of {@link ChoWeb.create}. `linker` is required; the other options
@@ -109,10 +146,23 @@ export class ChoWeb<T = unknown> {
     app: Ctr,
     options: ChoWebOptions<T>,
   ): Promise<ChoWeb<T>> {
-    const inj = new Injector(app);
-    await inj.init();
-    const graph = await build_http_graph(inj, options.prefix ?? "");
-    return new ChoWeb(options.linker.link(graph));
+    // Created here, not when the module is loaded, so it follows `set_env`.
+    const log = debuglog("cho:web");
+    const done = log.start();
+    try {
+      const inj = new Injector(app);
+      await inj.init();
+      const graph = await build_http_graph(inj, options.prefix ?? "");
+      if (log.enabled) {
+        for (const route of routes_of(graph)) log(route);
+      }
+      const web = new ChoWeb(options.linker.link(graph));
+      done(`application ${describe(app)} created`);
+      return web;
+    } catch (error) {
+      log.error(`cannot create application ${describe(app)}:`, error);
+      throw error;
+    }
   }
 
   /**

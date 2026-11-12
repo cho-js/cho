@@ -11,7 +11,8 @@ import assert from "node:assert/strict";
 import { Controller, Injectable, Module } from "./decorators.ts";
 import { Injector } from "./injector.ts";
 import { provider, token } from "./tokens.ts";
-import type { Provider, Token } from "./types.ts";
+import type { Ctr, Provider, Token } from "./types.ts";
+import { capture, with_env } from "../utils/test_utils.ts";
 
 /** Resolve after `ms` milliseconds. */
 function sleep(ms: number): Promise<void> {
@@ -664,5 +665,129 @@ describe("Injector", () => {
       const b = await new Injector(App).resolve(Db);
       assert.notEqual(a, b);
     });
+  });
+});
+
+describe("Injector, debug logging", () => {
+  /** An app whose root imports `Db`, with one provider each. */
+  function app() {
+    class Logger {}
+    Injectable()(Logger);
+    class Db {}
+    Module({ providers: [Logger], exports: [Logger] })(Db);
+    class Users {}
+    Injectable([Logger])(Users);
+    class App {}
+    Module({ imports: [Db], providers: [Users] })(App);
+    return { App, Users };
+  }
+
+  /** Create an injector with the given environment, then run `fn`. */
+  async function logged(
+    vars: Record<string, string | undefined>,
+    root: Ctr,
+    fn: (injector: Injector) => Promise<unknown>,
+  ): Promise<string> {
+    const { output } = await capture(async () => {
+      let injector!: Injector;
+      with_env(vars, () => {
+        injector = new Injector(root);
+      });
+      await fn(injector);
+    });
+    return output.error.map(String).join(" ");
+  }
+
+  const OFF = { CHO_DEBUG: undefined, CHO_DEBUGLOG: undefined };
+
+  it("logs nothing unless the cho:di context is enabled", async () => {
+    const { App, Users } = app();
+    const logs = await logged(OFF, App, (injector) => injector.resolve(Users));
+    assert.equal(logs, "");
+  });
+
+  for (
+    const vars of [{ CHO_DEBUGLOG: "cho:di" }, { CHO_DEBUGLOG: "cho:*" }, {
+      CHO_DEBUG: "1",
+    }]
+  ) {
+    it(`logs with ${JSON.stringify(vars)}`, async () => {
+      const { App, Users } = app();
+      const logs = await logged(
+        { ...OFF, ...vars },
+        App,
+        (injector) => injector.resolve(Users),
+      );
+      assert.match(logs, /cho:di/);
+    });
+  }
+
+  it("logs the graph, resolve calls, creations and module initialization", async () => {
+    const { App, Users } = app();
+    const logs = await logged(
+      { ...OFF, CHO_DEBUGLOG: "cho:di" },
+      App,
+      async (injector) => {
+        await injector.resolve(Users);
+        await injector.init();
+      },
+    );
+    for (
+      const expected of [
+        "module Db: 2 declarations",
+        "module App: 2 declarations, imports Db",
+        "graph of App built: 2 modules",
+        "resolve Users in module App",
+        "created Logger in module Db",
+        "created Users in module App",
+        "module Db initialized",
+        "module App initialized",
+      ]
+    ) {
+      assert.ok(logs.includes(expected), `missing "${expected}" in: ${logs}`);
+    }
+  });
+
+  it("logs failures as errors", async () => {
+    class Broken {
+      constructor() {
+        throw new Error("no config");
+      }
+    }
+    Injectable()(Broken);
+    class App {}
+    Module({ providers: [Broken] })(App);
+    const logs = await logged(
+      { ...OFF, CHO_DEBUGLOG: "cho:di" },
+      App,
+      async (injector) => {
+        await injector.resolve(Symbol("missing")).catch(() => {});
+        await injector.resolve(Broken).catch(() => {});
+      },
+    );
+    assert.ok(
+      logs.includes(
+        "ERROR resolve failed: Symbol(missing) is not visible in module App",
+      ),
+      logs,
+    );
+    assert.ok(
+      logs.includes("ERROR failed to create Broken in module App:"),
+      logs,
+    );
+    assert.ok(logs.includes("no config"), logs);
+  });
+
+  it("logs an invalid graph, and still throws", async () => {
+    class NotAModule {}
+    const { output } = await capture(() =>
+      with_env({ ...OFF, CHO_DEBUGLOG: "cho:di" }, () => {
+        assert.throws(() => new Injector(NotAModule), {
+          message: "Class NotAModule is not a module. Did you forget @Module?",
+        });
+      })
+    );
+    const logs = output.error.map(String).join(" ");
+    assert.ok(logs.includes("ERROR invalid graph of NotAModule:"), logs);
   });
 });

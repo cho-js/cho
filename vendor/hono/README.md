@@ -45,6 +45,9 @@ app.linked.instance; // the Hono app itself
 - Routes are matched in declaration order: declare static routes before
   parameter routes (`@Get("me")` before `@Get(":id")`).
 - Supported HTTP methods: GET, POST, PUT, DELETE and PATCH.
+- Debug logging: `CHO_DEBUGLOG=cho:web:hono` logs each route registered and each
+  error a `@Catch` handler receives (`CHO_DEBUGLOG=cho:web*` adds `@chojs/web`'s
+  routes).
 
 ## Known issues
 

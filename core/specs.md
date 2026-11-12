@@ -328,6 +328,28 @@ from zero.
 | The token is ambiguous there       | `X is ambiguous in module M: A, B export different instances of it. Provide X in M to choose which one to use.` |
 | A factory or constructor failed    | `Failed to create X in module M`, with `cause`                                                                  |
 
+### 2.9 Debug logging
+
+The injector logs what it does to the `cho:di` debug context, on stderr. It is
+off by default; enable it with `CHO_DEBUG=1` (every context),
+`CHO_DEBUGLOG=cho:di` or `CHO_DEBUGLOG=cho:*`:
+
+```
+12:00:00.001 cho:di module Db: 3 declarations
+12:00:00.001 cho:di module App: 3 declarations, imports Db
+12:00:00.002 cho:di graph of App built: 2 modules +1ms
+12:00:00.002 cho:di resolve Users in module App
+12:00:00.003 cho:di created Logger in module Db +0ms
+12:00:00.003 cho:di created Users in module App +1ms
+12:00:00.004 cho:di ERROR failed to create Broken in module App: Error: no config
+```
+
+It logs the modules of the graph once it is built (or the error when it is
+invalid), each `resolve()` call and each failed lookup, each declaration it
+creates with the time its factory took, each module `init()` finishes, and each
+failing factory with the original error. Each injector reads the environment
+when it is created, so `set_env` (section 3.3) must be called before.
+
 ## 3. Public API
 
 `@chojs/core` has four entry points. Applications use none of them directly

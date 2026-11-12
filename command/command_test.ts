@@ -24,7 +24,7 @@ import type { Ctr } from "@chojs/core/di";
 import type { ChoArgs } from "./args.ts";
 import { ChoCommand } from "./command.ts";
 import { Action, Main } from "./decorators.ts";
-import { capture, legacy } from "@chojs/core/utils/test_utils";
+import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
 
 /** Every call a handler received: the handler's name and its arguments. */
 type Calls = [string, ChoArgs][];
@@ -736,5 +736,50 @@ describe("ChoCommand.run, what it creates", () => {
       await app.run([]);
     });
     assert.deepEqual(events, ["setup", "controller", "run", "run"]);
+  });
+});
+
+describe("ChoCommand, debug logging", () => {
+  const OFF = { CHO_DEBUG: undefined, CHO_DEBUGLOG: undefined };
+  const ON = { ...OFF, CHO_DEBUGLOG: "cho:command" };
+
+  /** Create the app of `actions_app` with the given environment. */
+  function create(vars: Record<string, string | undefined>): ChoCommand {
+    let app!: ChoCommand;
+    with_env(vars, () => {
+      app = ChoCommand.create(actions_app([]));
+    });
+    return app;
+  }
+
+  it("logs nothing unless the cho:command context is enabled", async () => {
+    const { output } = await capture(async () => {
+      const app = create(OFF);
+      await app.run(["copy"]);
+    });
+    assert.deepEqual(output.error, []);
+  });
+
+  it("logs the commands, each run and its exit code", async () => {
+    const { output } = await capture(async () => {
+      const app = create(ON);
+      await app.run(["code", "3"]);
+    });
+    const logs = output.error.map(String).join(" ");
+    assert.match(
+      logs,
+      /actions mode: copy \(Files\.copy\), fail \(Files\.fail\), code \(Files\.code\)/,
+    );
+    assert.match(logs, /cho:command run code,3/);
+    assert.match(logs, /code \(Files\.code\) exited 3/);
+  });
+
+  it("logs a failing command as an error", async () => {
+    const { output } = await capture(async () => {
+      const app = create(ON);
+      await app.run(["fail"]);
+    });
+    const logs = output.error.map(String).join(" ");
+    assert.match(logs, /ERROR fail failed: Error: copy failed/);
   });
 });

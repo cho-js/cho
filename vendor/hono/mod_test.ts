@@ -20,7 +20,7 @@ import {
   Post,
 } from "@chojs/web";
 import { AppRef, ControllerRef, FeatureRef, MethodRef } from "@chojs/web/graph";
-import { capture, legacy } from "@chojs/core/utils/test_utils";
+import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
 import { HonoLinked, HonoLinker } from "./mod.ts";
 
 /** Whether a value looks like Hono's request context. */
@@ -271,5 +271,54 @@ describe("HonoLinker", () => {
         message: "Unsupported HTTP method: OPTIONS",
       });
     });
+  });
+});
+
+describe("HonoLinker, debug logging", () => {
+  const OFF = { CHO_DEBUG: undefined, CHO_DEBUGLOG: undefined };
+
+  /** A linker created with the given environment. */
+  function linker(vars: Record<string, string | undefined>): HonoLinker {
+    let created!: HonoLinker;
+    with_env(vars, () => {
+      created = new HonoLinker();
+    });
+    return created;
+  }
+
+  /** An app whose `GET /users/:id` fails, with a controller-level @Catch. */
+  function failing_app() {
+    class Users {
+      get() {
+        throw new Error("db down");
+      }
+    }
+    legacy(Get(":id"), Users, "get");
+    Controller({ route: "users" })(Users);
+    Catch(() => new Response("caught", { status: 500 }))(Users);
+    class App {}
+    Module({ controllers: [Users] })(App);
+    return App;
+  }
+
+  it("logs nothing unless the cho:web:hono context is enabled", async () => {
+    const { output } = await capture(async () => {
+      const app = await ChoWeb.create(failing_app(), { linker: linker(OFF) });
+      await send(app, "/users/1");
+    });
+    assert.deepEqual(output.error, []);
+  });
+
+  it("logs the routes it registers, and the errors a @Catch handler gets", async () => {
+    const { output } = await capture(async () => {
+      const app = await ChoWeb.create(failing_app(), {
+        linker: linker({ ...OFF, CHO_DEBUGLOG: "cho:web:hono" }),
+      });
+      await send(app, "/users/1");
+    });
+    const logs = output.error.map(String).join(" ");
+    assert.match(logs, /registered GET \/users\/:id/);
+    assert.match(logs, /linked 1 routes/);
+    assert.match(logs, /ERROR GET \/users\/1 failed: Error: db down/);
   });
 });

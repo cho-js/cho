@@ -9,8 +9,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Controller, Injectable, Module } from "@chojs/core/di";
-import { legacy } from "@chojs/core/utils/test_utils";
+import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
 import { Get } from "./decorators.ts";
+import type { Ctr } from "@chojs/core/di";
 import type { AppRef } from "./graph.ts";
 import type { Linked, Linker } from "./linker.ts";
 import { ChoWeb } from "./web.ts";
@@ -113,5 +114,47 @@ describe("ChoWeb.create", () => {
       message: "Failed to create Broken in module App",
     });
     assert.equal(linker.graphs.length, 0);
+  });
+});
+
+describe("ChoWeb.create, debug logging", () => {
+  const OFF = { CHO_DEBUG: undefined, CHO_DEBUGLOG: undefined };
+
+  /** Create the app with the given environment, and return what it logged. */
+  async function logs_of(
+    vars: Record<string, string | undefined>,
+    root: Ctr,
+  ): Promise<string> {
+    const { output } = await capture(async () => {
+      let created!: Promise<unknown>;
+      // the logger is created when create() starts, synchronously
+      with_env(vars, () => {
+        created = ChoWeb.create(root, { linker: new FakeLinker() });
+      });
+      await created.catch(() => {});
+    });
+    return output.error.map(String).join(" ");
+  }
+
+  it("logs nothing unless the cho:web context is enabled", async () => {
+    assert.equal(await logs_of(OFF, users_app()), "");
+  });
+
+  it("logs every route with its handler", async () => {
+    const logs = await logs_of(
+      { ...OFF, CHO_DEBUGLOG: "cho:web" },
+      users_app(),
+    );
+    assert.match(logs, /cho:web GET \/users -> Users\.list/);
+    assert.match(logs, /application App created/);
+  });
+
+  it("logs why the application cannot be created", async () => {
+    class NotAModule {}
+    const logs = await logs_of({ ...OFF, CHO_DEBUGLOG: "cho:web" }, NotAModule);
+    assert.match(
+      logs,
+      /ERROR cannot create application NotAModule: Error: Class NotAModule is not a module/,
+    );
   });
 });

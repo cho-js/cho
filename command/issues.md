@@ -21,6 +21,8 @@ Bugs and limitations of the current code, found while writing
    prints the global help and exits `0`, without saying that `nope` is not a
    command.
 
-3. **`CHO_DEBUG` does not change what `run()` prints.** Errors are always
-   printed with `console.error`; the `cho` debug logger is not used. Decide
-   whether errors should be silent unless debug logging is on.
+3. **Errors are always printed.** `run()` prints unhandled errors with
+   `console.error`, whether or not debug logging is on. The `cho:command`
+   context adds details (commands, runs, exit codes, errors), but cannot make
+   the output quieter. Decide whether errors should be silent unless debug
+   logging is on.

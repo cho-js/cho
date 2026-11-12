@@ -13,6 +13,14 @@
  * Each declaration is created at most once per injector, and its value is
  * shared by everything that depends on it.
  *
+ * ## Debug logging
+ *
+ * The injector logs to the `cho:di` debug context (see `debuglog`): enable it
+ * with `CHO_DEBUG=1`, `CHO_DEBUGLOG=cho:di` or `CHO_DEBUGLOG=cho:*`. It logs
+ * the modules of the graph once it is built, each module's initialization,
+ * each `resolve()` call, and each declaration it creates, with timings and
+ * failures. Each injector reads the environment when it is created.
+ *
  * @module
  */
 
@@ -30,6 +38,7 @@ import {
   type ModuleScope,
 } from "./dependency-graph.ts";
 import { describe } from "../utils/describe.ts";
+import { type Debuglog, debuglog } from "../utils/debuglog.ts";
 
 export type { DependencyGraph, DependencyNode, MetadataGraph, ModuleScope };
 /**
@@ -67,6 +76,12 @@ export class Injector {
   readonly #modules = new Map<ModuleScope, Promise<void>>();
 
   /**
+   * The `cho:di` debug logger. Created per injector, not when the module is
+   * loaded, so it follows `set_env` and the environment at creation time.
+   */
+  readonly #log: Debuglog;
+
+  /**
    * Build and validate the dependency graph of an application. Nothing is
    * created yet.
    *
@@ -76,8 +91,30 @@ export class Injector {
    *   ambiguous or duplicate token, or a circular dependency.
    */
   constructor(root: Ctr) {
-    this.meta = build_meta_graph(root);
-    this.graph = build_dependency_graph(this.meta);
+    this.#log = debuglog("cho:di");
+    const done = this.#log.start();
+    try {
+      this.meta = build_meta_graph(root);
+      this.graph = build_dependency_graph(this.meta);
+    } catch (error) {
+      this.#log.error(`invalid graph of ${describe(root)}:`, error);
+      throw error;
+    }
+    if (this.#log.enabled) {
+      for (const scope of this.modules()) {
+        const declared = [...scope.visible.values()].filter((node) =>
+          node.owner === scope.ctr
+        );
+        const imports = scope.imports.map((imp) => describe(imp.ctr));
+        this.#log(
+          `module ${describe(scope.ctr)}: ${declared.length} declarations` +
+            (imports.length ? `, imports ${imports.join(", ")}` : ""),
+        );
+      }
+      done(
+        `graph of ${describe(root)} built: ${this.graph.modules.size} modules`,
+      );
+    }
   }
 
   /**
@@ -131,13 +168,14 @@ export class Injector {
   resolve<T>(token: Token<T>, module?: Ctr): Promise<T> {
     const scope = module ? this.graph.modules.get(module) : this.graph.root;
     if (!scope) {
-      return Promise.reject(
+      return this.#reject(
         new Error(`${describe(module)} is not part of this application`),
       );
     }
+    this.#log(`resolve ${describe(token)} in module ${describe(scope.ctr)}`);
     const node = scope.visible.get(token);
     if (!node) {
-      return Promise.reject(
+      return this.#reject(
         ambiguity_error(scope, token) ??
           new Error(
             `${describe(token)} is not visible in module ${
@@ -147,6 +185,17 @@ export class Injector {
       );
     }
     return this.#instantiate(node) as Promise<T>;
+  }
+
+  /**
+   * Log a failed lookup of `resolve()`, and reject with it.
+   *
+   * @param error The error.
+   * @returns A promise rejected with the error.
+   */
+  #reject(error: Error): Promise<never> {
+    this.#log.error(`resolve failed: ${error.message}`);
+    return Promise.reject(error);
   }
 
   /**
@@ -179,6 +228,7 @@ export class Injector {
     // Imports form a DAG (circular imports are rejected when the graph is
     // built), so this recursion ends. Sibling imports initialize in parallel.
     await Promise.all(scope.imports.map((imp) => this.#init_module(imp)));
+    const done = this.#log.start();
 
     // Then everything this module declares. `visible` also holds the nodes of
     // imported modules, so keep only the nodes this module owns.
@@ -187,6 +237,7 @@ export class Injector {
       node.owner === scope.ctr
     );
     await Promise.all(declared.map((node) => this.#instantiate(node)));
+    done(`module ${describe(scope.ctr)} initialized`);
   }
 
   /**
@@ -225,15 +276,15 @@ export class Injector {
     const args = await Promise.all(
       node.deps.map((dep) => this.#instantiate(dep)),
     );
+    const name = `${describe(node.token)} in module ${describe(node.owner)}`;
+    const done = this.#log.start();
     try {
-      return await node.meta.provider.factory(...args);
+      const value = await node.meta.provider.factory(...args);
+      done(`created ${name}`);
+      return value;
     } catch (cause) {
-      throw new Error(
-        `Failed to create ${describe(node.token)} in module ${
-          describe(node.owner)
-        }`,
-        { cause },
-      );
+      this.#log.error(`failed to create ${name}:`, cause);
+      throw new Error(`Failed to create ${name}`, { cause });
     }
   }
 

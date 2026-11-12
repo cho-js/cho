@@ -277,18 +277,39 @@ class FileSystem {
 A handler is called with the error, as thrown, and the parsed arguments, and
 awaited. Its result gives the exit code (section 4.2).
 
-- **A function** is called as `(error, args)`. If it throws, `run()` rejects
-  with that error.
+- **A function** is called as `(error, args)`.
 - **A class** is created by the injector, in the scope of the module that
   declares the controller (so it must be a provider visible there, and can have
-  dependencies), and its `handle(error, args)` method is called. If the class
-  cannot be created, or `handle` throws, `run()` prints the original error and
-  resolves to `2`.
+  dependencies), and its `handle(error, args)` method is called.
+- If the handler fails (it throws, or the class cannot be created), `run()`
+  prints the original error and resolves to `2`.
 - Without a handler, `run()` prints `Error: <message>` to stderr and resolves to
   `1`. An unknown action is reported the same way.
 
 `@Middlewares` is accepted on controllers and methods, but the command module
 does not run middlewares.
+
+### 4.4 Debug logging
+
+`ChoCommand` logs to the `cho:command` debug context, on stderr. It is off by
+default; enable it with `CHO_DEBUGLOG=cho:command`, `CHO_DEBUGLOG=cho:*` or
+`CHO_DEBUG=1`. The core's `cho:di` context logs the injector (`core/specs.md`,
+section 2.9).
+
+```
+cho:command actions mode: copy (Files.copy), rm (Files.remove)
+cho:command run [ "copy", "a", "b" ]
+cho:command copy (Files.copy) exited 0 +2ms
+cho:command run [ "rm" ]
+cho:command ERROR rm failed: Error: no such file
+cho:command handled by onError
+```
+
+It logs the commands found when the application is created, each command line
+with what it ran (a command, the help or the version), each command's exit code
+and duration, each error, the `@Catch` handler that received it, and a handler
+that failed. Debug logging only adds these lines: errors are printed as
+described in section 4.3 either way.
 
 ## 5. Help
 
