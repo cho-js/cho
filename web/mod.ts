@@ -59,3 +59,4 @@ export {
 export type { ChoMiddlewareFn } from "@chojs/core/di";
 export * from "./decorators.ts";
 export * from "./web.ts";
+export * from "./context.ts";

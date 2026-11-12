@@ -9,7 +9,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  add_to_metadata_object,
+  add_to_metadata_object, type Any,
   Catch,
   type ChoMiddlewareFn,
   Controller,
@@ -51,7 +51,7 @@ describe("build_http_graph", () => {
       controller!.methods.map((m) => [m.name, m.method, m.route, m.type]),
       [["list", "GET", "", "HTTP"], ["create", "POST", "new", "HTTP"]],
     );
-    assert.equal(await controller!.methods[0]!.handler(), "hello");
+    assert.equal(await controller!.methods[0]!.handler({} as Any), "hello");
   });
 
   it("only makes features of modules with controllers", async () => {

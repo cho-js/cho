@@ -14,6 +14,7 @@
  */
 
 import type { ChoErrorHandlerFn, ChoMiddlewareFn } from "@chojs/core/di";
+import type {ChoWebContext} from "./context.ts";
 
 export type { ChoMiddlewareFn };
 
@@ -28,7 +29,7 @@ export type ErrorHandlerRef =
 
 /** A controller instance: its handler methods, by name. */
 export type ControllerInstance = {
-  [key: string]: () => Promise<unknown>;
+  [key: string]: (ctx: ChoWebContext) => Promise<unknown>;
 };
 
 /** A node of the HTTP graph that has a route, middlewares and an error handler. */
@@ -67,7 +68,7 @@ export class MethodRef extends NodeRef {
   /** The kind of handler: `"HTTP"`. */
   readonly type: string;
   /** The method, bound to its controller instance. */
-  readonly handler: (...args: unknown[]) => Promise<unknown>;
+  readonly handler: (ctx: ChoWebContext) => Promise<unknown>;
 
   /**
    * Create a route handler node.

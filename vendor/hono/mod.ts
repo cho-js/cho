@@ -18,11 +18,12 @@
 
 import type { ChoMiddlewareFn } from "@chojs/core/di";
 import { type Debuglog, debuglog } from "@chojs/core/utils";
-import type { Context, ErrorHandler, MiddlewareHandler } from "hono";
+import type { ErrorHandler, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { AppRef, MethodRef, NodeRef } from "@chojs/web/graph";
 import type { Linked, Linker } from "@chojs/web/linker";
+import type {ChoWebContext} from "@chojs/web";
 
 /**
  * A Hono application linked by {@link HonoLinker}.
@@ -95,12 +96,15 @@ export class HonoLinker implements Linker<Hono> {
     const app = new Hono().basePath(graph.route);
     for (const fr of graph.features) {
       const feature = this.#createController(fr);
+      const featureMiddlewares = this.#createMiddlewares(fr.middlewares);
       for (const cr of fr.controllers) {
         const ctrl = this.#createController(cr);
+        const controllerMiddlewares = this.#createMiddlewares(cr.middlewares);
         for (const mr of cr.methods) {
           const endpoint = this.#createMethod(mr);
           const action = mr.method.toLowerCase() as keyof typeof Hono;
-          const middlewares = this.#createMiddlewares(mr.middlewares);
+          const methodMiddlewares = this.#createMiddlewares(mr.middlewares);
+          const middlewares = [...featureMiddlewares, ...controllerMiddlewares, ...methodMiddlewares];
           // @ts-ignore: ts unable to infer that action is a key of ctrl
           ctrl[action](`/${mr.route}`, ...middlewares, endpoint);
           count++;
@@ -120,11 +124,6 @@ export class HonoLinker implements Linker<Hono> {
 
   #createController(ref: NodeRef) {
     const ctrl = new Hono();
-
-    const middlewares = this.#createMiddlewares(ref.middlewares);
-    if (middlewares.length > 0) {
-      ctrl.use(...middlewares);
-    }
     const handler = ref.errorHandler;
     if (handler) {
       ctrl.onError((error, ctx) => {
@@ -149,7 +148,7 @@ export class HonoLinker implements Linker<Hono> {
   }
 
   #createHttpMethod(ref: MethodRef) {
-    return async (ctx: Context) => {
+    return async (ctx: ChoWebContext) => {
       try {
         const result = await ref.handler(ctx);
         if (result instanceof Response) {
