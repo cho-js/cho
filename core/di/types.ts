@@ -184,52 +184,22 @@ export type ChoClassDecorator = (
 ) => void;
 
 /**
- * A middleware function: it receives the request context of the application
- * module that runs it, and `next`, which runs the rest of the chain. What the
- * context is depends on that module (for `@chojs/web`, the context of the
- * HTTP runtime, such as Hono's `Context`).
+ * A middleware, declared with `@Middlewares`: a function, or a class.
  *
- * @example
- * ```ts
- * const timing: ChoMiddlewareFn = async (ctx, next) => {
- *   const start = Date.now();
- *   await next();
- *   console.log(`took ${Date.now() - start}ms`);
- * };
- *
- * @Middlewares(timing)
- * @Controller()
- * class Users {}
- * ```
+ * The core only stores middlewares. What a middleware receives and returns,
+ * and how a class is used, is defined by the CHO module that runs it, which
+ * declares its own, precise type (`ChoWebMiddleware` in `@chojs/web`).
  */
-export type ChoMiddlewareFn = (
-  ctx: Any,
-  next: () => Promise<unknown>,
-) => Promise<unknown>;
+export type ChoMiddleware = ((...args: Any[]) => unknown) | Ctr;
 
 /**
- * A middleware, declared with `@Middlewares`. For now any function: what it
- * receives and returns is up to the application module that runs it.
- */
-export type ChoMiddleware = ChoMiddlewareFn | Ctr;
-
-/**
- * An error handler function that also receives the request context of the
- * application module that runs it, such as an HTTP context. Used by
- * application modules that call handlers with a context (`@chojs/web`).
+ * An error handler, declared with `@Catch`: a function, or a class.
  *
- * @param error The error.
- * @param ctx The context of the request that failed.
- * @returns What the application module expects, such as a response.
+ * The core only stores it. What it receives and returns, and how a class is
+ * used, is defined by the CHO module that runs it, which declares its own,
+ * precise type (`ChoWebErrorHandler` in `@chojs/web`).
  */
-export type ChoErrorHandlerFn = (error: unknown, ctx?: unknown) => unknown;
-
-/**
- * An error handler, declared with `@Catch`: a function called with the error,
- * or an injectable class that handles it. The application module that runs
- * the decorated class or method decides how it is invoked.
- */
-export type ChoErrorHandler = ChoErrorHandlerFn | Ctr;
+export type ChoErrorHandler = ((...args: Any[]) => unknown) | Ctr;
 
 /**
  * A method decorator that works with both decorator implementations:

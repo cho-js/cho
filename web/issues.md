@@ -56,6 +56,46 @@ writing `web/specs.md`. Each was reproduced against the current code.
 
 7. **The `name` and `version` options of `ChoWeb.create` are not used.**
 
-8. **The HTTP method decorators do not check their route** until the application
-   is created (`// todo assert_route(route)` in `web/decorators.ts`), unlike the
-   core decorators, which fail when the class is defined.
+8. **[FIXED] The HTTP method decorators do not check their route** until the
+   application is created, unlike the core decorators, which fail when the class
+   is defined.
+
+   **Fix:** `@Get` and its siblings validate their route in the decorator. They
+   also reject what was silently lost before: a second HTTP method decorator on
+   a method, and static, private or symbol-named methods.
+
+9. **A decorator that replaces the method hides the route.** Method records are
+   stored on the method function (a core design, see `fable.md` D2), so a
+   wrapping decorator applied above `@Get` (`@Logged @Get("x")`) leaves the
+   route on a function the controller no longer has: no route, no error.
+   Handlers inherited from a base class are not collected either.
+
+## Adapter redesign
+
+Done as planned in `web/tasks.md`: `@chojs/web` now does all the request
+plumbing, and an adapter only registers finished routes. It resolved, besides
+the items above:
+
+- **Middlewares leaked to other routes** (`fable.md` A1): with Hono
+  sub-applications, a feature or controller without a route applied its
+  middlewares to every later route and to unmatched paths. Middlewares are now
+  composed per route by `@chojs/web`.
+- **Application code depended on Hono**: handlers, middlewares and error
+  handlers now all receive `ChoWebContext`.
+- Controllers without handlers were created and listed; the duplicate route
+  error named nothing; `:id` and `:name` duplicates passed.
+
+Behavior changes:
+
+- Handlers, middlewares and error handlers receive `ChoWebContext`, not Hono's
+  context (still there as `ctx.native`). Path parameters are `ctx.params.id`.
+- `next()` resolves to the `Response`, and a middleware answers by returning
+  one. Hono middlewares can no longer be given to `@Middlewares`: add them to a
+  Hono application and give it to the linker, `new HonoLinker(hono)`.
+- A handler that returns nothing answers `204`, not `200` with an empty body.
+- `Linker.link` receives the routes, not the graph; the graph is `app.graph`.
+- `@Middlewares` and `@Catch` for web applications come from `@chojs/web`
+  (typed); core's `ChoMiddlewareFn` and `ChoErrorHandlerFn` types are gone.
+- `HonoLinker` no longer logs (`cho:web:hono`); `cho:web` logs the same events.
+- `HonoLinker` accepts any HTTP method (it used to throw on methods other than
+  GET, POST, PUT, DELETE and PATCH).

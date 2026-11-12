@@ -1,12 +1,12 @@
 /**
- * The web application: {@link ChoWeb} builds the HTTP graph of a root module
- * and links it to an HTTP runtime with the given {@link Linker} (such as
+ * The web application: {@link ChoWeb} compiles the routes of a root module and
+ * registers them on an HTTP runtime with the given {@link Linker} (such as
  * `HonoLinker` from `@chojs/vendor-hono`), which gives a `fetch`-style request
  * handler.
  *
- * `ChoWeb.create` logs to the `cho:web` debug context (`CHO_DEBUGLOG=cho:web`
- * or `CHO_DEBUG=1`): every route with its handler, and any error that stops
- * the application from being created.
+ * It logs to the `cho:web` debug context (`CHO_DEBUGLOG=cho:web` or
+ * `CHO_DEBUG=1`): every route with its handler, any error that stops the
+ * application from being created, and every error given to a `@Catch` handler.
  *
  * @module
  */
@@ -15,39 +15,9 @@ import type { Ctr } from "@chojs/core/di";
 import { Injector } from "@chojs/core/di";
 import { debuglog, describe } from "@chojs/core/utils";
 import { build_http_graph } from "./build-graph.ts";
-import type { Linked, Linker } from "./linker.ts";
 import type { AppRef } from "./graph.ts";
-
-/**
- * The routes of an HTTP graph, for the debug log: `GET /v1/users/:id ->
- * Users.get`, in registration order.
- *
- * @param graph The HTTP graph.
- * @returns One line per route handler.
- */
-function routes_of(graph: AppRef): string[] {
-  const lines: string[] = [];
-  for (const feature of graph.features) {
-    for (const controller of feature.controllers) {
-      for (const method of controller.methods) {
-        const path = [
-          graph.route,
-          feature.route,
-          controller.route,
-          method.route,
-        ]
-          .filter((segment) => segment !== "")
-          .join("/");
-        lines.push(
-          `${method.method} /${path} -> ${
-            describe(controller.instance.constructor)
-          }.${method.name}`,
-        );
-      }
-    }
-  }
-  return lines;
-}
+import type { Linked, Linker, Route } from "./linker.ts";
+import { compile_routes } from "./routes.ts";
 
 /**
  * Options of {@link ChoWeb.create}. `linker` is required; the other options
@@ -67,7 +37,7 @@ function routes_of(graph: AppRef): string[] {
  */
 export type ChoWebOptions<T = unknown> = {
   /**
-   * The linker that turns the HTTP graph into the routes of an HTTP runtime,
+   * The linker that registers the routes on an HTTP runtime,
    * such as `HonoLinker` from `@chojs/vendor-hono`.
    */
   linker: Linker<T>;
@@ -88,22 +58,25 @@ export type ChoWebOptions<T = unknown> = {
  * Every module that declares controllers is a feature. The route of a handler
  * joins up to four levels, each optional: the global `prefix`, the feature
  * module's `route`, the controller's `route` and the route given to the HTTP
- * method decorator (`@Get("…")`). What a handler returns is sent as JSON,
- * unless it is a `Response`.
+ * method decorator (`@Get("…")`).
+ *
+ * Handlers, middlewares and error handlers receive a `ChoWebContext`, built
+ * on the standard `Request`, whatever the HTTP runtime. What a handler
+ * returns is the response: a `Response` as is, nothing as `204`, anything
+ * else as JSON.
  *
  * @typeParam T The application object of the HTTP runtime, such as `Hono`.
  *
  * @example
  * ```ts
- * import { ChoWeb, Controller, Get, Module } from "@chojs/web";
+ * import { ChoWeb, type ChoWebContext, Controller, Get, Module } from "@chojs/web";
  * import { HonoLinker } from "@chojs/vendor-hono";
- * import type { Context } from "hono";
  *
  * @Controller({ route: "users" })
  * class UsersController {
  *   @Get(":id")
- *   get(ctx: Context) {
- *     return { id: ctx.req.param("id") };
+ *   get(ctx: ChoWebContext) {
+ *     return { id: ctx.params.id };
  *   }
  * }
  *
@@ -117,13 +90,21 @@ export type ChoWebOptions<T = unknown> = {
  */
 export class ChoWeb<T = unknown> {
   /** The linked HTTP application, which holds the runtime's own object. */
-  linked: Linked<T>;
+  readonly linked: Linked<T>;
+  /**
+   * The HTTP graph: the features, controllers and handlers of the
+   * application, as a tree. For introspection, such as listing routes.
+   */
+  readonly graph: AppRef;
+  /** The routes of the application, as given to the linker. */
+  readonly routes: readonly Route[];
 
   /**
    * Create the web application of a root module.
    *
    * Creates the injector and every instance of the application, builds the
-   * HTTP graph, and links it with `options.linker`.
+   * HTTP graph, compiles its routes, and registers them with
+   * `options.linker`.
    *
    * @param app The root module.
    * @param options The application options: the linker, and optionally the
@@ -153,10 +134,13 @@ export class ChoWeb<T = unknown> {
       const inj = new Injector(app);
       await inj.init();
       const graph = await build_http_graph(inj, options.prefix ?? "");
+      const routes = compile_routes(graph, log);
       if (log.enabled) {
-        for (const route of routes_of(graph)) log(route);
+        for (const route of routes) {
+          log(`${route.method} ${route.path} -> ${route.name}`);
+        }
       }
-      const web = new ChoWeb(options.linker.link(graph));
+      const web = new ChoWeb(options.linker.link(routes), graph, routes);
       done(`application ${describe(app)} created`);
       return web;
     } catch (error) {
@@ -170,9 +154,13 @@ export class ChoWeb<T = unknown> {
    * module.
    *
    * @param linked The linked HTTP application.
+   * @param graph The HTTP graph of the application.
+   * @param routes The routes given to the linker.
    */
-  constructor(linked: Linked<T>) {
+  constructor(linked: Linked<T>, graph: AppRef, routes: readonly Route[]) {
     this.linked = linked;
+    this.graph = graph;
+    this.routes = routes;
   }
 
   /**

@@ -1,134 +1,80 @@
+/**
+ * The request context: what handlers, middlewares and error handlers of a
+ * `@chojs/web` application receive. It is built on the standard `Request`, so
+ * application code does not depend on the HTTP runtime.
+ *
+ * @module
+ */
+
+/**
+ * The context of one request.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   @Get(":id")
+ *   get(ctx: ChoWebContext) {
+ *     return { id: ctx.params.id, verbose: ctx.url.searchParams.has("v") };
+ *   }
+ * }
+ * ```
+ */
 export interface ChoWebContext {
-  req: Request;
-  res: Response;
+  /** The request, as the standard `Request`. */
+  readonly req: Request;
+  /** The path parameters of the matched route (`:id`), decoded. */
+  readonly params: Readonly<Record<string, string>>;
+  /** The request URL, parsed on first use. */
+  readonly url: URL;
+  /**
+   * Values shared during the request: a middleware sets one (the
+   * authenticated user, say) for the middlewares and the handler after it.
+   */
+  readonly state: Map<PropertyKey, unknown>;
+  /**
+   * The context of the HTTP runtime (Hono's `Context` with `HonoLinker`), or
+   * `undefined` when the adapter has none. Code that uses it only runs on
+   * that runtime.
+   */
+  readonly native: unknown;
 }
-// /**
-//  * Request context interface that abstracts the underlying framework's request.
-//  * Embrace the Hono Request interface for a unified experience.
-//  */
-// export interface RequestContext {
-//   raw: Request;
-//   path: string;
-//   url: string;
-//   method: string;
-//
-//   param(): Record<string, string>;
-//   param(key: string): string | undefined;
-//
-//   query(): Record<string, string>;
-//   query(key: string): string | undefined;
-//   queries(key: string): string[] | undefined;
-//
-//   header(): Record<string, string>;
-//   header(key: string): string | undefined;
-//
-//   /**
-//    * Request body as `multipart/form-data` or `application/x-www-form-urlencoded`
-//    */
-//   parseBody(): Promise<unknown>;
-//
-//   /**
-//    * Request body as `application/json`
-//    */
-//   json(): Promise<unknown>;
-//
-//   /**
-//    * Request body as `text/plain`
-//    */
-//   text(): Promise<unknown>;
-//
-//   /**
-//    * Request body as ArrayBuffer
-//    */
-//   arrayBuffer(): Promise<ArrayBuffer>;
-//
-//   /**
-//    * Request body as Blob
-//    */
-//   blob(): Promise<Blob>;
-//
-//   /**
-//    * Request parsed as FormData
-//    */
-//   formData(): Promise<FormData>;
-// }
-//
-// /**
-//  * Request context interface that abstracts the underlying framework's context.
-//  * Embrace the Hono ChoWebContext interface for a unified experience.
-//  */
-// export interface ChoWebContext {
-//   readonly req: RequestContext;
-//   readonly res: Response;
-//
-//   /**
-//    * Set the response status code.
-//    * @param code
-//    */
-//   status(code: number): void;
-//
-//   /**
-//    * Set a response header.
-//    * @param key
-//    * @param value
-//    */
-//   header(key: string, value: string): void;
-//
-//   /**
-//    * Return a response with the given body, status, and headers.
-//    * @param content
-//    * @param status
-//    * @param headers
-//    */
-//   body(content: unknown, status?: number, headers?: Headers): Response;
-//
-//   /**
-//    * Return a `text/plain` response with optional status and headers.
-//    * @param content
-//    * @param status
-//    * @param headers
-//    */
-//   text(content: string, status?: number, headers?: Headers): Response;
-//
-//   /**
-//    * Return a `application/json` response with optional status and headers.
-//    * @param content
-//    * @param status
-//    * @param headers
-//    */
-//   json(content: unknown, status?: number, headers?: Headers): Response;
-//
-//   /**
-//    * Return a `text/html` response with optional status and headers.
-//    * @param content
-//    * @param status
-//    * @param headers
-//    */
-//   html(content: string, status?: number, headers?: Headers): Response;
-//
-//   /**
-//    * Return a 404 Not Found response with an optional message.
-//    * @param message
-//    */
-//   notFound(message?: string): Response;
-//
-//   /**
-//    * Send a redirect response.
-//    * @param path
-//    * @param status default to 302
-//    */
-//   redirect(path: string, status?: number): void;
-//
-//   /**
-//    * Get a value from the context that was set within the request lifecycle.
-//    * @param key
-//    */
-//   get(key: string): unknown;
-//
-//   /**
-//    * Set a value in the context that can be shared within the request lifecycle.
-//    * @param key
-//    * @param value
-//    */
-//   set(key: string, value: unknown): void;
-// }
+
+/** The context implementation: `url` is parsed lazily. */
+class Context implements ChoWebContext {
+  readonly req: Request;
+  readonly params: Readonly<Record<string, string>>;
+  readonly state: Map<PropertyKey, unknown> = new Map();
+  readonly native: unknown;
+  #url: URL | undefined;
+
+  constructor(
+    req: Request,
+    params: Readonly<Record<string, string>>,
+    native: unknown,
+  ) {
+    this.req = req;
+    this.params = params;
+    this.native = native;
+  }
+
+  get url(): URL {
+    return this.#url ??= new URL(this.req.url);
+  }
+}
+
+/**
+ * Create the context of a request.
+ *
+ * @param req The request.
+ * @param params The path parameters of the matched route.
+ * @param native The context of the HTTP runtime, if any.
+ * @returns The context.
+ */
+export function create_context(
+  req: Request,
+  params: Readonly<Record<string, string>> = {},
+  native?: unknown,
+): ChoWebContext {
+  return new Context(req, params, native);
+}

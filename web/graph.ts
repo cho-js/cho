@@ -1,7 +1,10 @@
 /**
- * The HTTP graph: what a linker needs to register the routes of a web
- * application, with every instance, middleware and error handler already
- * created, so it can run without the DI system.
+ * The HTTP graph: the routes of a web application as a tree, with every
+ * instance, middleware and error handler already created.
+ *
+ * `compile_routes` (`routes.ts`) turns it into the flat list of routes a
+ * linker registers. The tree itself is kept on `ChoWeb.graph`, for
+ * introspection (listing routes, generating documentation).
  *
  * `build_http_graph` (`build-graph.ts`) builds it from an injector:
  *
@@ -13,31 +16,26 @@
  * @module
  */
 
-import type { ChoErrorHandlerFn, ChoMiddlewareFn } from "@chojs/core/di";
-import type { ChoWebContext } from "./context.ts";
+import type {
+  ChoWebErrorHandlerFn,
+  ChoWebHandler,
+  ChoWebMiddlewareFn,
+} from "./types.ts";
 
-export type { ChoMiddlewareFn };
+export type { ChoWebErrorHandlerFn, ChoWebHandler, ChoWebMiddlewareFn };
 
 /**
- * An error handler as stored in the graph: a function given to `@Catch`, an
- * instance of a handler class (one with a `handle` method), or `null` when
- * there is none.
+ * An error handler as stored in the graph: the function given to `@Catch`,
+ * the bound `handle` method of a handler class, or `null` when there is none.
  */
-export type ErrorHandlerRef =
-  | ChoErrorHandlerFn
-  | null;
-
-/** A controller instance: its handler methods, by name. */
-export type ControllerInstance = {
-  [key: string]: (ctx: ChoWebContext) => Promise<unknown>;
-};
+export type ErrorHandlerRef = ChoWebErrorHandlerFn | null;
 
 /** A node of the HTTP graph that has a route, middlewares and an error handler. */
 export abstract class NodeRef {
   /** The route of the node, relative to its parent; `""` when it has none. */
   readonly route: string;
   /** The middlewares of the node, created and in order. */
-  readonly middlewares: ChoMiddlewareFn[];
+  readonly middlewares: ChoWebMiddlewareFn[];
   /** The error handler of the node, or `null` when it has none. */
   readonly errorHandler: ErrorHandlerRef;
 
@@ -50,11 +48,11 @@ export abstract class NodeRef {
    */
   constructor(
     route: string,
-    middlewares: ChoMiddlewareFn[],
+    middlewares: ChoWebMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
   ) {
     this.route = route;
-    this.middlewares = middlewares ?? [];
+    this.middlewares = middlewares;
     this.errorHandler = errorHandler;
   }
 }
@@ -65,10 +63,8 @@ export class MethodRef extends NodeRef {
   readonly name: string;
   /** The HTTP method, such as `"GET"`. */
   readonly method: string;
-  /** The kind of handler: `"HTTP"`. */
-  readonly type: string;
   /** The method, bound to its controller instance. */
-  readonly handler: (ctx: ChoWebContext) => Promise<unknown>;
+  readonly handler: ChoWebHandler;
 
   /**
    * Create a route handler node.
@@ -76,7 +72,6 @@ export class MethodRef extends NodeRef {
    * @param name The name of the method on the controller.
    * @param route The route of the handler, relative to its controller.
    * @param method The HTTP method.
-   * @param type The kind of handler.
    * @param middlewares The middlewares of the method.
    * @param errorHandler The error handler of the method, or `null`.
    * @param handler The method, bound to its controller instance.
@@ -85,15 +80,13 @@ export class MethodRef extends NodeRef {
     name: string,
     route: string,
     method: string,
-    type: string,
-    middlewares: ChoMiddlewareFn[],
+    middlewares: ChoWebMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
-    handler: (...args: unknown[]) => Promise<unknown>,
+    handler: ChoWebHandler,
   ) {
     super(route, middlewares, errorHandler);
     this.name = name;
     this.method = method;
-    this.type = type;
     this.handler = handler;
   }
 }
@@ -101,7 +94,7 @@ export class MethodRef extends NodeRef {
 /** A controller, with its instance and its route handlers. */
 export class ControllerRef extends NodeRef {
   /** The controller instance, created by the injector. */
-  readonly instance: ControllerInstance;
+  readonly instance: object;
   /** The route handlers of the controller, in declaration order. */
   readonly methods: MethodRef[];
 
@@ -115,9 +108,9 @@ export class ControllerRef extends NodeRef {
    */
   constructor(
     route: string,
-    middlewares: ChoMiddlewareFn[],
+    middlewares: ChoWebMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
-    instance: ControllerInstance,
+    instance: object,
   ) {
     super(route, middlewares, errorHandler);
     this.instance = instance;
@@ -139,7 +132,7 @@ export class FeatureRef extends NodeRef {
    */
   constructor(
     route: string,
-    middlewares: ChoMiddlewareFn[],
+    middlewares: ChoWebMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
   ) {
     super(route, middlewares, errorHandler);

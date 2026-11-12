@@ -1,8 +1,8 @@
 /**
  * @chojs/vendor-hono — runs CHO web applications on Hono.
  *
- * {@link HonoLinker} turns the HTTP graph of a `@chojs/web` application into
- * the routes of a Hono application. Pass it to `ChoWeb.create` as `linker`.
+ * {@link HonoLinker} registers the routes of a `@chojs/web` application on a
+ * Hono application. Pass it to `ChoWeb.create` as `linker`.
  *
  * @example
  * ```ts
@@ -16,38 +16,17 @@
  * @module
  */
 
-import type { ChoMiddlewareFn } from "@chojs/core/di";
-import { type Debuglog, debuglog } from "@chojs/core/utils";
-import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
-import { createMiddleware } from "hono/factory";
-import type { AppRef, MethodRef, NodeRef } from "@chojs/web/graph";
-import type { Linked, Linker } from "@chojs/web/linker";
-import type { ChoWebContext } from "@chojs/web";
-
-/**
- * The response for what a handler or an error handler returned: a `Response`
- * as is, anything else as JSON.
- *
- * @param ctx The request context.
- * @param result The value returned (already awaited).
- * @returns The response.
- */
-function to_response(
-  ctx: { json(content: unknown): Response },
-  result: unknown,
-): Response {
-  return result instanceof Response ? result : ctx.json(result);
-}
+import type { Linked, Linker, Route } from "@chojs/web/linker";
 
 /**
  * A Hono application linked by {@link HonoLinker}.
  *
  * @example
  * ```ts
- * const linked = new HonoLinker().link(graph);
- * linked.instance; // the Hono application
- * Deno.serve(linked.handler);
+ * const app = await ChoWeb.create(AppModule, { linker: new HonoLinker() });
+ * app.linked.instance; // the Hono application
+ * Deno.serve(app.linked.handler);
  * ```
  */
 export class HonoLinked implements Linked<Hono> {
@@ -70,17 +49,21 @@ export class HonoLinked implements Linked<Hono> {
 }
 
 /**
- * Links the HTTP graph of a CHO web application to a new Hono application.
+ * Registers the routes of a CHO web application on a Hono application.
  *
- * It logs to the `cho:web:hono` debug context (`CHO_DEBUGLOG=cho:web:hono`,
- * `CHO_DEBUGLOG=cho:web*` or `CHO_DEBUG=1`): each route it registers, and each
- * error a `@Catch` handler receives.
+ * Hono only matches requests: each route is registered with its method and
+ * its full path, and answers through `Route.handle`, which `@chojs/web`
+ * built. Middlewares, error handlers and the conversion of results to
+ * responses are `@chojs/web`'s, so they behave the same on every adapter.
  *
- * Each feature module and each controller becomes a Hono sub-application,
- * mounted at its route, with its middlewares and its error handler. Each
- * handler method becomes a route; what it returns is sent with `ctx.json()`,
- * unless it is a `Response`. Supported HTTP methods: GET, POST, PUT, DELETE
- * and PATCH.
+ * - Handlers receive a `ChoWebContext`; Hono's own `Context` is its `native`
+ *   property.
+ * - Routes are matched in declaration order.
+ * - A route that fails without a `@Catch` handler goes to Hono's error
+ *   handler, which logs the error and answers `500` (see `app.onError`).
+ * - Hono middlewares (`cors()`, `logger()`, ...) are not CHO middlewares. To
+ *   use them, add them to a Hono application and give it to the linker: the
+ *   routes are registered after them, so they wrap every route.
  *
  * @example
  * ```ts
@@ -90,106 +73,47 @@ export class HonoLinked implements Linked<Hono> {
  * const app = await ChoWeb.create(AppModule, { linker: new HonoLinker() });
  * Deno.serve(app.handler);
  * ```
+ *
+ * @example With Hono middlewares
+ * ```ts
+ * import { Hono } from "hono";
+ * import { cors } from "hono/cors";
+ *
+ * const hono = new Hono();
+ * hono.use(cors());
+ * const app = await ChoWeb.create(AppModule, { linker: new HonoLinker(hono) });
+ * ```
  */
 export class HonoLinker implements Linker<Hono> {
-  /**
-   * The `cho:web:hono` debug logger, created with the linker, so it follows
-   * `set_env` and the environment at that time.
-   */
-  readonly #log: Debuglog = debuglog("cho:web:hono");
+  /** The Hono application the routes are registered on. */
+  readonly #app: Hono;
 
   /**
-   * Link an HTTP graph to a new Hono application.
+   * Create a linker.
    *
-   * @param graph The HTTP graph of the application.
-   * @returns The linked Hono application.
-   * @throws {Error} When a handler uses an unsupported HTTP method.
+   * @param app The Hono application to register the routes on. Default: a new
+   *   one. Give your own to add Hono middlewares, an error handler or a
+   *   not-found handler first. Use a linker for one application only.
    */
-  link(graph: AppRef): HonoLinked {
-    const done = this.#log.start();
-    let count = 0;
-    // The global prefix is applied when mounting each feature, not with
-    // `basePath()`: that returns a copy built from Hono's base class, which is
-    // not `instanceof Hono`.
-    const app = new Hono();
-    for (const fr of graph.features) {
-      const feature = this.#createController(fr);
-      const featureMiddlewares = this.#createMiddlewares(fr.middlewares);
-      for (const cr of fr.controllers) {
-        const ctrl = this.#createController(cr);
-        const controllerMiddlewares = this.#createMiddlewares(cr.middlewares);
-        for (const mr of cr.methods) {
-          const endpoint = this.#createMethod(mr);
-          const action = mr.method.toLowerCase() as keyof typeof Hono;
-          const methodMiddlewares = this.#createMiddlewares(mr.middlewares);
-          const middlewares = [
-            ...featureMiddlewares,
-            ...controllerMiddlewares,
-            ...methodMiddlewares,
-          ];
-          // @ts-ignore: ts unable to infer that action is a key of ctrl
-          ctrl[action](`/${mr.route}`, ...middlewares, endpoint);
-          count++;
-          this.#log(
-            `registered ${mr.method} /${
-              [graph.route, fr.route, cr.route, mr.route].filter(Boolean)
-                .join("/")
-            }`,
-          );
-        }
-        feature.route(cr.route, ctrl);
-      }
-      app.route([graph.route, fr.route].filter(Boolean).join("/"), feature);
+  constructor(app: Hono = new Hono()) {
+    this.#app = app;
+  }
+
+  /**
+   * Register routes on the linker's Hono application.
+   *
+   * @param routes The routes of the application.
+   * @returns The linked Hono application.
+   */
+  link(routes: readonly Route[]): HonoLinked {
+    const app = this.#app;
+    for (const route of routes) {
+      app.on(
+        route.method,
+        route.path,
+        (ctx) => route.handle(ctx.req.raw, ctx.req.param(), ctx),
+      );
     }
-    done(`linked ${count} routes`);
     return new HonoLinked(app);
-  }
-
-  #createController(ref: NodeRef) {
-    const ctrl = new Hono();
-    const handler = ref.errorHandler;
-    if (handler) {
-      ctrl.onError(async (error, ctx) => {
-        this.#log.error(`${ctx.req.method} ${ctx.req.path} failed:`, error);
-        return to_response(ctx, await handler(error, ctx));
-      });
-    }
-    return ctrl;
-  }
-
-  #createMethod(ref: MethodRef) {
-    switch (ref.method.toLowerCase()) {
-      case "get":
-      case "post":
-      case "put":
-      case "delete":
-      case "patch":
-        return this.#createHttpMethod(ref);
-      default:
-        throw new Error(`Unsupported HTTP method: ${ref.method}`);
-    }
-  }
-
-  #createHttpMethod(ref: MethodRef) {
-    return async (ctx: Context) => {
-      const c: ChoWebContext = {
-        req: ctx.req.raw,
-        res: ctx.res,
-      };
-      try {
-        return to_response(ctx, await ref.handler(c));
-      } catch (error) {
-        if (ref.errorHandler) {
-          this.#log.error(`${ctx.req.method} ${ctx.req.path} failed:`, error);
-          return to_response(ctx, await ref.errorHandler(error, ctx));
-        }
-        throw error;
-      }
-    };
-  }
-
-  #createMiddlewares(middlewares: ChoMiddlewareFn[]): MiddlewareHandler[] {
-    // ChoMiddlewareFn resolves to `unknown`; Hono wants `void | Response`.
-    return middlewares.map((mw) => createMiddleware(mw as MiddlewareHandler));
   }
 }

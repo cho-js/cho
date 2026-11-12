@@ -227,8 +227,11 @@ method decides how and when to call them.
   convention, a handler is called **error first**: a function as
   `(error, ctx?)`, a class through its `handle(error, ctx?)` method, where `ctx`
   is whatever the CHO module passes (the parsed args for `@chojs/command`, the
-  request context for `@chojs/web`). The type is `ChoErrorHandler`: a
-  `ChoErrorHandlerFn`, `(error, ctx?) => unknown`, or a class.
+  request context for `@chojs/web`).
+- The core types, `ChoMiddleware` and `ChoErrorHandler`, are "any function or
+  class": each CHO module declares the precise type of what it runs
+  (`ChoWebMiddleware` and `ChoWebErrorHandler` in `@chojs/web`) and exports
+  decorators typed with it.
 
 ```ts
 @Middlewares(auth)
@@ -362,8 +365,8 @@ The DI essentials:
 - decorators: `Injectable`, `Module`, `Controller`, `Middlewares`, `Catch`;
 - `Injector`, `token`, `provider`;
 - types: `ModuleOptions`, `ControllerOptions`, `Dependency`, `Ctr`, `Target`,
-  `Any`, `ChoMiddlewareFn`, and the graph types `MetadataGraph`,
-  `DependencyGraph`, `DependencyNode`, `ModuleScope`.
+  `Any`, and the graph types `MetadataGraph`, `DependencyGraph`,
+  `DependencyNode`, `ModuleScope`.
 
 ### 3.2 `@chojs/core/di`
 
@@ -378,7 +381,7 @@ own decorators and read them back:
 | `isToken`                                                                                  | Whether a value is a token.                                                                |
 | `ChoClassDecorator`, `ChoMethodDecorator`, `ChoClassOrMethodDecorator`                     | Decorator types that accept both call shapes.                                              |
 | `Token`, `InjectionToken`, `Provider`, `Factory`, `Resolved`, `ResolvedAll`, `AbstractCtr` | Token and provider types.                                                                  |
-| `ChoMiddleware`, `ChoMiddlewareFn`, `ChoErrorHandler`, `ChoErrorHandlerFn`                 | Middleware and error handler types.                                                        |
+| `ChoMiddleware`, `ChoErrorHandler`                                                         | What `@Middlewares` and `@Catch` store: any function or class.                             |
 | `InjectableOptions`, `DecoratedMethod`, `MetaTarget`, the `*Metadata` types                | Option, record and graph types.                                                            |
 
 Every decorator must accept both call shapes: TC39 `(value, context)`, and

@@ -32,27 +32,45 @@ app.linked.instance; // the Hono app itself
 
 ## Behavior
 
-- Each feature module and each controller becomes a Hono sub-application,
-  mounted at its route (features under the global `prefix`), with its error
-  handler (`onError`).
-- Handlers receive Hono's `Context`. A `Response` they return is sent as is;
-  anything else is sent with `ctx.json()`.
-- Middlewares are Hono middlewares, `(ctx, next) => Promise`. They are attached
-  to each route and run in order: the feature's, the controller's, then the
-  handler's. They only run for requests that match a route.
-- An error goes to the nearest `@Catch` handler (the handler's, the
-  controller's, then the feature's), called as `(error, ctx)`; without one, Hono
-  logs it and answers `500`. A `@Catch` result, at any level, is sent like a
-  handler's (JSON unless it is a `Response`).
+The adapter only matches requests. `@chojs/web` builds each route as one
+function that runs its middlewares, its handler and its error handler; the
+adapter registers it on a Hono application with its method and full path (global
+`prefix` included), and calls it with the raw `Request` and Hono's decoded path
+parameters.
+
+- Handlers, middlewares and error handlers receive a `ChoWebContext`, not Hono's
+  `Context`. Hono's is its `native` property, for what only Hono can do:
+
+  ```ts
+  import type { Context } from "hono";
+
+  @Get("ip")
+  ip(ctx: ChoWebContext) {
+    return (ctx.native as Context).env; // this handler now needs Hono
+  }
+  ```
+
+- Hono middlewares (`cors()`, `logger()`, …) are not CHO middlewares. To use
+  them, add them to a Hono application and give it to the linker. The routes are
+  registered after them, so they wrap every route:
+
+  ```ts
+  import { Hono } from "hono";
+  import { cors } from "hono/cors";
+
+  const hono = new Hono();
+  hono.use(cors());
+  const app = await ChoWeb.create(App, { linker: new HonoLinker(hono) });
+  ```
+
 - Routes are matched in declaration order: declare static routes before
   parameter routes (`@Get("me")` before `@Get(":id")`).
-- Supported HTTP methods: GET, POST, PUT, DELETE and PATCH.
-- Debug logging: `CHO_DEBUGLOG=cho:web:hono` logs each route registered and each
-  error a `@Catch` handler receives (`CHO_DEBUGLOG=cho:web*` adds `@chojs/web`'s
-  routes).
+- A route that fails without a `@Catch` handler goes to Hono's error handler,
+  which logs the error and answers `500`. Set your own with `onError`, and the
+  answer to unmatched requests with `notFound`, on the Hono application.
+- Any HTTP method is registered as given.
 
 ## Known issues
 
-None open for the adapter itself. See [`web/issues.md`](../../web/issues.md) for
-details, and the [`@chojs/web` specification](../../web/specs.md) for the full
-behavior.
+None open for the adapter itself. See [`web/issues.md`](../../web/issues.md),
+and the [`@chojs/web` specification](../../web/specs.md) for the full behavior.

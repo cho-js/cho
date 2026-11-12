@@ -10,8 +10,11 @@ application into a `fetch`-style request handler that any server can call.
 
 ## Features
 
+- **Portable application code.** Handlers, middlewares and error handlers
+  receive a `ChoWebContext` built on the standard `Request`, and answer with a
+  standard `Response`: nothing in a controller depends on the HTTP library.
 - **Runtime adapters.** `@chojs/web` does not depend on an HTTP library: an
-  adapter runs the routes. Today:
+  adapter only matches requests to routes. Today:
   [`@chojs/vendor-hono`](../vendor/hono/README.md) (Hono).
 - **Dependency injection.** Controllers, middlewares and error handlers receive
   their dependencies from the module graph. Everything is created and checked
@@ -34,9 +37,16 @@ bunx jsr add @chojs/web @chojs/vendor-hono        # Bun
 ## Example
 
 ```ts
-import { ChoWeb, Controller, Get, Injectable, Module, Post } from "@chojs/web";
+import {
+  ChoWeb,
+  type ChoWebContext,
+  Controller,
+  Get,
+  Injectable,
+  Module,
+  Post,
+} from "@chojs/web";
 import { HonoLinker } from "@chojs/vendor-hono";
-import type { Context } from "hono";
 
 @Injectable()
 class UserStore {
@@ -50,14 +60,14 @@ class UsersController {
   constructor(readonly store: UserStore) {}
 
   @Get(":id") // GET /v1/users/42
-  get(ctx: Context) {
-    return this.store.find(ctx.req.param("id")!); // sent as JSON
+  get(ctx: ChoWebContext) {
+    return this.store.find(ctx.params.id!); // sent as JSON
   }
 
   @Post("") // POST /v1/users
-  async create(ctx: Context) {
-    const user = await ctx.req.json();
-    return new Response(JSON.stringify(user), { status: 201 });
+  async create(ctx: ChoWebContext) {
+    const user = await ctx.req.json(); // ctx.req is the standard Request
+    return Response.json(user, { status: 201 });
   }
 }
 

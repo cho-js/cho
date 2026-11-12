@@ -7,11 +7,10 @@
     "./linker": "./linker.ts",
     "./graph": "./graph.ts"
   },
-  "imports": {
-  },
   "publish": {
     "exclude": [
-      "./**/*_test.ts"
+      "./**/*_test.ts",
+      "./testing.ts"
     ]
   }
 }

@@ -1,6 +1,10 @@
 /**
- * Tests for the Hono adapter: CHO web applications linked to Hono, checked end
- * to end with real `Request`s.
+ * Tests for the Hono adapter: what the adapter itself does. It registers each
+ * route with its method and path, and passes the request, the path parameters
+ * and Hono's context to the route.
+ *
+ * Middlewares, error handlers and the conversion of results are
+ * `@chojs/web`'s, and are tested there (`web/routes_test.ts`).
  *
  * Decorators are applied as plain function calls, so the tests run on every
  * runtime.
@@ -9,400 +13,187 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import {
   Catch,
-  type ChoMiddlewareFn,
   ChoWeb,
   type ChoWebContext,
+  type ChoWebMiddlewareFn,
   Controller,
   Get,
   Middlewares,
   Module,
   Post,
 } from "@chojs/web";
-import { AppRef, ControllerRef, FeatureRef, MethodRef } from "@chojs/web/graph";
-import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
+import type { Route } from "@chojs/web/linker";
+import { capture, legacy } from "@chojs/core/utils/test_utils";
 import { HonoLinked, HonoLinker } from "./mod.ts";
 
-/** Whether a value looks like Hono's request context. */
-function is_context(value: unknown): boolean {
-  return typeof (value as { req?: { url?: unknown } })?.req?.url === "string";
+/** Send a request to a `fetch`-style handler, by path and method. */
+function send(
+  to: { handler: (req: Request) => Promise<Response> },
+  path: string,
+  method = "GET",
+) {
+  return to.handler(new Request(`http://localhost${path}`, { method }));
 }
 
-/** Send a request to an application, by method and path. */
-function send(app: ChoWeb<unknown>, path: string, method = "GET") {
-  return app.handler(new Request(`http://localhost${path}`, { method }));
+/** A route that answers with what it was called with. */
+function echo(method: string, path: string): Route {
+  return {
+    method,
+    path,
+    name: `echo ${method} ${path}`,
+    handle: (req, params, native) =>
+      Promise.resolve(Response.json({
+        method: req.method,
+        params,
+        native: typeof (native as { req?: unknown })?.req,
+      })),
+  };
 }
 
-/** The `Users` controller of most tests: `GET users`, `GET users/:id`, `POST users`. */
-function users_controller() {
-  class Users {
-    prefix = "user-";
-    list() {
-      return [1, 2];
-    }
-    get(ctx: ChoWebContext) {
-      // the context holds the raw Request; route params are not parsed
-      return { by: this.prefix + "get", path: new URL(ctx.req.url).pathname };
-    }
-    async create() {
-      await Promise.resolve();
-      return new Response("created", { status: 201 });
-    }
-  }
-  legacy(Get(""), Users, "list");
-  legacy(Get(":id"), Users, "get");
-  legacy(Post(""), Users, "create");
-  Controller({ route: "users" })(Users);
-  return Users;
-}
+describe("HonoLinker.link", () => {
+  it("returns a HonoLinked holding a Hono app and its fetch", async () => {
+    const linked = new HonoLinker().link([echo("GET", "/x")]);
+    assert.ok(linked instanceof HonoLinked);
+    assert.ok(linked.instance instanceof Hono);
+    assert.equal((await send(linked, "/x")).status, 200);
+  });
 
-describe("HonoLinker", () => {
-  it("routes each handler at its feature, controller and handler route", async () => {
-    class App {}
-    Module({ route: "v1", controllers: [users_controller()] })(App);
-    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
+  it("registers each route with its method and path", async () => {
+    const linked = new HonoLinker().link([
+      echo("GET", "/"),
+      echo("GET", "/api/users"),
+      echo("POST", "/api/users"),
+    ]);
+    assert.equal((await send(linked, "/")).status, 200);
+    assert.equal((await send(linked, "/api/users")).status, 200);
+    assert.equal((await send(linked, "/api/users", "POST")).status, 200);
+    assert.equal((await send(linked, "/api/users", "PUT")).status, 404);
+    assert.equal((await send(linked, "/users")).status, 404);
+  });
 
-    assert.deepEqual(await (await send(app, "/v1/users")).json(), [1, 2]);
-    assert.deepEqual(await (await send(app, "/v1/users/42")).json(), {
-      by: "user-get",
-      path: "/v1/users/42",
+  for (const method of ["PUT", "PATCH", "DELETE", "OPTIONS"]) {
+    it(`supports ${method}`, async () => {
+      const linked = new HonoLinker().link([echo(method, "/x")]);
+      const response = await send(linked, "/x", method);
+      assert.equal((await response.json()).method, method);
     });
-    assert.equal((await send(app, "/users")).status, 404);
+  }
+
+  it("passes the request, the decoded parameters and Hono's context", async () => {
+    const linked = new HonoLinker().link([
+      echo("GET", "/users/:id/posts/:post"),
+    ]);
+    const response = await send(linked, "/users/a%20b/posts/7");
+    assert.deepEqual(await response.json(), {
+      method: "GET",
+      params: { id: "a b", post: "7" },
+      native: "object",
+    });
   });
 
-  it("sends a result as JSON, and a Response as is, awaiting async handlers", async () => {
-    class App {}
-    Module({ controllers: [users_controller()] })(App);
-    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-
-    const json = await send(app, "/users");
-    assert.equal(json.status, 200);
-    assert.match(json.headers.get("content-type") ?? "", /application\/json/);
-
-    const created = await send(app, "/users", "POST");
-    assert.equal(created.status, 201);
-    assert.equal(await created.text(), "created");
+  it("matches routes in declaration order", async () => {
+    const named = (path: string, name: string): Route => ({
+      ...echo("GET", path),
+      handle: () => Promise.resolve(new Response(name)),
+    });
+    const linked = new HonoLinker().link([
+      named("/users/me", "static"),
+      named("/users/:id", "param"),
+    ]);
+    assert.equal(await (await send(linked, "/users/me")).text(), "static");
+    assert.equal(await (await send(linked, "/users/42")).text(), "param");
   });
 
-  it("runs the feature's, the controller's, then the handler's middlewares", async () => {
-    const order: string[] = [];
-    const mw = (name: string): ChoMiddlewareFn => async (_ctx, next) => {
-      order.push(name);
-      await next();
-    };
-    class Users {
-      list() {
-        order.push("handler");
-        return [];
-      }
-    }
-    legacy(Get(""), Users, "list");
-    legacy(Middlewares(mw("method")), Users, "list");
-    Controller()(Users);
-    Middlewares(mw("controller"))(Users);
-    class App {}
-    Module({ controllers: [Users] })(App);
-    Middlewares(mw("feature"))(App);
-    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-
-    await send(app, "/");
-    assert.deepEqual(order, ["feature", "controller", "method", "handler"]);
-  });
-
-  it("lets a middleware answer without calling next", async () => {
-    let called = false;
-    // deno-lint-ignore no-explicit-any
-    const deny: ChoMiddlewareFn = (ctx: any) =>
-      Promise.resolve(ctx.text("denied", 401));
-    class Users {
-      list() {
-        called = true;
-      }
-    }
-    legacy(Get(""), Users, "list");
-    Controller()(Users);
-    Middlewares(deny)(Users);
-    class App {}
-    Module({ controllers: [Users] })(App);
-    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-
-    const response = await send(app, "/");
-    assert.equal(response.status, 401);
-    assert.equal(called, false);
-  });
-
-  it("uses the handler's error handler, called with (error, ctx)", async () => {
-    const seen: unknown[] = [];
-    class Users {
-      list() {
-        throw new Error("boom");
-      }
-    }
-    legacy(Get(""), Users, "list");
-    legacy(
-      Catch((error, ctx) => {
-        seen.push(error, ctx);
-        return new Response("method", { status: 418 });
-      }),
-      Users,
-      "list",
-    );
-    Controller()(Users);
-    class App {}
-    Module({ controllers: [Users] })(App);
-    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-
-    const response = await send(app, "/");
-    assert.equal(response.status, 418);
-    assert.equal((seen[0] as Error).message, "boom");
-    assert.equal(is_context(seen[1]), true);
-  });
-
-  it("sends a handler-level error handler's result as JSON, unless it is a Response", async () => {
-    class Users {
-      list() {
-        throw new Error("boom");
-      }
-    }
-    legacy(Get(""), Users, "list");
-    legacy(
-      Catch((error) => ({ error: (error as Error).message })),
-      Users,
-      "list",
-    );
-    Controller()(Users);
-    class App {}
-    Module({ controllers: [Users] })(App);
-    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-
-    const response = await send(app, "/");
-    assert.ok(response instanceof Response);
-    assert.deepEqual(await response.json(), { error: "boom" });
-  });
-
-  it("falls back to the controller's error handler, then the feature's", async () => {
-    // The controller's and feature's handlers go to Hono's onError, which
-    // calls them with (error, ctx), as the handler-level ones are.
-    let controller_ctx: unknown;
-    const failing = (route: string) => {
-      class Failing {
-        run() {
-          throw new Error(route);
-        }
-      }
-      legacy(Get(""), Failing, "run");
-      Controller({ route })(Failing);
-      return Failing;
-    };
-    const Caught = failing("caught");
-    Catch((error, ctx) => {
-      controller_ctx = ctx;
-      return new Response(`controller: ${(error as Error).message}`, {
-        status: 503,
-      });
-    })(Caught);
-    const Uncaught = failing("uncaught");
-    class App {}
-    Module({ controllers: [Caught, Uncaught] })(App);
-    Catch((error) =>
-      new Response(`feature: ${(error as Error).message}`, { status: 502 })
-    )(App);
-    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-
-    const caught = await send(app, "/caught");
-    assert.equal(caught.status, 503);
-    assert.equal(await caught.text(), "controller: caught");
-    assert.equal(is_context(controller_ctx), true);
-    const uncaught = await send(app, "/uncaught");
-    assert.equal(uncaught.status, 502);
-    assert.equal(await uncaught.text(), "feature: uncaught");
-  });
-
-  it("sends a controller- or feature-level error handler's result as JSON too", async () => {
-    const failing = (route: string) => {
-      class Failing {
-        run() {
-          throw new Error(route);
-        }
-      }
-      legacy(Get(""), Failing, "run");
-      Controller({ route })(Failing);
-      return Failing;
-    };
-    const Caught = failing("caught");
-    Catch((error) => ({ controller: (error as Error).message }))(Caught);
-    const Uncaught = failing("uncaught");
-    class App {}
-    Module({ controllers: [Caught, Uncaught] })(App);
-    Catch((error) => ({ feature: (error as Error).message }))(App);
-    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-
-    const caught = await send(app, "/caught");
-    assert.ok(caught instanceof Response);
-    assert.deepEqual(await caught.json(), { controller: "caught" });
-    const uncaught = await send(app, "/uncaught");
-    assert.ok(uncaught instanceof Response);
-    assert.deepEqual(await uncaught.json(), { feature: "uncaught" });
-  });
-
-  it("awaits an async error handler", async () => {
-    class Users {
-      list() {
-        throw new Error("boom");
-      }
-    }
-    legacy(Get(""), Users, "list");
-    Controller()(Users);
-    Catch(async () => {
-      await Promise.resolve();
-      return new Response("later", { status: 503 });
-    })(Users);
-    class App {}
-    Module({ controllers: [Users] })(App);
-    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-
-    const response = await send(app, "/");
-    assert.equal(response.status, 503);
-    assert.equal(await response.text(), "later");
-  });
-
-  it("answers 500 without an error handler, and logs the error", async () => {
-    class Users {
-      list() {
-        throw new Error("boom");
-      }
-    }
-    legacy(Get(""), Users, "list");
-    Controller()(Users);
-    class App {}
-    Module({ controllers: [Users] })(App);
-    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-
+  it("answers 500 when a route rejects, and logs the error", async () => {
+    const linked = new HonoLinker().link([{
+      ...echo("GET", "/x"),
+      handle: () => Promise.reject(new Error("boom")),
+    }]);
     // Hono's default error handler logs the error to console.error: capture
     // it, so the test output stays clean.
-    const { result, output } = await capture(() => send(app, "/"));
+    const { result, output } = await capture(() => send(linked, "/x"));
     assert.equal(result.status, 500);
     assert.equal((output.error[0] as Error).message, "boom");
   });
+});
 
-  it("applies the global prefix to every route", async () => {
+describe("HonoLinker, with ChoWeb", () => {
+  /** `GET users`, `GET users/:id` and `POST users`, behind a middleware. */
+  function users_app() {
+    const stamp: ChoWebMiddlewareFn = async (_ctx, next) => {
+      const response = await next();
+      response.headers.set("x-stamp", "1");
+      return response;
+    };
+    class Users {
+      prefix = "user-";
+      list() {
+        return [1, 2];
+      }
+      get(ctx: ChoWebContext) {
+        return {
+          id: this.prefix + ctx.params.id,
+          hono: typeof (ctx.native as { req: { path: string } }).req.path,
+        };
+      }
+      create() {
+        throw new Error("read only");
+      }
+    }
+    legacy(Get(""), Users, "list");
+    legacy(Get(":id"), Users, "get");
+    legacy(Post(""), Users, "create");
+    Controller({ route: "users" })(Users);
+    Middlewares(stamp)(Users);
+    Catch((error) => new Response((error as Error).message, { status: 405 }))(
+      Users,
+    );
     class App {}
-    Module({ route: "v1", controllers: [users_controller()] })(App);
-    const app = await ChoWeb.create(App, {
-      linker: new HonoLinker(),
-      prefix: "api",
-    });
+    Module({ route: "v1", controllers: [Users] })(App);
+    return App;
+  }
 
-    assert.deepEqual(await (await send(app, "/api/v1/users")).json(), [1, 2]);
-    assert.deepEqual(await (await send(app, "/api/v1/users/42")).json(), {
-      by: "user-get",
-      path: "/api/v1/users/42",
-    });
-    assert.equal((await send(app, "/v1/users")).status, 404);
-  });
-
-  it("keeps a real Hono app with a global prefix", async () => {
-    class App {}
-    Module({ controllers: [users_controller()] })(App);
-    const app = await ChoWeb.create(App, {
+  it("serves an application end to end, with the global prefix", async () => {
+    const app = await ChoWeb.create(users_app(), {
       linker: new HonoLinker(),
       prefix: "api",
     });
     assert.ok(app.linked.instance instanceof Hono);
+
+    const list = await send(app, "/api/v1/users");
+    assert.deepEqual(await list.json(), [1, 2]);
+    assert.equal(list.headers.get("x-stamp"), "1");
+    assert.deepEqual(await (await send(app, "/api/v1/users/42")).json(), {
+      id: "user-42",
+      hono: "string",
+    });
+    const failed = await send(app, "/api/v1/users", "POST");
+    assert.deepEqual([failed.status, await failed.text()], [405, "read only"]);
+    assert.equal((await send(app, "/v1/users")).status, 404);
   });
 
-  describe("link", () => {
-    /** A graph with one handler at `/x`, for the given HTTP method. */
-    function graph_of(method: string): AppRef {
-      const graph = new AppRef("");
-      const feature = new FeatureRef("", [], null);
-      const controller = new ControllerRef("", [], null, {});
-      controller.methods.push(
-        new MethodRef(
-          "x",
-          "x",
-          method,
-          "HTTP",
-          [],
-          null,
-          () => Promise.resolve({ method }),
-        ),
-      );
-      feature.controllers.push(controller);
-      graph.features.push(feature);
-      return graph;
-    }
-
-    it("returns a HonoLinked holding a Hono app and its fetch", async () => {
-      const linked = new HonoLinker().link(graph_of("GET"));
-      assert.ok(linked instanceof HonoLinked);
-      assert.ok(linked.instance instanceof Hono);
-      const response = await linked.handler(new Request("http://localhost/x"));
-      assert.deepEqual(await response.json(), { method: "GET" });
+  it("registers the routes on a given Hono app, after its middlewares", async () => {
+    const hono = new Hono();
+    hono.use(cors({ origin: "https://example.com" }));
+    hono.notFound((ctx) => ctx.text("nothing here", 404));
+    const app = await ChoWeb.create(users_app(), {
+      linker: new HonoLinker(hono),
     });
 
-    it("supports PATCH", async () => {
-      const linked = new HonoLinker().link(graph_of("PATCH"));
-      const response = await linked.handler(
-        new Request("http://localhost/x", { method: "PATCH" }),
-      );
-      assert.deepEqual(await response.json(), { method: "PATCH" });
-    });
-
-    it("throws on an HTTP method it does not support", () => {
-      assert.throws(() => new HonoLinker().link(graph_of("OPTIONS")), {
-        message: "Unsupported HTTP method: OPTIONS",
-      });
-    });
-  });
-});
-
-describe("HonoLinker, debug logging", () => {
-  const OFF = { CHO_DEBUG: undefined, CHO_DEBUGLOG: undefined };
-
-  /** A linker created with the given environment. */
-  function linker(vars: Record<string, string | undefined>): HonoLinker {
-    let created!: HonoLinker;
-    with_env(vars, () => {
-      created = new HonoLinker();
-    });
-    return created;
-  }
-
-  /** An app whose `GET /users/:id` fails, with a controller-level @Catch. */
-  function failing_app() {
-    class Users {
-      get() {
-        throw new Error("db down");
-      }
-    }
-    legacy(Get(":id"), Users, "get");
-    Controller({ route: "users" })(Users);
-    Catch(() => new Response("caught", { status: 500 }))(Users);
-    class App {}
-    Module({ controllers: [Users] })(App);
-    return App;
-  }
-
-  it("logs nothing unless the cho:web:hono context is enabled", async () => {
-    const { output } = await capture(async () => {
-      const app = await ChoWeb.create(failing_app(), { linker: linker(OFF) });
-      await send(app, "/users/1");
-    });
-    assert.deepEqual(output.error, []);
-  });
-
-  it("logs the routes it registers, and the errors a @Catch handler gets", async () => {
-    const { output } = await capture(async () => {
-      const app = await ChoWeb.create(failing_app(), {
-        linker: linker({ ...OFF, CHO_DEBUGLOG: "cho:web:hono" }),
-      });
-      await send(app, "/users/1");
-    });
-    const logs = output.error.map(String).join(" ");
-    assert.match(logs, /registered GET \/users\/:id/);
-    assert.match(logs, /linked 1 routes/);
-    assert.match(logs, /ERROR GET \/users\/1 failed: Error: db down/);
+    assert.equal(app.linked.instance, hono);
+    const list = await app.handler(
+      new Request("http://localhost/v1/users", {
+        headers: { origin: "https://example.com" },
+      }),
+    );
+    assert.deepEqual(await list.json(), [1, 2]);
+    assert.equal(
+      list.headers.get("access-control-allow-origin"),
+      "https://example.com",
+    );
+    assert.equal(await (await send(app, "/nope")).text(), "nothing here");
   });
 });

@@ -12,13 +12,25 @@ disagree, the code wins. Known bugs are tracked in `web/issues.md`.
 ## 1. Overview
 
 An application imports everything from `@chojs/web`, plus a **runtime adapter**
-that runs the routes on an HTTP library. The only adapter today is
+that matches requests to routes with an HTTP library. The only adapter today is
 `@chojs/vendor-hono` (Hono).
 
+`@chojs/web` does the rest itself, the same way on every adapter: it creates the
+request context, runs the middlewares, the handler and the error handler, and
+converts the result to a `Response`. Application code only sees the standard
+`Request` and `Response`, never the HTTP library.
+
 ```ts
-import { ChoWeb, Controller, Get, Injectable, Module, Post } from "@chojs/web";
+import {
+  ChoWeb,
+  type ChoWebContext,
+  Controller,
+  Get,
+  Injectable,
+  Module,
+  Post,
+} from "@chojs/web";
 import { HonoLinker } from "@chojs/vendor-hono";
-import type { Context } from "hono";
 
 @Injectable()
 class UserStore {
@@ -32,14 +44,14 @@ class UsersController {
   constructor(readonly store: UserStore) {}
 
   @Get(":id") // GET /v1/users/42
-  get(ctx: Context) {
-    return this.store.find(ctx.req.param("id")!); // sent as JSON
+  get(ctx: ChoWebContext) {
+    return this.store.find(ctx.params.id!); // sent as JSON
   }
 
   @Post("") // POST /v1/users
-  async create(ctx: Context) {
-    const user = await ctx.req.json();
-    return new Response(JSON.stringify(user), { status: 201 });
+  async create(ctx: ChoWebContext) {
+    const user = await ctx.req.json(); // ctx.req is the standard Request
+    return Response.json(user, { status: 201 });
   }
 }
 
@@ -61,29 +73,34 @@ Deno.serve(app.handler); // or Bun.serve({ fetch: app.handler })
   not nest its routes.
 - A **controller** is a `@Controller` class declared by a feature.
 - A **handler** is a controller method marked with `@Get(route)`,
-  `@Post(route)`, `@Put(route)` or `@Delete(route)`. Other methods are not
-  routes.
+  `@Post(route)`, `@Put(route)`, `@Patch(route)` or `@Delete(route)`. Other
+  methods are not routes. A handler is a public, non-static method with a string
+  name, and has one HTTP method decorator: anything else throws when the class
+  is defined.
 
-A module without controllers has no route, and its `route` option, middlewares
-and error handler are ignored.
+Only what serves a route counts. A controller without a handler is not part of
+the web application, and a module left without such a controller is not a
+feature: its `route` option, middlewares and error handler are ignored, and its
+middleware and error handler classes are not created.
 
 ### 2.2 The four levels
 
 A handler's path joins up to four levels, each optional:
 
-| Level         | Declared by                                           |
-| ------------- | ----------------------------------------------------- |
-| global prefix | the `prefix` option of `ChoWeb.create`                |
-| feature       | the `route` option of the feature's `@Module`         |
-| controller    | the `route` option of `@Controller`                   |
-| handler       | the argument of `@Get` / `@Post` / `@Put` / `@Delete` |
+| Level         | Declared by                                   |
+| ------------- | --------------------------------------------- |
+| global prefix | the `prefix` option of `ChoWeb.create`        |
+| feature       | the `route` option of the feature's `@Module` |
+| controller    | the `route` option of `@Controller`           |
+| handler       | the argument of `@Get`, `@Post`, `@Put`, ...  |
 
 A level that is missing or `""` adds nothing: `@Get("")` on a controller with
 `route: "users"` in a feature without a route is `GET /users`.
 
 ### 2.3 Route rules
 
-Routes are trimmed, then checked when the application is created:
+Routes are trimmed, then checked: a handler's route when its class is defined,
+the others when the application is created.
 
 - no leading or trailing `/`: write `"users/:id"`, not `"/users/:id/"`;
 - no empty segment (`a//b`), and no `.` or `..` segment;
@@ -91,19 +108,32 @@ Routes are trimmed, then checked when the application is created:
   for parameters (`":id"`).
 
 Two handlers with the same HTTP method and the same full path are an error.
+Parameter names do not count: `users/:id` and `users/:name` are the same path.
 
-With the Hono adapter, routes are matched **in declaration order**: a parameter
-route declared first (`@Get(":id")`) also matches the static routes declared
-after it (`@Get("raw")`). Declare static routes first.
+Routes are given to the adapter in declaration order. With the Hono adapter they
+are matched in that order: a parameter route declared first (`@Get(":id")`) also
+matches the static routes declared after it (`@Get("raw")`). Declare static
+routes first.
 
-## 3. Handlers
+## 3. Handlers and the context
 
-- A handler receives the request context of the runtime: Hono's `Context` with
-  the Hono adapter (`ctx.req.param("id")`, `ctx.req.json()`, …).
-- It can be `async`.
-- What it returns is the response: a `Response` is sent as is; anything else is
-  sent as JSON with status `200` (a string becomes a JSON string, nothing
-  becomes an empty body).
+A handler receives the request's `ChoWebContext`:
+
+| Property | Holds                                                                         |
+| -------- | ----------------------------------------------------------------------------- |
+| `req`    | the standard `Request` (`ctx.req.json()`, `ctx.req.headers`, …)               |
+| `params` | the path parameters of the route, decoded (`ctx.params.id`)                   |
+| `url`    | the request URL, parsed on first use (`ctx.url.searchParams`)                 |
+| `state`  | a `Map` for the request: what a middleware sets, later ones and handlers read |
+| `native` | the adapter's own context (Hono's `Context`); `undefined` if it has none      |
+
+The middlewares, the handler and the error handler of a request share one
+context. Code that uses `native` only runs on that adapter.
+
+- A handler can be `async`.
+- What it returns is the response: a `Response` is sent as is; `undefined`
+  answers `204 No Content`; anything else is sent as JSON with status `200` (a
+  string becomes a JSON string, `null` becomes `null`).
 - A handler runs on its controller instance, so `this` works. Controllers are
   created once, with their dependencies, when the application is created.
 
@@ -112,20 +142,38 @@ after it (`@Get("raw")`). Declare static routes first.
 `@Middlewares(...)` (from `@chojs/web`) applies to a feature module, a
 controller or a handler. A middleware is either:
 
-- a function `(ctx, next) => Promise`, as Hono middlewares are; or
+- a function `(ctx, next)`; or
 - a class with a `handle(ctx, next)` method. It is created by the injector, in
   the feature module's scope, so it must be a provider visible there, and it can
   have dependencies.
 
+A middleware wraps the rest of the chain (the next middlewares, then the
+handler):
+
+- `next()` runs the rest of the chain and resolves to its `Response`;
+- returning a `Response` answers the request with it: without calling `next()`
+  to answer early, or after it to replace the response;
+- returning nothing after calling `next()` passes the response on, so
+  `await next();` alone is enough.
+
 ```ts
+const timing: ChoWebMiddlewareFn = async (ctx, next) => {
+  const start = Date.now();
+  const response = await next();
+  response.headers.set("x-time", `${Date.now() - start}ms`);
+  return response;
+};
+
 @Injectable([Tokens])
 class Auth {
   constructor(readonly tokens: Tokens) {}
-  async handle(ctx: Context, next: () => Promise<void>) {
-    if (!this.tokens.valid(ctx.req.header("authorization"))) {
-      return ctx.text("unauthorized", 401);
+  handle(ctx: ChoWebContext, next: () => Promise<Response>) {
+    const user = this.tokens.user(ctx.req.headers.get("authorization"));
+    if (!user) {
+      return new Response("unauthorized", { status: 401 });
     }
-    await next();
+    ctx.state.set("user", user); // for the handler
+    return next();
   }
 }
 
@@ -134,37 +182,50 @@ class Auth {
 class Admin {
   @Middlewares(timing) // this route only
   @Get("stats")
-  stats() {/* ... */}
+  stats(ctx: ChoWebContext) {
+    return { for: ctx.state.get("user") };
+  }
 }
 ```
 
 A request runs the feature's middlewares, then the controller's, then the
-handler's, each in declaration order.
+handler's, each in declaration order. Middlewares belong to their routes: they
+only run for a request that matches a route they apply to, never for another
+feature's or controller's routes, nor for a request that matches nothing.
+
+Middlewares of the HTTP library (Hono's `cors()`, …) are not CHO middlewares:
+they go on the library's own application, which the adapter takes
+(`new HonoLinker(hono)`, see `vendor/hono/README.md`).
+
+A middleware that calls `next()` twice, returns something that is not a
+`Response`, or returns nothing without calling `next()`, makes the request fail
+(section 5).
 
 ## 5. Error handlers
 
 `@Catch(handler)` applies to a feature module, a controller or a handler. A
-handler is a function, or a class with a `handle` method created by the injector
-like a middleware class. Its result is the response, at every level: a
-`Response` is sent as is, anything else as JSON, like a handler's result. It can
-be `async`.
+handler is a function `(error, ctx)`, or a class with a `handle(error, ctx)`
+method created by the injector like a middleware class. Its result is the
+response, converted like a handler's result. It can be `async`.
 
-The nearest one handles the error: the handler's, else the controller's, else
-the feature's. Without any, the Hono adapter logs the error and answers `500`.
-
-At every level, a handler is called **error first**: a function as
-`(error, ctx)`, a class through `handle(error, ctx)`, where `ctx` is the request
-context of the runtime (Hono's `Context` with the Hono adapter).
+An error thrown by a handler or by a middleware goes to the nearest one: the
+handler's, else the controller's, else the feature's.
 
 ```ts
 @Catch((error) => Response.json({ error: String(error) }, { status: 500 }))
 @Controller({ route: "users" })
 class UsersController {
-  @Catch((error, ctx) => (ctx as Context).text("not found", 404))
+  @Catch((error, ctx) =>
+    new Response(`no user ${ctx.params.id}`, { status: 404 })
+  )
   @Get(":id")
-  get(ctx: Context) {/* ... */}
+  get(ctx: ChoWebContext) {/* ... */}
 }
 ```
+
+Without any error handler, or when the error handler throws too, the error goes
+to the adapter: the Hono adapter logs it and answers `500` (or calls the
+`onError` of the Hono application given to the linker).
 
 ## 6. The application: `ChoWeb`
 
@@ -175,43 +236,76 @@ const app = await ChoWeb.create(App, {
 });
 app.handler; // (req: Request) => Promise<Response>
 app.linked.instance; // the runtime's own application (a Hono app)
+app.routes; // every route: method, path, name
+app.graph; // the same routes as a tree: features, controllers, handlers
 ```
 
 `ChoWeb.create` builds the injector, creates **every** instance of the
 application up front (`injector.init()`), builds and checks the routes, and
-links them with the adapter. Every wiring, route, middleware or error handler
-mistake makes it reject, before the server starts. The `name` and `version`
-options are accepted but not used yet.
+registers them with the adapter. Every wiring, route, middleware or error
+handler mistake makes it reject, before the server starts. The `name` and
+`version` options are accepted but not used yet.
 
-**Debug logging.** `ChoWeb.create` logs to the `cho:web` debug context, and the
-Hono adapter to `cho:web:hono`, on stderr. They are off by default; enable both
-with `CHO_DEBUGLOG=cho:web*`, all of CHO with `CHO_DEBUGLOG=cho:*` or
-`CHO_DEBUG=1`. The core's `cho:di` context logs the injector (`core/specs.md`,
-section 2.9).
+**Debug logging.** `@chojs/web` logs to the `cho:web` debug context, on stderr.
+It is off by default; enable it with `CHO_DEBUGLOG=cho:web`, all of CHO with
+`CHO_DEBUGLOG=cho:*` or `CHO_DEBUG=1`. The core's `cho:di` context logs the
+injector (`core/specs.md`, section 2.9).
 
 ```
 cho:web GET /v1/users/:id -> Users.get
 cho:web GET /v1/users -> Users.list
-cho:web:hono registered GET /v1/users/:id
-cho:web:hono registered GET /v1/users
-cho:web:hono linked 2 routes +0ms
 cho:web application App created +2ms
-cho:web:hono ERROR GET /v1/users/1 failed: Error: db down
+cho:web ERROR GET /v1/users/1 failed: Error: db down
 ```
 
-`cho:web` logs every route with its handler, and the error that stops the
-application from being created. `cho:web:hono` logs each route it registers, and
-each error a `@Catch` handler receives, with the request's method and path.
+It logs every route with its handler, the error that stops the application from
+being created, and each error a `@Catch` handler receives, with the request's
+method and path.
 
 ## 7. Runtime adapters
 
 An adapter implements `Linker` (`@chojs/web/linker`): it receives the
-application's HTTP graph (`@chojs/web/graph`) and returns a `Linked`, the
-runtime's application object and its `fetch`-style handler. `@chojs/web` never
-imports an adapter: applications pass one to `ChoWeb.create`.
+application's routes and returns a `Linked`, the runtime's application object
+and its `fetch`-style handler. `@chojs/web` never imports an adapter:
+applications pass one to `ChoWeb.create`.
 
-The graph is ready to run without the DI system: every instance, middleware and
-error handler is already created.
+An adapter does no plumbing. Each `Route` is ready to call:
+
+| Property | Holds                                                                      |
+| -------- | -------------------------------------------------------------------------- |
+| `method` | the HTTP method, upper case (`"GET"`)                                      |
+| `path`   | the full path, global prefix included (`"/api/users/:id"`)                 |
+| `name`   | where it is declared, for logs (`"UsersController.get"`)                   |
+| `handle` | `(req, params?, native?) => Promise<Response>`: answers a matching request |
+
+`handle` runs the route's middlewares, its handler and its error handler. The
+adapter gives it the `Request`, the decoded path parameters of the match and,
+optionally, its own request context, which handlers see as `ctx.native`. It
+rejects when the route fails without an error handler: the adapter answers
+`500`.
+
+```ts
+class MyLinker implements Linker<MyServer> {
+  link(routes: readonly Route[]): Linked<MyServer> {
+    const server = new MyServer();
+    for (const route of routes) {
+      server.on(
+        route.method,
+        route.path,
+        (req, params) => route.handle(req, params),
+      );
+    }
+    return { instance: server, handler: (req) => server.fetch(req) };
+  }
+}
+```
+
+A path is `/`-separated segments; a segment that starts with `:` is a parameter
+that matches one segment. An adapter whose router uses another syntax translates
+it.
+
+The tree behind the routes is on `app.graph` (`@chojs/web/graph`), with every
+instance, middleware and error handler already created:
 
 | Node            | Holds                                                                            |
 | --------------- | -------------------------------------------------------------------------------- |
@@ -220,69 +314,70 @@ error handler is already created.
 | `ControllerRef` | `route`, `middlewares`, `errorHandler`, `instance`, `methods`                    |
 | `MethodRef`     | `route`, `middlewares`, `errorHandler`, `name`, `method` (`"GET"`, …), `handler` |
 
-```ts
-class MyLinker implements Linker<MyServer> {
-  link(graph: AppRef): Linked<MyServer> {
-    const server = new MyServer();
-    for (const feature of graph.features) {
-      for (const controller of feature.controllers) {
-        for (const m of controller.methods) {
-          const path = [graph.route, feature.route, controller.route, m.route]
-            .filter(Boolean).join("/");
-          server.on(m.method, `/${path}`, m.handler);
-        }
-      }
-    }
-    return { instance: server, handler: (req) => server.fetch(req) };
-  }
-}
-```
-
-The Hono adapter supports GET, POST, PUT, DELETE and PATCH; any other method
-throws when linking.
-
 ## 8. Public API
 
-| Entry point          | Exports                                                                                                                                                                                                                 |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `Get`, `Post`, `Put`, `Delete`, and from the core `Controller`, `Module`, `Injectable`, `Middlewares`, `Catch`, `ControllerOptions`, `ModuleOptions`, `InjectableOptions`, `ChoMiddlewareFn` |
-| `@chojs/web/linker`  | `Linker`, `Linked`                                                                                                                                                                                                      |
-| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ControllerInstance`, `ErrorHandlerRef`, `ChoMiddlewareFn`                                                                                             |
-| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                              |
+| Entry point          | Exports                                                                                                                                                                                                                                                                                                                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Middlewares`, `Catch`, the types `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, and from the core `Controller`, `Module`, `Injectable` and their option types |
+| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                 |
+| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                          |
+| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                  |
+
+`@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 
 ## 9. Errors
 
-`ChoWeb.create` rejects with any module graph error of the core
+**Thrown by the decorators**, when the class is defined:
+
+| Mistake                                    | Message                                                                                                                     |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| A handler's route is invalid               | `Invalid route "<route>" of @Get() on method <name>: <reason>`                                                              |
+| A second HTTP method decorator on a method | `Cannot add @Get() to method <name>: it already handles POST "<route>". A method can have one HTTP method decorator.`       |
+| A static, private or symbol-named handler  | `TypeError: @Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`) |
+
+**Rejected by `ChoWeb.create`**: any module graph error of the core
 (`core/specs.md`, section 2.8), and:
 
-| Mistake                                       | Message                                                                                     |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| A route is not a string                       | `TypeError: Invalid route of <where>: expected a string, got <v>`                           |
-| A route breaks a rule (section 2.3)           | `Invalid route "<route>" of <where>: <reason>`                                              |
-| Two handlers with the same method and path    | `Duplicate route "<METHOD> /<path>": already declared by another method.`                   |
-| A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                   |
-| A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause |
-| An error handler class has no `handle` method | `Error handler class <Name> must implement 'handle' method.`                                |
-| An error handler class cannot be created      | `Failed to create error handler <Name> in module <Module>`, with `cause`                    |
-| An HTTP method the adapter does not support   | `Unsupported HTTP method: <METHOD>` (Hono adapter)                                          |
+| Mistake                                       | Message                                                                                      |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| A route is not a string                       | `TypeError: Invalid route of <where>: expected a string, got <v>`                            |
+| A route breaks a rule (section 2.3)           | `Invalid route "<route>" of <where>: <reason>`                                               |
+| Two handlers with the same method and path    | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>` |
+| A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                    |
+| A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause  |
+| An error handler class has no `handle` method | `Error handler class <Name> must implement 'handle' method.`                                 |
+| An error handler class cannot be created      | `Failed to create error handler <Name> in module <Module>`, with `cause`                     |
 
 `<where>` names the declaration: `the global prefix`, `feature <Module>`,
 `controller <Controller>` or `method <name> of controller <Controller>`.
+
+**Failing a request** (given to the route's error handler, section 5):
+
+| Mistake                                               | Message                                                                        |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------ |
+| A middleware calls `next()` twice                     | `middleware <name>: next() called more than once`                              |
+| A middleware returns nothing without calling `next()` | `middleware <name> returned no response: return a Response or call next()`     |
+| A middleware returns something else                   | `TypeError: middleware <name> must return a Response or nothing, got <typeof>` |
+
+A middleware class is named `<Class>.handle`.
 
 ## 10. Internals
 
 - **Records.** `@Get` and its siblings write `{ method, route }` on the method
   under a private symbol key (`web/keys.ts`, `Symbol.for("chojs.web.http")`).
   The `route` option of `@Module` / `@Controller` is a plain user option of the
-  core.
-- **Building the graph** (`web/build-graph.ts`, internal): for each module of
-  the injector that declares controllers, the routes are read and checked, the
+  core. `@Middlewares` and `@Catch` write the core's records.
+- **Building the graph** (`web/build-graph.ts`): for each module of the injector
+  with a controller that has handlers, the routes are read and checked, the
   controllers are resolved in that module's scope, and middleware and error
-  handler classes are created there. Middlewares and error handlers come from
-  the core's metadata (`middlewares` and `errorHandler` of modules, controllers
-  and methods).
-- **The Hono adapter** builds one Hono sub-application per feature and per
-  controller, with its error handler (`onError`), and mounts each feature at the
-  global prefix plus its route. Middlewares are attached to each route: the
-  feature's, the controller's, then the handler's, so they only run for requests
-  that match a route.
+  handler classes are created there.
+- **Compiling the routes** (`web/routes.ts`): each handler of the graph becomes
+  one `Route`. Its `handle` creates the context (`web/context.ts`), runs the
+  feature's, controller's and handler's middlewares around the handler
+  (`web/compose.ts`), converts the result (`web/response.ts`), and gives an
+  error to the nearest error handler. Duplicate routes are rejected here.
+- **The Hono adapter** registers each route on one Hono application with
+  `app.on(method, path, …)`, and calls `route.handle` with the raw `Request`,
+  Hono's decoded parameters and Hono's context.
+- **Testing without an adapter.** `web/testing.ts` (not published) has a linker
+  that matches requests itself; the tests of `@chojs/web` use it.

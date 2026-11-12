@@ -2,7 +2,7 @@
  * Tests for `web.ts`: `ChoWeb.create` builds the application and links it
  * with the given linker.
  *
- * A fake linker records the graph it receives, so the tests do not depend on
+ * A fake linker records the routes it receives, so the tests do not depend on
  * any runtime adapter.
  */
 
@@ -12,20 +12,19 @@ import { Controller, Injectable, Module } from "@chojs/core/di";
 import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
 import { Get } from "./decorators.ts";
 import type { Ctr } from "@chojs/core/di";
-import type { AppRef } from "./graph.ts";
-import type { Linked, Linker } from "./linker.ts";
+import type { Linked, Linker, Route } from "./linker.ts";
 import { ChoWeb } from "./web.ts";
 
-/** What the fake linker links: the graph, kept for the assertions. */
-type Fake = { graph: AppRef };
+/** What the fake linker links: the routes, kept for the assertions. */
+type Fake = { routes: readonly Route[] };
 
-/** A linker that keeps the graph, with a handler that answers "linked". */
+/** A linker that keeps the routes, with a handler that answers "linked". */
 class FakeLinker implements Linker<Fake> {
-  graphs: AppRef[] = [];
-  link(graph: AppRef): Linked<Fake> {
-    this.graphs.push(graph);
+  calls: (readonly Route[])[] = [];
+  link(routes: readonly Route[]): Linked<Fake> {
+    this.calls.push(routes);
     return {
-      instance: { graph },
+      instance: { routes },
       handler: () => Promise.resolve(new Response("linked")),
     };
   }
@@ -53,21 +52,35 @@ function users_app(created: string[] = []) {
 }
 
 describe("ChoWeb.create", () => {
-  it("links the application's graph with the given linker", async () => {
+  it("gives the application's routes to the linker, once", async () => {
     const linker = new FakeLinker();
     const app = await ChoWeb.create(users_app(), { linker });
 
-    assert.equal(linker.graphs.length, 1);
-    const graph = linker.graphs[0]!;
-    assert.equal(graph.route, "");
-    assert.equal(graph.features[0]!.controllers[0]!.route, "users");
-    assert.equal(app.linked.instance.graph, graph);
+    assert.equal(linker.calls.length, 1);
+    const routes = linker.calls[0]!;
+    assert.deepEqual(
+      routes.map((r) => [r.method, r.path, r.name]),
+      [["GET", "/users", "Users.list"]],
+    );
+    assert.equal(app.linked.instance.routes, routes);
+    assert.equal(app.routes, routes);
   });
 
-  it("passes the global prefix to the graph", async () => {
+  it("gives routes that answer on their own", async () => {
     const linker = new FakeLinker();
-    await ChoWeb.create(users_app(), { linker, prefix: " api " });
-    assert.equal(linker.graphs[0]!.route, "api");
+    await ChoWeb.create(users_app(), { linker });
+    const response = await linker.calls[0]![0]!.handle(
+      new Request("http://localhost/users"),
+    );
+    assert.equal(response.status, 204);
+  });
+
+  it("applies the global prefix, and keeps the graph", async () => {
+    const linker = new FakeLinker();
+    const app = await ChoWeb.create(users_app(), { linker, prefix: " api " });
+    assert.equal(linker.calls[0]![0]!.path, "/api/users");
+    assert.equal(app.graph.route, "api");
+    assert.equal(app.graph.features[0]!.controllers[0]!.route, "users");
   });
 
   it("creates every instance up front, used by a route or not", async () => {
@@ -113,7 +126,7 @@ describe("ChoWeb.create", () => {
     await assert.rejects(ChoWeb.create(App, { linker }), {
       message: "Failed to create Broken in module App",
     });
-    assert.equal(linker.graphs.length, 0);
+    assert.equal(linker.calls.length, 0);
   });
 });
 

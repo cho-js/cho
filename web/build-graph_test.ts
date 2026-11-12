@@ -10,22 +10,23 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   add_to_metadata_object,
-  type Any,
-  Catch,
-  type ChoMiddlewareFn,
   Controller,
   Injectable,
   Injector,
-  Middlewares,
   Module,
 } from "@chojs/core/di";
-import { legacy } from "@chojs/core/utils/test_utils";
-import { Get, Post } from "./decorators.ts";
-import { assert_route, build_http_graph } from "./build-graph.ts";
+import { legacy, loose } from "@chojs/core/utils/test_utils";
+import { Catch, Get, Middlewares, Post } from "./decorators.ts";
+import { build_http_graph } from "./build-graph.ts";
+import { create_context } from "./context.ts";
+import type { ChoWebMiddlewareFn } from "./types.ts";
 
-const mw_a: ChoMiddlewareFn = (_ctx, next) => next();
-const mw_b: ChoMiddlewareFn = (_ctx, next) => next();
-const mw_c: ChoMiddlewareFn = (_ctx, next) => next();
+const mw_a: ChoWebMiddlewareFn = (_ctx, next) => next();
+const mw_b: ChoWebMiddlewareFn = (_ctx, next) => next();
+const mw_c: ChoWebMiddlewareFn = (_ctx, next) => next();
+
+/** A context for calling graph functions directly. */
+const ctx = () => create_context(new Request("http://localhost/"));
 
 describe("build_http_graph", () => {
   it("builds the four route levels, with handlers bound to the controller", async () => {
@@ -49,10 +50,10 @@ describe("build_http_graph", () => {
     const [controller] = feature!.controllers;
     assert.equal(controller!.route, "users");
     assert.deepEqual(
-      controller!.methods.map((m) => [m.name, m.method, m.route, m.type]),
-      [["list", "GET", "", "HTTP"], ["create", "POST", "new", "HTTP"]],
+      controller!.methods.map((m) => [m.name, m.method, m.route]),
+      [["list", "GET", ""], ["create", "POST", "new"]],
     );
-    assert.equal(await controller!.methods[0]!.handler({} as Any), "hello");
+    assert.equal(await controller!.methods[0]!.handler(ctx()), "hello");
   });
 
   it("only makes features of modules with controllers", async () => {
@@ -122,7 +123,7 @@ describe("build_http_graph", () => {
   it("creates middleware and error handler classes with the injector", async () => {
     const seen: string[] = [];
     class Auth {
-      handle(_ctx: unknown, next: () => Promise<unknown>) {
+      handle(_ctx: unknown, next: () => Promise<Response>) {
         seen.push("auth");
         return next();
       }
@@ -146,9 +147,15 @@ describe("build_http_graph", () => {
 
     const graph = await build_http_graph(new Injector(App), "");
     const controller = graph.features[0]!.controllers[0]!;
-    await controller.middlewares[0]!({}, () => Promise.resolve());
+    await controller.middlewares[0]!(
+      ctx(),
+      () => Promise.resolve(new Response()),
+    );
     assert.deepEqual(seen, ["auth"]);
-    assert.equal(controller.errorHandler!({}, new Error("x")), "handled");
+    assert.equal(controller.errorHandler!(new Error("x"), ctx()), "handled");
+    // named after their class, for error messages
+    assert.equal(controller.middlewares[0]!.name, "Auth.handle");
+    assert.equal(controller.errorHandler!.name, "OnError.handle");
   });
 
   it("ignores user options named like the middlewares or error handler", async () => {
@@ -166,21 +173,61 @@ describe("build_http_graph", () => {
     assert.equal(controller.errorHandler, null);
   });
 
-  it("throws on two handlers with the same method and route", async () => {
-    class Users {
-      a() {}
-      b() {}
+  it("leaves out controllers without a route handler, and features left empty", async () => {
+    const created: string[] = [];
+    class Auth {
+      constructor() {
+        created.push("Auth");
+      }
+      handle() {}
     }
-    legacy(Get(":id"), Users, "a");
-    legacy(Get(" :id "), Users, "b");
-    Controller({ route: "users" })(Users);
+    Injectable()(Auth);
+    class Helper {
+      constructor() {
+        created.push("Helper");
+      }
+      run() {}
+    }
+    legacy(Middlewares(mw_a), Helper, "run"); // metadata, but no route
+    Controller()(Helper);
+    class NoRoutes {}
+    Module({ providers: [Auth], controllers: [Helper] })(NoRoutes);
+    Middlewares(Auth)(NoRoutes);
+    class Users {
+      list() {}
+    }
+    legacy(Get(""), Users, "list");
+    Controller()(Users);
+    class App {}
+    Module({ imports: [NoRoutes], controllers: [Users, Helper] })(App);
+
+    const graph = await build_http_graph(new Injector(App), "");
+    assert.equal(graph.features.length, 1);
+    assert.equal(graph.features[0]!.controllers.length, 1);
+    assert.deepEqual(created, []);
+  });
+
+  it("checks every route of a controller before creating it", async () => {
+    let created = 0;
+    class Users {
+      constructor() {
+        created++;
+      }
+      list() {}
+    }
+    // an invalid route that did not go through @Get, which rejects it
+    add_to_metadata_object(Users.prototype.list, {
+      [Symbol.for("chojs.web.http")]: { method: "GET", route: "a//b" },
+    });
+    Controller()(Users);
     class App {}
     Module({ controllers: [Users] })(App);
 
     await assert.rejects(build_http_graph(new Injector(App), ""), {
       message:
-        'Duplicate route "GET /users/:id": already declared by another method.',
+        'Invalid route "a//b" of method list of controller Users: it must not contain an empty segment ("//")',
     });
+    assert.equal(created, 0);
   });
 
   it("throws on an invalid route", async () => {
@@ -219,7 +266,7 @@ describe("build_http_graph, invalid middlewares and error handlers", () => {
   it("rejects a middleware class without a handle method", async () => {
     class Auth {}
     Injectable()(Auth);
-    const App = app_with((Users) => Middlewares(Auth)(Users), [Auth]);
+    const App = app_with((Users) => Middlewares(loose(Auth))(Users), [Auth]);
     await assert.rejects(build_http_graph(new Injector(App), ""), {
       message: "Middleware class Auth must implement 'handle' method.",
     });
@@ -260,7 +307,7 @@ describe("build_http_graph, invalid middlewares and error handlers", () => {
   it("rejects an error handler class without a handle method", async () => {
     class OnError {}
     Injectable()(OnError);
-    const App = app_with((Users) => Catch(OnError)(Users), [OnError]);
+    const App = app_with((Users) => Catch(loose(OnError))(Users), [OnError]);
     await assert.rejects(build_http_graph(new Injector(App), ""), {
       message: "Error handler class OnError must implement 'handle' method.",
     });
@@ -283,58 +330,23 @@ describe("build_http_graph, invalid middlewares and error handlers", () => {
   });
 });
 
-describe("assert_route", () => {
-  for (
-    const route of ["", "users", "users/:id", "a/b/c", "v1.2", "%20x", "~a_b-c"]
-  ) {
-    it(`accepts ${JSON.stringify(route)}`, () => {
-      assert.doesNotThrow(() => assert_route(route, "test"));
-    });
-  }
-
-  for (
-    const [route, reason] of [
-      ["/users", 'it must not start or end with "/"'],
-      ["users/", 'it must not start or end with "/"'],
-      ["a//b", 'it must not contain an empty segment ("//")'],
-      ["a/./b", 'it must not contain a "." segment'],
-      ["../a", 'it must not contain a ".." segment'],
-      ["a b", '"a b" is not a valid URL path segment'],
-      ["a?b", '"a?b" is not a valid URL path segment'],
-      ["a#b", '"a#b" is not a valid URL path segment'],
-      ["%zz", '"%zz" is not a valid URL path segment'],
-    ] as const
-  ) {
-    it(`rejects ${JSON.stringify(route)}`, () => {
-      assert.throws(() => assert_route(route, "test"), {
-        name: "Error",
-        message: `Invalid route ${JSON.stringify(route)} of test: ${reason}`,
-      });
-    });
-  }
-
-  it("rejects a route that is not a string, with a TypeError", () => {
-    assert.throws(() => assert_route(42, "the global prefix"), {
-      name: "TypeError",
-      message: "Invalid route of the global prefix: expected a string, got 42",
-    });
-  });
-});
-
 describe("build_http_graph, anonymous classes", () => {
   it("names an anonymous middleware or error handler class <anonymous>", async () => {
     const NoHandle = (() => class {})();
     Injectable()(NoHandle);
 
     const WithMiddleware = app_with(
-      (Users) => Middlewares(NoHandle)(Users),
+      (Users) => Middlewares(loose(NoHandle))(Users),
       [NoHandle],
     );
     await assert.rejects(build_http_graph(new Injector(WithMiddleware), ""), {
       message: "Middleware class <anonymous> must implement 'handle' method.",
     });
 
-    const WithCatch = app_with((Users) => Catch(NoHandle)(Users), [NoHandle]);
+    const WithCatch = app_with(
+      (Users) => Catch(loose(NoHandle))(Users),
+      [NoHandle],
+    );
     await assert.rejects(build_http_graph(new Injector(WithCatch), ""), {
       message:
         "Error handler class <anonymous> must implement 'handle' method.",

@@ -28,7 +28,10 @@ import {
   PROVIDERS,
 } from "./keys.ts";
 import { provider, token } from "./tokens.ts";
-import type { Any, ChoMiddlewareFn } from "./types.ts";
+import type { Any } from "./types.ts";
+
+/** A middleware as a CHO module could define it. */
+type ChoMiddlewareFn = (ctx: Any, next: () => unknown) => unknown;
 
 const ALREADY_DECORATED =
   "class is already decorated with @Injectable, @Module or @Controller";

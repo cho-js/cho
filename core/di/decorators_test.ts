@@ -32,7 +32,10 @@ import {
   PROVIDERS,
 } from "./keys.ts";
 import { provider, token } from "./tokens.ts";
-import type { ChoMiddlewareFn } from "./types.ts";
+import type { Any } from "./types.ts";
+
+/** A middleware as a CHO module could define it. */
+type ChoMiddlewareFn = (ctx: Any, next: () => unknown) => unknown;
 
 /** A TC39 class decorator context, with its own metadata object. */
 function tc39_context(): ClassDecoratorContext {
