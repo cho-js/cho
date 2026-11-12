@@ -1,8 +1,8 @@
 /**
  * Tests for `env.ts`: reading environment variables on every runtime.
  *
- * The variables are set and removed through `process.env`, which Deno, Node
- * and Bun all provide (Deno needs `--allow-env`, which `deno task test` gives).
+ * The variables are overridden with `with_env`, which never touches the real
+ * environment, so the tests need no permission (Deno's `--allow-env`).
  */
 
 import { describe, it } from "node:test";

@@ -20,7 +20,7 @@ import {
   Post,
 } from "@chojs/web";
 import { AppRef, ControllerRef, FeatureRef, MethodRef } from "@chojs/web/graph";
-import { legacy } from "@chojs/core/utils/test_utils";
+import { capture, legacy } from "@chojs/core/utils/test_utils";
 import { HonoLinked, HonoLinker } from "./mod.ts";
 
 /** Send a request to an application, by method and path. */
@@ -188,7 +188,7 @@ describe("HonoLinker", () => {
     assert.equal(await uncaught.text(), "feature: uncaught");
   });
 
-  it("answers 500 without an error handler", async () => {
+  it("answers 500 without an error handler, and logs the error", async () => {
     class Users {
       list() {
         throw new Error("boom");
@@ -200,7 +200,11 @@ describe("HonoLinker", () => {
     Module({ controllers: [Users] })(App);
     const app = await ChoWeb.create(App, { linker: new HonoLinker() });
 
-    assert.equal((await send(app, "/")).status, 500);
+    // Hono's default error handler logs the error to console.error: capture
+    // it, so the test output stays clean.
+    const { result, output } = await capture(() => send(app, "/"));
+    assert.equal(result.status, 500);
+    assert.equal((output.error[0] as Error).message, "boom");
   });
 
   it("does not apply the global prefix yet", async () => {

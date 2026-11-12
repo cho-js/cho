@@ -323,6 +323,20 @@ describe("Injector", () => {
       });
     });
 
+    it("rejects, rather than throws, for a value String() cannot convert", async () => {
+      class App {}
+      Module()(App);
+
+      const injector = new Injector(App);
+      let result: Promise<unknown> | undefined;
+      assert.doesNotThrow(() => {
+        result = injector.resolve(Object.create(null));
+      });
+      await assert.rejects(result!, {
+        message: "[object Object] is not visible in module App",
+      });
+    });
+
     it("does not see a token an import keeps private", async () => {
       class Config {}
       Injectable()(Config);

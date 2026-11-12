@@ -32,4 +32,25 @@ suite("describe", () => {
     assert.equal(describe(null), "null");
     assert.equal(describe(undefined), "undefined");
   });
+
+  it("never throws, even when String() does", () => {
+    const throwing = {
+      toString() {
+        throw new Error("boom");
+      },
+    };
+    assert.equal(describe(Object.create(null)), "[object Object]");
+    assert.equal(describe(throwing), "[object Object]");
+  });
+
+  it("falls back to <unknown> when nothing can name the value", () => {
+    const hostile = Object.create(null, {
+      [Symbol.toStringTag]: {
+        get() {
+          throw new Error("boom");
+        },
+      },
+    });
+    assert.equal(describe(hostile), "<unknown>");
+  });
 });

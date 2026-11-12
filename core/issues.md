@@ -52,11 +52,19 @@ reproduced with a probe script against the current code.
    `Injector.resolve`. `resolve(X)` now rejects with the ambiguity message.
    Tests in `di/injector_test.ts` and `di/dependency-graph_test.ts`.
 
-4. **`resolve()` can throw synchronously.** It returns a rejected promise for
-   every failure, but builds the message first. A token whose `String()` throws
-   (`Object.create(null)`) makes it throw
+4. **[FIXED] `resolve()` can throw synchronously.** It returns a rejected
+   promise for every failure, but builds the message first. A token whose
+   `String()` throws (`Object.create(null)`) makes it throw
    `TypeError: Cannot convert object to primitive value` instead of rejecting.
    Its JSDoc says it never throws synchronously.
+
+   **Fix:** the cause was `describe()` (`utils/describe.ts`), the helper that
+   names values in every error message: it called `String()`, which throws for
+   such values. It now never throws: it falls back to the value's
+   `Object.prototype.toString` tag (`[object Object]`), then `<unknown>`. So
+   `resolve(Object.create(null))` rejects with
+   `[object Object] is not visible in module App`, and no other message can fail
+   to build. Tests in `utils/describe_test.ts` and `di/injector_test.ts`.
 
 5. **Anonymous classes are named inconsistently in messages.** Some messages use
    `describe()` (`<anonymous>`), others `ctr.name` (an empty string):

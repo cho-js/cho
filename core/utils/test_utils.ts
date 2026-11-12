@@ -105,14 +105,18 @@ export async function capture<T>(
 }
 
 /**
- * Run a function with environment variables set, then restore their previous
- * values, even when it throws.
+ * Run a function with environment variables overridden, then restore the
+ * environment, even when it throws.
  *
- * Variables are set through `process.env`, which Deno, Node.js and Bun all
- * provide (Deno needs `--allow-env`).
+ * The real environment is never changed. While `fn` runs, `globalThis.process`
+ * is replaced by a stand-in (inheriting from the real one) whose `env` returns
+ * the given values, and the real variables for every other name. So it needs
+ * no permission (Deno's `--allow-env`), and tests cannot leak variables into
+ * each other. Only code that reads `process.env` at call time sees the values,
+ * as `env()` from `@chojs/core/utils` does.
  *
- * @param vars The variables to set; `undefined` removes a variable.
- * @param fn The function to run.
+ * @param vars The variables to override; `undefined` makes a variable unset.
+ * @param fn The function to run. It must be synchronous.
  *
  * @example
  * ```ts
@@ -125,22 +129,30 @@ export function with_env(
   vars: Record<string, string | undefined>,
   fn: () => void,
 ): void {
-  const env = (globalThis as unknown as {
-    process: { env: Record<string, string | undefined> };
-  }).process.env;
-  const apply = (values: Record<string, string | undefined>) => {
-    for (const [key, value] of Object.entries(values)) {
-      if (value === undefined) delete env[key];
-      else env[key] = value;
-    }
-  };
-  const saved = Object.fromEntries(
-    Object.keys(vars).map((key) => [key, env[key]]),
-  );
-  apply(vars);
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "process");
+  const real = (globalThis as { process?: { env?: Record<string, unknown> } })
+    .process;
+  const env = new Proxy({}, {
+    get(_target, key) {
+      if (typeof key === "string" && Object.hasOwn(vars, key)) {
+        return vars[key];
+      }
+      try {
+        return real?.env?.[key as string];
+      } catch {
+        return undefined; // e.g. Deno without --allow-env
+      }
+    },
+  });
+  Object.defineProperty(globalThis, "process", {
+    value: Object.create(real ?? null, { env: { value: env } }),
+    configurable: true,
+    writable: true,
+  });
   try {
     fn();
   } finally {
-    apply(saved);
+    if (saved) Object.defineProperty(globalThis, "process", saved);
+    else delete (globalThis as { process?: unknown }).process;
   }
 }
