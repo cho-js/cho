@@ -64,11 +64,23 @@ writing `web/specs.md`. Each was reproduced against the current code.
    also reject what was silently lost before: a second HTTP method decorator on
    a method, and static, private or symbol-named methods.
 
-9. **A decorator that replaces the method hides the route.** Method records are
-   stored on the method function (a core design, see `fable.md` D2), so a
-   wrapping decorator applied above `@Get` (`@Logged @Get("x")`) leaves the
-   route on a function the controller no longer has: no route, no error.
-   Handlers inherited from a base class are not collected either.
+9. **[FIXED] A decorator that replaces the method hides the route.** Method
+   records were stored on the method function, so a wrapping decorator applied
+   above `@Get` (`@Logged @Get("x")`) left the route on a function the
+   controller no longer had: no route, no error. Handlers inherited from a base
+   class were not collected either.
+
+   **Fix:** the core stores method records with the class, by method name
+   (`core/specs.md`, section 4.1), and reads them along the prototype chain.
+   Tests with real decorator syntax in `web/syntax_test.ts`.
+
+10. **[FIXED] Misspelled options were accepted.** `@Controller({ deps: [...] })`
+    or `@Module({ provider: [...] })` type-checked and did nothing, and
+    `@Controller({ middlewares: [...] })` was stored and discarded.
+
+    **Fix:** `@Module` and `@Controller` of `@chojs/web` accept the core's
+    options and `route` only: anything else is a compile error, and throws when
+    the class is defined.
 
 ## Adapter redesign
 

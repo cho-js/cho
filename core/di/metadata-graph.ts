@@ -34,7 +34,7 @@ import type {
   Provider,
   Token,
 } from "./types.ts";
-import { own_keys, read_metadata_object } from "./metadata.ts";
+import { method_records, own_keys, read_metadata_object } from "./metadata.ts";
 import {
   CONTROLLER,
   type ControllerRecord,
@@ -109,53 +109,52 @@ export type InjectableMetadata = ProviderMetadata & {
 };
 
 /**
- * A normalized `@Controller` class.
+ * The other keys of a class's record, as they are: the extra options a CHO
+ * module accepts on `@Module` / `@Controller` (string keys, such as `route`)
+ * and what its own class decorators wrote (symbol keys). The DI system
+ * ignores them; each CHO module reads its own.
  *
- * Besides the fields below, it keeps the other keys of the controller's
- * record as they are: the extra `@Controller` options (string keys, such as
- * `route`) and what CHO modules' own decorators wrote on the class. The DI
- * system ignores them; they are for the CHO module that invokes the
- * controller. The fields below always win over a record key of the same name.
+ * They are kept apart from the normalized fields, so an option can have any
+ * name (`middlewares`, `provider`, ...) without being mistaken for a field.
  */
-export type ControllerMetadata = InjectableMetadata & HandlersMetadata & {
-  /** Marks the declaration as a controller. */
-  isController: true;
-  /**
-   * The controller's methods that carry metadata, in declaration order.
-   * Methods without metadata are left out.
-   */
-  methods: readonly MethodMetadata[];
-  /** Any other key of the controller's record, as is. */
-  readonly [key: string]: unknown;
-  /** CHO modules' own keys on the controller's record, as is. */
-  readonly [key: symbol]: unknown;
+export type OptionsMetadata = {
+  /** The record's keys that are not the core's. */
+  options: Readonly<Record<PropertyKey, unknown>>;
 };
 
-/**
- * A normalized `@Module` class, with everything it declares.
- *
- * Besides the fields below, it keeps the other keys of the module's record as
- * they are: the extra `@Module` options (string keys, such as `route`) and
- * what CHO modules' own decorators wrote on the class. The DI system ignores
- * them; they are for the CHO module. The fields below always win over a
- * record key of the same name.
- */
-export type ModuleMetadata = InjectableMetadata & HandlersMetadata & {
-  /** Marks the declaration as a module. */
-  isModule: true;
-  /** The imported modules, normalized, in `imports` order. */
-  imports: readonly ModuleMetadata[];
-  /** The tokens this module exports, as declared. */
-  exports: readonly Token[];
-  /** The declared providers, normalized, in `providers` order. */
-  providers: readonly (InjectableMetadata | ProviderMetadata)[];
-  /** The declared controllers, normalized, in `controllers` order. */
-  controllers: readonly ControllerMetadata[];
-  /** Any other key of the module's record, as is. */
-  readonly [key: string]: unknown;
-  /** CHO modules' own keys on the module's record, as is. */
-  readonly [key: symbol]: unknown;
-};
+/** A normalized `@Controller` class. */
+export type ControllerMetadata =
+  & InjectableMetadata
+  & HandlersMetadata
+  & OptionsMetadata
+  & {
+    /** Marks the declaration as a controller. */
+    isController: true;
+    /**
+     * The controller's methods that carry metadata, in declaration order: its
+     * own, and those it inherits (parents first). Methods without metadata are
+     * left out.
+     */
+    methods: readonly MethodMetadata[];
+  };
+
+/** A normalized `@Module` class, with everything it declares. */
+export type ModuleMetadata =
+  & InjectableMetadata
+  & HandlersMetadata
+  & OptionsMetadata
+  & {
+    /** Marks the declaration as a module. */
+    isModule: true;
+    /** The imported modules, normalized, in `imports` order. */
+    imports: readonly ModuleMetadata[];
+    /** The tokens this module exports, as declared. */
+    exports: readonly Token[];
+    /** The declared providers, normalized, in `providers` order. */
+    providers: readonly (InjectableMetadata | ProviderMetadata)[];
+    /** The declared controllers, normalized, in `controllers` order. */
+    controllers: readonly ControllerMetadata[];
+  };
 
 /** The normalized metadata of an application, from its root module. */
 export type MetadataGraph = {
@@ -218,8 +217,8 @@ function handlers(record: HandlersRecord): HandlersMetadata {
  * Normalize a `controllers` entry.
  *
  * @param ctr The entry: must be a `@Controller` class.
- * The other keys of the controller's record are kept, so the CHO module can
- * read its options. The normalized fields are set after them, so a record key
+ * The other keys of the controller's record are kept as `options`, so the CHO
+ * module can read them, apart from the normalized fields: a record key
  * can never override them (an option named `provider`, for example).
  *
  * @returns The controller's normalized metadata, including the metadata of its
@@ -239,23 +238,17 @@ function controller_metadata(ctr: Ctr): ControllerMetadata {
     );
   }
 
-  // Own prototype methods only (inherited methods are not collected), and
-  // only those an application module attached metadata to.
-  const methods = Object.entries(
-    Object.getOwnPropertyDescriptors(ctr.prototype),
-  )
-    .filter(([name]) => name !== "constructor")
-    .filter(([, descriptor]) => typeof descriptor.value === "function")
-    .flatMap(([name, descriptor]): MethodMetadata[] => {
-      const method = read_metadata_object<HandlersRecord>(descriptor.value);
-      return method
+  // The methods a CHO module attached metadata to, inherited ones included,
+  // that the class really has (a record can outlive a removed method).
+  const methods = [...method_records(ctr)].flatMap(
+    ([name, method]): MethodMetadata[] =>
+      typeof name === "string" && typeof ctr.prototype[name] === "function"
         ? [{ name, meta: extras(method), ...handlers(method) }]
-        : [];
-    });
+        : [],
+  );
 
   return {
-    // the other keys first: the normalized fields below always win
-    ...extras(record),
+    options: extras(record),
     isProvider: true,
     isInjectable: true,
     isController: true,
@@ -349,8 +342,7 @@ function module_metadata(
   }
 
   const moduleMeta: ModuleMetadata = {
-    // the record's other keys first: the normalized fields below always win
-    ...extras(record),
+    options: extras(record),
     isModule: true,
     isInjectable: true,
     isProvider: true,

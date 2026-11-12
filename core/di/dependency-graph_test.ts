@@ -501,6 +501,7 @@ describe("build_dependency_graph", () => {
         isModule: true,
         isInjectable: true,
         isProvider: true,
+        options: {},
         imports,
         exports: [],
         providers: [],

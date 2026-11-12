@@ -17,6 +17,32 @@ with a script that uses real decorator syntax on all three runtimes.
 | `deno fmt --check`           | fails on `assets/cho.svg` only (not in CI)    |
 | Decorator syntax, 3 runtimes | works (not covered by the test suite, see D6) |
 
+## Status
+
+Updated after the adapter redesign (`web/tasks.md`) and the fixes of every A
+item (which brought D1 and D2 with them). The text below is the original review;
+items are marked **[FIXED]**, **[PARTLY FIXED]** or left unmarked when still
+open. Each mark was checked against the code.
+
+| Item | Status | Note                                                                        |
+| ---- | ------ | --------------------------------------------------------------------------- |
+| A1   | fixed  | middlewares are composed per route by `@chojs/web`; regression tests        |
+| A2   | fixed  | `decorated_target` falls back to the class                                  |
+| A3   | fixed  | guards added; wrapped and inherited handlers now work (D2)                  |
+| A4   | fixed  | option types are closed; unknown options also throw at runtime (D1)         |
+| A5   | fixed  | all six items                                                               |
+| B2   | fixed  | handlers, middlewares and error handlers receive `ChoWebContext`            |
+| B3   | open   |                                                                             |
+| D1   | fixed  | extras are `meta.options`; closed types. Dependency-list spelling unchanged |
+| D2   | fixed  | method records are stored with the class, by method name                    |
+| D3   | open   |                                                                             |
+| D4   | open   |                                                                             |
+| D5   | open   |                                                                             |
+| D6   | fixed  | `web/syntax_test.ts` runs real decorator syntax on Deno, Bun and Node       |
+
+Current checks: `deno check`, `deno lint` pass; 90 tests / 585 steps on Deno,
+568 on Bun and on Node.
+
 ## Verdict
 
 The core DI is the strong part: a small, well-factored pipeline with careful
@@ -36,7 +62,13 @@ them I would treat as release blockers.
 
 ## A. New bugs
 
-### A1. Hono adapter: middlewares leak onto other features and controllers (high, probed)
+### A1. [FIXED] Hono adapter: middlewares leak onto other features and controllers (high, probed)
+
+**Fix:** `@chojs/web` composes each route's middlewares itself
+(`web/compose.ts`, `web/routes.ts`) and the adapter registers flat routes with
+`app.on(...)`; no sub-applications. Regression tests in `web/routes_test.ts`
+("never runs a feature's middlewares for another feature…", "…for a sibling
+controller").
 
 `vendor/hono/mod.ts:101-112` registers a node's middlewares with `ctrl.use(...)`
 on a sub-application, then mounts it with `app.route(fr.route, feature)` (line
@@ -67,7 +99,14 @@ the way method middlewares are passed today (line 92). That also makes the
 adapter independent of Hono's sub-app semantics, and makes the global prefix fix
 (web issue 1) a one-line path join.
 
-### A2. Class-level `@Middlewares`, `@Catch` and `@Help` crash where `context.metadata` is undefined (medium, probed)
+### A2. [FIXED] Class-level `@Middlewares`, `@Catch` and `@Help` crash where `context.metadata` is undefined (medium, probed)
+
+**Fix:** `decorated_target` returns the class when a TC39 class context has no
+`metadata`, as the DI decorators do. The DI decorators keep their own
+`context?.metadata ?? target`: they are class-only, and routing them through
+`decorated_target` would let `@Injectable` on a method mark the method. Tests in
+`core/di/decorations_test.ts`, `core/di/decorators_test.ts` ("TC39 decorators
+without context.metadata") and `command/decorators_test.ts`.
 
 `decorated_target` (`core/di/decorations.ts:671-672`) returns `context.metadata`
 unconditionally. TypeScript's own TC39 emit only creates the metadata object
@@ -83,7 +122,14 @@ plain `tsc` output on Node does not.
 Fix: `return context.metadata ?? target` in `decorated_target`, and use
 `decorated_target` in the three DI decorators so there is one implementation.
 
-### A3. Web decorators are silently dropped in four cases (medium, probed)
+### A3. [FIXED] Web decorators are silently dropped in four cases (medium, probed)
+
+**Fix:** the first two rows throw when the class is defined, and the route is
+validated there too (`web/decorators.ts`). The last two rows work now: the core
+stores method records with the class, by method name (D2), so a route survives a
+decorator that replaces the method, and a controller gets the handlers it
+inherits. Tests with real decorator syntax, on both decorator call shapes, in
+`web/syntax_test.ts`.
 
 `web/decorators.ts:31-42` does no validation (`// todo assert_route`), so:
 
@@ -98,7 +144,16 @@ Fix: `return context.metadata ?? target` in `decorated_target`, and use
 `assert_command_method`); web needs the same guards. The last two come from the
 storage design, see D2.
 
-### A4. Typos in decorator options are accepted silently (medium, probed)
+### A4. [FIXED] Typos in decorator options are accepted silently (medium, probed)
+
+**Fix:** D1. `ModuleOptions` and `ControllerOptions` have no index signature any
+more, so `{ deps: [...] }` and `{ provider: [...] }` are compile errors. A CHO
+module declares its own options with the type parameter of `@Module` /
+`@Controller`; `@chojs/web` and `@chojs/command` export their own typed
+decorators, which also reject unknown options at runtime
+(`assert_known_options`). `@Controller({ middlewares })` is now an error instead
+of being discarded. Not done: the three spellings of dependency lists (`[...]`,
+`dependencies`, `deps`) are unchanged.
 
 `ModuleOptions` and `ControllerOptions` have an index signature
 (`decorations.ts:133`, `160`), so every misspelling type-checks and is stored as
@@ -119,7 +174,13 @@ silent loss is the worst outcome.
 
 Fix: see D1.
 
-### A5. Smaller items
+### A5. [FIXED] Smaller items
+
+**Fix:** all six. The JSDoc is corrected; `Injector.modules()` yields the map's
+values and `controllers()` filters on the owner; `@Module` validates its options
+before writing, so a failed `@Module` leaves the class undecorated; `provider()`
+accepts sync factories; `is_positive_integer` became `exit_code`, which also
+caps at `255` (256 would read as success); `describe` no longer throws.
 
 - **Stale JSDoc.** `core/di/decorators.ts:94-95`, `131-132`, `140-141` still say
   the options `isInjectable`, `isModule`, `isController` are reserved and throw.
@@ -135,10 +196,11 @@ Fix: see D1.
   remove `() => Promise.resolve("x")` boilerplate.
 - **`command.ts:63`** `is_positive_integer` accepts `0`; the name should say
   non-negative. Exit codes above 255 are passed through.
-- **`core/utils/describe.ts`** is used on arbitrary user values in web
+- **[FIXED] `core/utils/describe.ts`** is used on arbitrary user values in web
   (`assert_route`) and falls back to `String(value)`, which throws on
   `Object.create(null)`. `describe_value` in `decorations.ts` is the safe one;
-  it should be the shared utility.
+  it should be the shared utility. **Fix:** `describe` no longer throws; it
+  falls back to `Object.prototype.toString`, then `<unknown>`.
 
 ## B. Architecture and design
 
@@ -165,7 +227,12 @@ Fix: see D1.
   graph handed to the linker is fully materialized.
 - Error messages name the module, the token, the argument index and the fix.
 
-### B2. Portability stops at the linker
+### B2. [FIXED] Portability stops at the linker
+
+**Fix:** handlers, middlewares and error handlers receive `ChoWebContext`
+(standard `Request`, `params`, `url`, `state`), and middlewares return a
+standard `Response`. The vendor context is the `native` escape hatch. An adapter
+only registers finished routes (`Route.handle`).
 
 The README's first claim is engine-agnostic code. But a web handler receives the
 adapter's context (`ctx: Context` from `hono`, `ctx.req.param("id")`), and
@@ -206,7 +273,11 @@ These are absent by design today; each one will be asked for early:
 
 ## C. Recommended design changes (D1–D6)
 
-### D1. Separate user options from framework fields, and close the option types
+### D1. [FIXED] Separate user options from framework fields, and close the option types
+
+**Fix:** see A4. The normalized metadata keeps extras under `options`
+(`ControllerMetadata.options`, `ModuleMetadata.options`); web reads
+`meta.options.route`, command reads its class-level `@Help` there.
 
 Keep extras under one key in the normalized metadata (`meta.options.route`)
 instead of spreading them into the same object as `provider`, `methods`,
@@ -222,7 +293,14 @@ This turns A4 into compile errors, removes the "normalized fields always win"
 rule, and makes `route` typed in web instead of `meta["route"]` plus a runtime
 check. Also pick one spelling for dependency lists.
 
-### D2. Store method records on the class, not on the function
+### D2. [FIXED] Store method records on the class, not on the function
+
+**Fix:** `core/di/metadata.ts` has a per-class method table (`method_metadata`,
+`method_records`, `read_method_metadata`), and `decorated_method` returns where
+to write as `.meta`. Records written on a function are still read, and merged:
+that is the fallback for static and private methods, and for TC39 decorators
+compiled without `Symbol.metadata`. Symbol-named methods are stored but still
+not collected into `methods`.
 
 Method records live on the method function object (`decorations.ts:568-570`) and
 are found again through `Object.getOwnPropertyDescriptors(ctr.prototype)`. That
@@ -280,7 +358,12 @@ sees them. Two changes: default positionals to strings (`string: ["_"]`), and
 let each command declare its flags (`@Action("copy", { boolean: ["force"] })`),
 which also fixes command issue 4 and gives `--help` an options list.
 
-### D6. Test the decorator syntax
+### D6. [FIXED] Test the decorator syntax
+
+**Fix:** `web/syntax_test.ts` uses real syntax for `@Injectable`, `@Module`,
+`@Controller`, `@Middlewares`, `@Catch`, `@Get` and `@Post`, and runs in the
+three CI jobs. The command decorators (`@Main`, `@Action`, `@Help`) are still
+only applied as function calls.
 
 Tests apply decorators as function calls so they run on Node. The consequence is
 that no test executes `@Decorator` syntax, and the examples are type-checked but
@@ -290,61 +373,78 @@ kind of bug that follows. One fixture file with real syntax, executed by
 
 ## Per package
 
-**core** — Solid. Beyond the above: `engine.ts` is unexported and has the typos
-already listed in issue 8; `debuglog` is exported but used by no package, while
-`command/command.ts`'s module doc still says errors go to the `cho` debug
-logger; `env()` has no path for runtimes without `process` (Workers bindings),
-which matters for a framework that names Workers and Lambda in its README.
+**core** — Solid. Beyond the above:
 
-**command** — Small and readable. `run()`'s catch block (`command.ts:298-330`)
-is the weak spot: the class-handler branch calls an instance as a function with
-`args` instead of the error, and a throwing function handler makes `run()`
-reject (issues 1, 2). `@Middlewares` is accepted and ignored (issue 3).
-`initModule` resolves only the owning module; `injector.init()` semantics would
-be less surprising. `command/lib/parse-args.ts` is a 906-line vendored copy of
-`@std/cli` with its license header intact; note its origin and version in the
-README so it can be updated.
+- **[FIXED]** `engine.ts` was unexported and had typos: `engine` and
+  `EngineType` are exported, the typos are gone.
+- **[FIXED]** `debuglog` was used by no package: `web` and `command` log to
+  `cho:web` and `cho:command`.
+- **[FIXED]** `env()` had no path for runtimes without `process`: `set_env`
+  takes another source.
+- Open: the JSDoc of `ChoCommand.run` (`command/command.ts`) still names the
+  `cho` debug logger; the context is `cho:command`.
 
-**web** — Honest about being early. Graph building is clear and the route
-validation is good. Still open from `web/cr.md`: controllers with no HTTP method
-and features with no routes are still created and emitted (M-2), the
-duplicate-route error names nothing (M-3), `:id` vs `:name` duplicates pass
-(L-1). `ControllerInstance` and `MethodRef.type` are loose leftovers. No
-`@Patch`, `@Head`, `@Options`.
+**command** — Small and readable.
 
-**vendor/hono** — 148 lines carrying A1, the ignored prefix (probed: `/api/a/v`
-is 404, `/a/v` answers) and the inconsistent error-handler argument order. A
-rewrite along the lines of A1's fix resolves all three at once. The `@ts-ignore`
-on line 91 goes away with `app.on(method, path, ...handlers)`.
+- **[FIXED]** Class error handlers were called as functions, with `args` instead
+  of the error: they are called through `handle(error, args)`.
+- **[FIXED]** A throwing function error handler made `run()` reject: it now
+  resolves to `2`.
+- Open: `@Middlewares` is accepted and ignored (`command/issues.md`).
+- Open: `initModule` resolves only the owning module; `injector.init()`
+  semantics would be less surprising.
+- Open: `command/lib/parse-args.ts` is a vendored copy of `@std/cli` with its
+  license header intact; note its origin and version in the README so it can be
+  updated.
+
+**web** — Rebuilt around the new adapter contract.
+
+- **[FIXED]** Controllers with no HTTP method and features with no routes were
+  created and emitted.
+- **[FIXED]** The duplicate-route error named nothing; `:id` vs `:name`
+  duplicates passed.
+- **[FIXED]** `ControllerInstance` and `MethodRef.type` are removed.
+- **[PARTLY FIXED]** `@Patch` exists; `@Head` and `@Options` do not.
+
+**vendor/hono** — **[FIXED]** The middleware leak (A1), the ignored prefix and
+the inconsistent error-handler argument order are gone with the rewrite, and so
+is the `@ts-ignore`: the adapter is one `app.on(method, path, …)` loop.
 
 ## Release readiness
 
-Blockers for a 3.0 of web + vendor-hono, in my view: A1, web issue 1 (prefix),
-web issues 2-4 (error handler contract), A3. For command: issues 1-3. For core:
-A2 and the stale JSDoc; D1 and D2 are breaking, so they belong in 3.0 or wait
-for 4.0.
+Blockers for a 3.0, in my view, and where they stand:
+
+- web + vendor-hono: A1 **[FIXED]**, the prefix **[FIXED]**, the error handler
+  contract **[FIXED]**, A3 **[FIXED]**.
+- command: class and throwing error handlers **[FIXED]**; `@Middlewares` ignored
+  is open.
+- core: A2, the stale JSDoc (A5), D1 and D2 are all **[FIXED]**. D1 and D2 are
+  breaking for CHO module authors (`method.fn` → `method.meta`, extras under
+  `options`), so they had to land before 3.0.
 
 Repository housekeeping:
 
 - `release-please-config.json` has `"release-as": "3.0.0"` on every package. It
   must be removed after the first release or every later release is 3.0.0.
 - `README.md` lists `@chojs/dev`, which is not in the workspace.
-- `web/cr.md` reviews a file layout that no longer exists; `core/issues.md`
-  refers to `tasks.md` and `web/issues.md` to a root `issues.md`, neither of
-  which exists. `core/issues.md` item 11 mentions `core/readme.md`.
+- **[PARTLY FIXED]** Stale documents: `web/cr.md` and `core/issues.md` are
+  deleted. `web/issues.md` (#2, #4) still refers to a root `issues.md` and to
+  the deleted `core/issues.md`.
 - `test.sh` has no `set -e`, so a failing runtime does not fail the script.
 - CI does not run `deno fmt --check` (it fails on `assets/cho.svg`; exclude the
   asset).
-- `tsconfig.json` carries `"jsx": "react-jsx"` and `web/deno.json` an empty
-  `imports`.
+- **[PARTLY FIXED]** `web/deno.json` no longer has an empty `imports`;
+  `tsconfig.json` still carries `"jsx": "react-jsx"`.
 
 ## Suggested order
 
-1. A1 with the prefix fix: rewrite `HonoLinker.link` to flat registration.
-2. A2 and the web decorator guards (A3, first two rows); add the syntax fixture
-   to CI (D6).
-3. Decide the handler / middleware / error-handler contract (B2), then fix web
-   issues 2-4 and command issues 1-3 against it.
-4. D1 and D2 together, as the one breaking change to the metadata contract; D3
-   fits in the same pass.
+1. **[DONE]** A1 with the prefix fix: rewrite `HonoLinker.link` to flat
+   registration.
+2. **[DONE]** A2 and the web decorator guards (A3, first two rows); add the
+   syntax fixture to CI (D6).
+3. **[DONE for web]** Decide the handler / middleware / error-handler contract
+   (B2), then fix the web and command issues against it. Open for command:
+   `@Middlewares` is still ignored.
+4. **[DONE]** D1 and D2 together, as the one breaking change to the metadata
+   contract. D3 is still open and fits the same area.
 5. `dispose()` and test overrides (B3.1, B3.2).

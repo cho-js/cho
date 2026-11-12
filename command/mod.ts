@@ -27,14 +27,12 @@
  * @module
  */
 
-export { Action, Help, Main } from "./decorators.ts";
+export { Action, Controller, Help, Main, Module } from "./decorators.ts";
 export {
   Catch,
-  Controller,
   type ControllerOptions,
   Injectable,
   type InjectableOptions,
-  Module,
   type ModuleOptions,
 } from "@chojs/core/di";
 export { ChoCommand, type ChoCommandOptions } from "./command.ts";

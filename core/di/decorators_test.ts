@@ -17,8 +17,8 @@ import {
   Middlewares,
   Module,
 } from "./decorators.ts";
-import { legacy, loose, tc39 } from "../utils/test_utils.ts";
-import { read_metadata_object } from "./metadata.ts";
+import { legacy, loose, tc39, tc39_record } from "../utils/test_utils.ts";
+import { read_metadata_object, read_method_metadata } from "./metadata.ts";
 import {
   CONTROLLER,
   CONTROLLERS,
@@ -32,6 +32,7 @@ import {
   PROVIDERS,
 } from "./keys.ts";
 import { provider, token } from "./tokens.ts";
+import type { ExtraOptions } from "./decorations.ts";
 import type { Any } from "./types.ts";
 
 /** A middleware as a CHO module could define it. */
@@ -116,7 +117,7 @@ describe("@Injectable", () => {
 describe("@Module", () => {
   it("cannot be turned into a controller by an option", () => {
     class App {}
-    Module({ isController: true })(App);
+    Module<ExtraOptions>({ isController: true })(App);
     const record = read_metadata_object<Record<PropertyKey, unknown>>(App)!;
     assert.equal(record[MODULE], true);
     assert.equal(record[CONTROLLER], undefined);
@@ -168,7 +169,7 @@ describe("@Module", () => {
   it("stores extra options without duplicating dependencies", () => {
     class Logger {}
     class App {}
-    Module({ dependencies: [Logger], route: "api" })(App);
+    Module<ExtraOptions>({ dependencies: [Logger], route: "api" })(App);
     assert.deepEqual(read_metadata_object(App), {
       [INJECTABLE]: true,
       [MODULE]: true,
@@ -210,7 +211,7 @@ describe("@Module", () => {
 describe("@Controller", () => {
   it("cannot be turned into a module by an option", () => {
     class Cli {}
-    Controller({ isModule: true })(Cli);
+    Controller<ExtraOptions>({ isModule: true })(Cli);
     const record = read_metadata_object<Record<PropertyKey, unknown>>(Cli)!;
     assert.equal(record[CONTROLLER], true);
     assert.equal(record[MODULE], undefined);
@@ -239,7 +240,7 @@ describe("@Controller", () => {
 
   it("stores any other option as is, for application modules", () => {
     class Cli {}
-    Controller({ name: "cli", description: "the CLI" })(Cli);
+    Controller<ExtraOptions>({ name: "cli", description: "the CLI" })(Cli);
     assert.deepEqual(read_metadata_object(Cli), {
       [INJECTABLE]: true,
       [CONTROLLER]: true,
@@ -306,13 +307,13 @@ describe("@Middlewares", () => {
   it("writes the middlewares on a method (TC39 and legacy)", () => {
     function run() {}
     tc39(Middlewares(a), run, "run");
-    assert.deepEqual(read_metadata_object(run), { [MIDDLEWARES]: [a] });
+    assert.deepEqual(tc39_record(run), { [MIDDLEWARES]: [a] });
 
     class Cli {
       run() {}
     }
     legacy(Middlewares(b), Cli, "run");
-    assert.deepEqual(read_metadata_object(Cli.prototype.run), {
+    assert.deepEqual(read_method_metadata(Cli, "run"), {
       [MIDDLEWARES]: [b],
     });
   });
@@ -324,7 +325,7 @@ describe("@Middlewares", () => {
     function run() {}
     tc39(Middlewares(c), run, "run"); // the lower one is applied first
     tc39(Middlewares(a, b), run, "run");
-    assert.deepEqual(read_metadata_object(run), { [MIDDLEWARES]: [a, b, c] });
+    assert.deepEqual(tc39_record(run), { [MIDDLEWARES]: [a, b, c] });
   });
 
   it("combines with @Controller, in either order", () => {
@@ -386,13 +387,13 @@ describe("@Catch", () => {
   it("writes the handler on a method (TC39 and legacy)", () => {
     function run() {}
     tc39(Catch(handler), run, "run");
-    assert.deepEqual(read_metadata_object(run), { [ERROR_HANDLER]: handler });
+    assert.deepEqual(tc39_record(run), { [ERROR_HANDLER]: handler });
 
     class Cli {
       run() {}
     }
     legacy(Catch(handler), Cli, "run");
-    assert.deepEqual(read_metadata_object(Cli.prototype.run), {
+    assert.deepEqual(read_method_metadata(Cli, "run"), {
       [ERROR_HANDLER]: handler,
     });
   });
@@ -402,7 +403,7 @@ describe("@Catch", () => {
     Injectable()(Handler);
     function run() {}
     tc39(Catch(Handler), run, "run");
-    assert.deepEqual(read_metadata_object(run), { [ERROR_HANDLER]: Handler });
+    assert.deepEqual(tc39_record(run), { [ERROR_HANDLER]: Handler });
   });
 
   it("combines with @Controller and @Middlewares", () => {
@@ -441,7 +442,7 @@ describe("@Catch", () => {
       handler,
     );
     assert.equal(
-      read_metadata_object<{ [ERROR_HANDLER]: unknown }>(Cli.prototype.run)
+      read_method_metadata<{ [ERROR_HANDLER]: unknown }>(Cli, "run")
         ?.[ERROR_HANDLER],
       other,
     );
@@ -453,5 +454,70 @@ describe("@Catch", () => {
       message: 'the error handler must be a function or a class: "handler"',
     });
     assert.equal(read_metadata_object(Cli), undefined);
+  });
+});
+
+describe("TC39 decorators without context.metadata", () => {
+  // Compiled TC39 decorators (TypeScript's emit) only create the metadata
+  // object when the runtime has Symbol.metadata. Without it, every decorator
+  // gets `metadata: undefined` and must write to the class itself.
+  const context = (): ClassDecoratorContext =>
+    loose({ ...tc39_context(), metadata: undefined });
+
+  it("writes every class-level record on the class", () => {
+    const mw = () => {};
+    const on_error = () => 1;
+    class Cli {}
+    // applied bottom up, as the decorators of one class are
+    Controller()(Cli, context());
+    Catch(on_error)(Cli, context());
+    Middlewares(mw)(Cli, context());
+
+    assert.deepEqual(read_metadata_object(Cli), {
+      [INJECTABLE]: true,
+      [DEPENDENCIES]: [],
+      [CONTROLLER]: true,
+      [ERROR_HANDLER]: on_error,
+      [MIDDLEWARES]: [mw],
+    });
+  });
+
+  it("still rejects a second DI decorator", () => {
+    class Cli {}
+    Injectable()(Cli, context());
+    assert.throws(() => Module()(Cli, context()), {
+      message: ALREADY_DECORATED,
+    });
+  });
+});
+
+describe("@Module, invalid options", () => {
+  it("leaves the class undecorated", () => {
+    class App {}
+    assert.throws(() => Module({ imports: loose("Db") })(App), {
+      message: 'imports must be an array, got "Db"',
+    });
+    assert.equal(read_metadata_object(App), undefined);
+    // so the corrected decorator can be applied
+    Module({ imports: [] })(App);
+    assert.equal(read_metadata_object<Any>(App)[MODULE], true);
+  });
+});
+
+describe("option types", () => {
+  it("are closed: an unknown option is a compile error", () => {
+    class Db {}
+    // Type-only: never called.
+    const _check = () => {
+      // @ts-expect-error `provider` is not an option: it is `providers`
+      Module({ provider: [Db] });
+      // @ts-expect-error `deps` is not an option: it is `dependencies`
+      Controller({ deps: [Db] });
+      // a CHO module declares the options it accepts
+      Module<{ route?: string }>({ route: "api", providers: [Db] });
+      Controller<{ route?: string }>({ route: "users" });
+      // @ts-expect-error still closed, with the declared options
+      Controller<{ route?: string }>({ rout: "users" });
+    };
   });
 });

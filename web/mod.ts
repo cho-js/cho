@@ -58,11 +58,9 @@
  */
 
 export {
-  Controller,
   type ControllerOptions,
   Injectable,
   type InjectableOptions,
-  Module,
   type ModuleOptions,
 } from "@chojs/core/di";
 export * from "./decorators.ts";

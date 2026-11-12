@@ -115,7 +115,7 @@ export function isToken(value: unknown): value is Token {
 export function provider<T, const D extends readonly Dependency[] = []>(p: {
   provide: Token<T>;
   deps?: D;
-  factory: (...deps: ResolvedAll<D>) => Promise<NoInfer<T>>;
+  factory: (...deps: ResolvedAll<D>) => NoInfer<T> | Promise<NoInfer<T>>;
 }): Provider<T> {
   return { ...p, deps: p.deps ?? [] } as Provider<T>;
 }

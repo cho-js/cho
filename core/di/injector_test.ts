@@ -791,3 +791,46 @@ describe("Injector, debug logging", () => {
     assert.ok(logs.includes("ERROR invalid graph of NotAModule:"), logs);
   });
 });
+
+describe("Injector, sync factories and iteration", () => {
+  it("accepts a factory that returns the value itself", async () => {
+    const PORT = token<number>("PORT");
+    class App {}
+    Module({ providers: [provider({ provide: PORT, factory: () => 8080 })] })(
+      App,
+    );
+    assert.equal(await new Injector(App).resolve(PORT), 8080);
+  });
+
+  it("wraps a sync factory that throws, like an async one", async () => {
+    const PORT = token<number>("PORT");
+    class App {}
+    Module({
+      providers: [provider({
+        provide: PORT,
+        factory: () => {
+          throw new Error("no port");
+        },
+      })],
+    })(App);
+    await assert.rejects(new Injector(App).resolve(PORT), {
+      message: "Failed to create InjectionToken(PORT) in module App",
+    });
+  });
+
+  it("yields an exported controller once, from the module that declares it", () => {
+    class Ctrl {}
+    Controller()(Ctrl);
+    class Feature {}
+    Module({ controllers: [Ctrl], exports: [Ctrl] })(Feature);
+    class App {}
+    Module({ imports: [Feature] })(App);
+
+    const injector = new Injector(App);
+    assert.deepEqual([...injector.modules()].map((m) => m.ctr), [Feature, App]);
+    assert.deepEqual(
+      [...injector.controllers()].map((n) => [n.token, n.owner]),
+      [[Ctrl, Feature]],
+    );
+  });
+});

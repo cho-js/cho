@@ -106,6 +106,98 @@ describe("decorator syntax", () => {
     ]);
   });
 
+  it("keeps the route of a method another decorator replaces", async () => {
+    const calls: string[] = [];
+    // A decorator that replaces the method, applied above and below @Get.
+    // Like the CHO decorators, it handles both call shapes: TC39
+    // `(method, context)`, and legacy / Bun `(prototype, name, descriptor)`.
+    // deno-lint-ignore no-explicit-any
+    function Logged(target: any, context: any, descriptor?: any): any {
+      const legacy = descriptor !== undefined;
+      const method = legacy ? descriptor.value : target;
+      const name = String(legacy ? context : context.name);
+      // deno-lint-ignore no-explicit-any
+      const wrapper = function (this: any, ...args: any[]) {
+        calls.push(name);
+        return method.apply(this, args);
+      };
+      return legacy ? { ...descriptor, value: wrapper } : wrapper;
+    }
+
+    @Controller({ route: "wrapped" })
+    class Wrapped {
+      greeting = "hi";
+
+      @Logged
+      @Get("above")
+      above() {
+        return this.greeting;
+      }
+
+      @Get("below")
+      @Logged
+      below() {
+        return this.greeting;
+      }
+    }
+
+    @Module({ controllers: [Wrapped] })
+    class WrappedApp {}
+
+    const app = await ChoWeb.create(WrappedApp, { linker: new TestLinker() });
+    for (const path of ["above", "below"]) {
+      const response = await app.handler(
+        new Request(`http://localhost/wrapped/${path}`),
+      );
+      assert.equal(await response.json(), "hi");
+    }
+    assert.deepEqual(calls, ["above", "below"]);
+  });
+
+  it("routes the handlers a controller inherits", async () => {
+    class Health {
+      @Get("health")
+      health() {
+        return { ok: true };
+      }
+
+      @Get("version")
+      version() {
+        return "base";
+      }
+    }
+
+    @Controller({ route: "a" })
+    class A extends Health {}
+
+    @Controller({ route: "b" })
+    class B extends Health {
+      @Get("v") // replaces the inherited route of `version`
+      override version() {
+        return "b";
+      }
+    }
+
+    @Module({ controllers: [A, B] })
+    class InheritedApp {}
+
+    const app = await ChoWeb.create(InheritedApp, { linker: new TestLinker() });
+    assert.deepEqual(
+      app.routes.map((r) => `${r.path} ${r.name}`),
+      [
+        "/a/health A.health",
+        "/a/version A.version",
+        "/b/health B.health",
+        "/b/v B.version",
+      ],
+    );
+    const get = async (path: string) =>
+      (await app.handler(new Request(`http://localhost${path}`))).json();
+    assert.deepEqual(await get("/a/health"), { ok: true });
+    assert.equal(await get("/a/version"), "base");
+    assert.equal(await get("/b/v"), "b");
+  });
+
   it("rejects a second HTTP method decorator, when the class is defined", () => {
     assert.throws(() => {
       class Twice {

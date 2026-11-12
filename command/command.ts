@@ -59,13 +59,24 @@ function assert_is_function(
   }
 }
 
+/** The highest exit code a process can report. */
+const MAX_EXIT_CODE = 255;
+
 /**
- * Whether a value can be an exit code: a non-negative integer (`0` included).
+ * The exit code for what a command method or an error handler returned.
  *
- * @param n The value, as returned by a command method or an error handler.
+ * A non-negative integer is the exit code, capped at `255`: a process reports
+ * exit codes modulo 256, so `256` would read as success. Anything else gives
+ * the fallback.
+ *
+ * @param value The returned value.
+ * @param fallback The exit code when the value is not one.
+ * @returns The exit code, from `0` to `255`.
  */
-function is_positive_integer(n: unknown): n is number {
-  return typeof n === "number" && Number.isInteger(n) && n >= 0;
+function exit_code(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? Math.min(value, MAX_EXIT_CODE)
+    : fallback;
 }
 
 /**
@@ -303,7 +314,7 @@ export class ChoCommand {
       const handler = method.bind(ctrl);
       const done = this.#log.start();
       const ret = await handler(args);
-      const code = is_positive_integer(ret) ? ret : 0;
+      const code = exit_code(ret, 0);
       done(`${route} (${describe(node.token)}.${meta.name}) exited ${code}`);
       return code;
     } catch (err) {
@@ -324,7 +335,7 @@ export class ChoCommand {
             action![0].owner,
           );
           const ret = await handler.handle(err, args);
-          return is_positive_integer(ret) ? ret : 1;
+          return exit_code(ret, 1);
         } catch (handlerErr) {
           this.#log.error("the error handler failed:", handlerErr);
           console.error(
@@ -342,7 +353,7 @@ export class ChoCommand {
               err,
               args,
             );
-          return is_positive_integer(ret) ? ret : 1;
+          return exit_code(ret, 1);
         } catch (handlerErr) {
           this.#log.error("the error handler failed:", handlerErr);
           console.error(

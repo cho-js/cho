@@ -8,13 +8,15 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { read_metadata_object } from "@chojs/core/di";
-import { legacy, loose, tc39 } from "@chojs/core/utils/test_utils";
+import { read_metadata_object, read_method_metadata } from "@chojs/core/di";
+import { legacy, loose, tc39, tc39_record } from "@chojs/core/utils/test_utils";
 import {
   Catch,
+  Controller,
   Delete,
   Get,
   Middlewares,
+  Module,
   Patch,
   Post,
   Put,
@@ -34,7 +36,7 @@ describe("HTTP method decorators", () => {
     it(`${method}: writes the method and route (TC39)`, () => {
       function run() {}
       tc39(decorator(":id"), run, "run");
-      assert.deepEqual(read_metadata_object(run), {
+      assert.deepEqual(tc39_record(run), {
         [HTTP]: { method, route: ":id" },
       });
     });
@@ -44,7 +46,7 @@ describe("HTTP method decorators", () => {
         run() {}
       }
       legacy(decorator("list"), Users, "run");
-      assert.deepEqual(read_metadata_object(Users.prototype.run), {
+      assert.deepEqual(read_method_metadata(Users, "run"), {
         [HTTP]: { method, route: "list" },
       });
     });
@@ -57,8 +59,9 @@ describe("HTTP method decorators", () => {
     }
     legacy(Middlewares(mw), Users, "run");
     legacy(Get(""), Users, "run");
-    const record = read_metadata_object<Record<PropertyKey, unknown>>(
-      Users.prototype.run,
+    const record = read_method_metadata<Record<PropertyKey, unknown>>(
+      Users,
+      "run",
     )!;
     assert.deepEqual(record[HTTP], { method: "GET", route: "" });
     assert.equal(Object.getOwnPropertySymbols(record).length, 2);
@@ -82,7 +85,7 @@ describe("HTTP method decorators", () => {
     assert.throws(() => legacy(Get(loose(42)), Users, "run"), {
       name: "TypeError",
     });
-    assert.equal(read_metadata_object(Users.prototype.run), undefined);
+    assert.equal(read_method_metadata(Users, "run"), undefined);
   });
 
   it("rejects a second HTTP method decorator on a method", () => {
@@ -138,10 +141,12 @@ describe("@Middlewares and @Catch", () => {
     Catch(on_error)(Users);
     legacy(Middlewares(mw), Users, "run");
     legacy(Catch(on_error), Users, "run");
-    for (const target of [Users, Users.prototype.run]) {
-      const record = read_metadata_object<Record<PropertyKey, unknown>>(
-        target,
-      )!;
+    for (
+      const record of [
+        read_metadata_object<Record<PropertyKey, unknown>>(Users)!,
+        read_method_metadata<Record<PropertyKey, unknown>>(Users, "run")!,
+      ]
+    ) {
       assert.deepEqual(record[MIDDLEWARES], [mw]);
       assert.equal(record[ERROR_HANDLER], on_error);
     }
@@ -154,5 +159,47 @@ describe("@Middlewares and @Catch", () => {
     assert.throws(() => Catch(loose(1))(class {}), {
       message: "the error handler must be a function or a class: 1",
     });
+  });
+});
+
+describe("@Module and @Controller", () => {
+  it("store the route as an option of the core's record", () => {
+    class Users {}
+    Controller({ route: "users" })(Users);
+    class App {}
+    Module({ route: "v1", controllers: [Users] })(App);
+
+    const record = (target: new () => object) =>
+      read_metadata_object<Record<PropertyKey, unknown>>(target)!;
+    assert.equal(record(Users)["route"], "users");
+    assert.equal(record(App)["route"], "v1");
+    assert.deepEqual(record(App)[Symbol.for("chojs.core.controllers")], [
+      Users,
+    ]);
+  });
+
+  it("reject a misspelled option, in the types and at runtime", () => {
+    class Store {}
+    assert.throws(
+      // @ts-expect-error `deps` is not an option: it is `dependencies`
+      () => Controller({ deps: [Store] })(class {}),
+      {
+        message:
+          '@Controller(): unknown option "deps". Known options: dependencies, route',
+      },
+    );
+    assert.throws(
+      // @ts-expect-error `provider` is not an option: it is `providers`
+      () => Module({ provider: [Store] })(class {}),
+      {
+        message:
+          '@Module(): unknown option "provider". Known options: dependencies, imports, providers, controllers, exports, route',
+      },
+    );
+    assert.throws(
+      // @ts-expect-error middlewares are declared with @Middlewares
+      () => Controller({ middlewares: [() => new Response()] })(class {}),
+      { message: /unknown option "middlewares"/ },
+    );
   });
 });

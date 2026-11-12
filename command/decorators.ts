@@ -1,6 +1,7 @@
 /**
  * The command decorators: `@Main` and `@Action` mark the command methods of a
- * controller, `@Help` adds help text to a controller or a method.
+ * controller, `@Help` adds help text to a controller or a method. `@Module`
+ * and `@Controller` are the core's decorators; they accept no extra option.
  *
  * They validate their input when the class is defined and write a record on
  * the decorated method (or class), which the command graph reads. The record
@@ -11,11 +12,17 @@
 
 import {
   add_to_metadata_object,
+  assert_known_options,
+  type ChoClassDecorator,
   type ChoClassOrMethodDecorator,
   type ChoMethodDecorator,
+  Controller as CoreController,
+  type ControllerOptions,
   decorated_method,
   decorated_target,
   type DecoratedMethod,
+  Module as CoreModule,
+  type ModuleOptions,
   read_metadata_object,
 } from "@chojs/core/di";
 import { ACTION, ALIAS, command_record, HELP, MAIN } from "./keys.ts";
@@ -91,7 +98,7 @@ function assert_command_method(method: DecoratedMethod, adding: string) {
  * first one's `alias`.
  */
 function assert_no_command(method: DecoratedMethod, adding: string) {
-  const prev = command_record(read_metadata_object(method.fn) ?? {});
+  const prev = command_record(read_metadata_object(method.meta) ?? {});
   if (prev[MAIN] || prev[ACTION]) {
     const existing = prev[MAIN] ? "@Main()" : `@Action("${prev[ALIAS]}")`;
     throw new Error(
@@ -100,6 +107,58 @@ function assert_no_command(method: DecoratedMethod, adding: string) {
       }': it already has ${existing}. A method can have at most one @Main or @Action.`,
     );
   }
+}
+
+/**
+ * Mark a class as a module (see `@Module` of `@chojs/core`).
+ *
+ * @param options What the module imports, declares and exports.
+ * @returns The class decorator.
+ * @throws {Error} When an option is unknown or invalid, or when the class
+ *   already has a DI decorator.
+ *
+ * @example
+ * ```ts
+ * @Module({ providers: [Disk], controllers: [Files] })
+ * class App {}
+ * ```
+ */
+export function Module(
+  options: Partial<ModuleOptions> = {},
+): ChoClassDecorator {
+  assert_known_options("@Module()", options, [
+    "dependencies",
+    "imports",
+    "providers",
+    "controllers",
+    "exports",
+  ]);
+  return CoreModule(options);
+}
+
+/**
+ * Mark a class as a controller (see `@Controller` of `@chojs/core`): its
+ * methods marked with `@Main` or `@Action` are the commands of the
+ * application.
+ *
+ * @param options The controller's `dependencies`.
+ * @returns The class decorator.
+ * @throws {Error} When an option is unknown or invalid, or when the class
+ *   already has a DI decorator.
+ *
+ * @example
+ * ```ts
+ * @Controller({ dependencies: [Disk] })
+ * class Files {
+ *   constructor(readonly disk: Disk) {}
+ * }
+ * ```
+ */
+export function Controller(
+  options: Partial<ControllerOptions> = {},
+): ChoClassDecorator {
+  assert_known_options("@Controller()", options, ["dependencies"]);
+  return CoreController(options);
 }
 
 /**
@@ -138,7 +197,7 @@ export function Main(): ChoMethodDecorator {
     const method = decorated_method("@Main()", target, context, descriptor);
     assert_command_method(method, "@Main()");
     assert_no_command(method, "@Main()");
-    add_to_metadata_object(method.fn, { [MAIN]: true, [ALIAS]: "main" });
+    add_to_metadata_object(method.meta, { [MAIN]: true, [ALIAS]: "main" });
   };
 }
 
@@ -185,7 +244,7 @@ export function Action(alias: string): ChoMethodDecorator {
     const method = decorated_method(adding, target, context, descriptor);
     assert_command_method(method, adding);
     assert_no_command(method, adding);
-    add_to_metadata_object(method.fn, { [ACTION]: true, [ALIAS]: alias });
+    add_to_metadata_object(method.meta, { [ACTION]: true, [ALIAS]: alias });
   };
 }
 

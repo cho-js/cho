@@ -22,10 +22,11 @@
  * ## Record keys
  *
  * Everything these functions write is stored under the private symbol keys
- * of `keys.ts`. The extra options of `@Module` and `@Controller` (such as
- * `route`) are stored next to them as plain string keys, as given. A user
- * option can therefore never overwrite what the DI system wrote, whatever its
- * name: `@Controller({ isModule: true })` is just an extra option.
+ * of `keys.ts`. The extra options a CHO module accepts on `@Module` and
+ * `@Controller` (such as `route`, see {@link ExtraOptions}) are stored next
+ * to them as plain string keys, as given. An option can therefore never
+ * overwrite what the DI system wrote, whatever its name:
+ * `{ isModule: true }` would just be an extra option.
  *
  * ## What is validated here
  *
@@ -45,9 +46,10 @@
  * so on.
  *
  * Every function validates all of its options before writing anything, so a
- * failed call leaves the record as it was. A decorator is two calls, though:
- * when `set_module` throws, the record `set_injectable` wrote stays, and the
- * class looks decorated to a later DI decorator.
+ * failed call leaves the record as it was. `@Module` is two calls
+ * (`set_injectable`, then `set_module`), so it validates the module options
+ * first, with {@link assert_module_options}: a `@Module` that throws leaves
+ * the class undecorated.
  *
  * @module
  */
@@ -55,6 +57,7 @@
 import {
   add_to_metadata_object,
   type MetaTarget,
+  method_metadata,
   read_metadata_object,
   write_metadata_object,
 } from "./metadata.ts";
@@ -95,10 +98,11 @@ export type InjectableOptions = {
 /**
  * Options of `@Module`. Every field is optional; the lists default to `[]`.
  *
- * Besides the fields below, any key is accepted and stored as is in the
- * module's record, for the application module (for example the route prefix
- * of a web feature). The DI system ignores those keys, whatever their names:
- * its own data is stored under private symbol keys.
+ * The type is closed: a key that is not listed is a compile error, so a typo
+ * (`provider` for `providers`) cannot pass as an option. A CHO module that
+ * reads options of its own (the route prefix of a web feature) declares them
+ * with the type parameter of `@Module`, and exports a decorator typed with it
+ * (see {@link ExtraOptions}).
  *
  * @example
  * ```ts
@@ -107,7 +111,6 @@ export type InjectableOptions = {
  *   providers: [UserService],
  *   controllers: [UsersController],
  *   exports: [UserService],
- *   route: "users", // extra metadata, read by @chojs/web
  * };
  *
  * @Module(options)
@@ -129,36 +132,79 @@ export type ModuleOptions = InjectableOptions & {
    * declared by this module or exported by one of its imports.
    */
   exports: Token[];
-  /** Extra metadata for the application module, stored as is. */
-  [key: string]: unknown;
 };
 
 /**
- * Options of `@Controller`.
+ * Options of `@Controller`: its `dependencies`.
  *
- * Besides `dependencies`, any key is accepted and stored as is in the
- * controller's record, for the application module that invokes the controller
- * (for example the description of a CLI command). The DI system ignores those
- * keys, whatever their names: its own data is stored under private symbol
- * keys.
+ * The type is closed, like {@link ModuleOptions}: a CHO module that reads
+ * options of its own (the route of a web controller) declares them with the
+ * type parameter of `@Controller`.
  *
  * @example
  * ```ts
- * const options: Partial<ControllerOptions> = {
- *   dependencies: [UserService],
- *   route: "users", // extra metadata, read by @chojs/web
- * };
- *
- * @Controller(options)
+ * @Controller({ dependencies: [UserService] })
  * class UsersController {
  *   constructor(readonly users: UserService) {}
  * }
  * ```
  */
-export type ControllerOptions = InjectableOptions & {
-  /** Extra metadata for the application module, stored as is. */
-  [key: string]: unknown;
-};
+export type ControllerOptions = InjectableOptions;
+
+/**
+ * The options a CHO module adds to `@Module` or `@Controller`: the type
+ * parameter of both decorators. They are stored as is in the class's record,
+ * and the metadata graph hands them back as `options`.
+ *
+ * The default, no extra option, is what makes the option types closed.
+ *
+ * @example A CHO module's own `@Controller`
+ * ```ts
+ * type WebOptions = { route?: string };
+ *
+ * export function Controller(
+ *   options: Partial<ControllerOptions> & WebOptions = {},
+ * ): ChoClassDecorator {
+ *   assert_known_options("@Controller()", options, ["dependencies", "route"]);
+ *   return CoreController<WebOptions>(options);
+ * }
+ * ```
+ */
+export type ExtraOptions = Record<string, unknown>;
+
+/** No extra option: the default of `@Module` and `@Controller`. */
+export type NoExtraOptions = Record<never, never>;
+
+/**
+ * Assert that an options object only has known keys.
+ *
+ * The closed option types catch a misspelled option when the code is
+ * type-checked. This is the same check at runtime, for the decorators of CHO
+ * modules, which know every option they accept: plain JavaScript, or a cast,
+ * would otherwise let `{ deps: [...] }` through as an option nobody reads.
+ *
+ * @param decorator The decorator's name, for the error message
+ *   (`"@Controller()"`).
+ * @param options The options given to the decorator.
+ * @param known The keys the decorator accepts.
+ * @throws {Error} On the first unknown key, e.g.
+ *   `@Controller(): unknown option "deps". Known options: dependencies, route`.
+ */
+export function assert_known_options(
+  decorator: string,
+  options: object,
+  known: readonly string[],
+): void {
+  for (const key of Object.keys(options)) {
+    if (!known.includes(key)) {
+      throw new Error(
+        `${decorator}: unknown option ${JSON.stringify(key)}. Known options: ${
+          known.join(", ")
+        }`,
+      );
+    }
+  }
+}
 
 // Validation helpers
 // -----------------------------------------------------------------------------
@@ -426,6 +472,64 @@ export function set_injectable(
 }
 
 /**
+ * Split the options of `@Module` into the lists the DI system uses (each
+ * defaulting to `[]`) and the extra options, and validate the lists.
+ *
+ * @param options The module's options.
+ * @returns The lists and the extra options.
+ * @throws {Error} When a list is not an array, or holds an invalid entry (see
+ *   {@link set_module}).
+ */
+function module_options(options: Partial<ModuleOptions> & ExtraOptions) {
+  // The options the DI system uses; everything else is an extra option.
+  const {
+    dependencies: _,
+    imports,
+    exports,
+    providers,
+    controllers,
+    ...extra
+  } = options;
+  const norm = {
+    imports: imports ?? [],
+    exports: exports ?? [],
+    providers: providers ?? [],
+    controllers: controllers ?? [],
+  };
+
+  assert_array("imports", norm.imports);
+  assert_array("controllers", norm.controllers);
+  assert_array("exports", norm.exports);
+  assert_array("providers", norm.providers);
+  norm.imports.forEach(assert_ctr("all imports must be classes"));
+  norm.controllers.forEach(assert_ctr("all controllers must be classes"));
+  norm.exports.forEach(
+    assert_dependency(
+      "all exports must be classes, symbols or injection tokens",
+    ),
+  );
+  norm.providers.forEach(assert_provider);
+  return { norm, extra };
+}
+
+/**
+ * Assert that the module options of `@Module` are valid, without writing
+ * anything. `@Module` calls it before `set_injectable`, so a bad option
+ * leaves the class undecorated.
+ *
+ * @param options The module's options.
+ * @throws {Error} When a list is not an array, or holds an invalid entry (see
+ *   {@link set_module}).
+ *
+ * @internal
+ */
+export function assert_module_options(
+  options: Partial<ModuleOptions> & ExtraOptions,
+): void {
+  module_options(options);
+}
+
+/**
  * Add the module fields to a target's record: the second step of `@Module`,
  * after {@link set_injectable}.
  *
@@ -471,36 +575,9 @@ export function set_injectable(
  */
 export function set_module(
   target: MetaTarget,
-  options: Partial<ModuleOptions>,
+  options: Partial<ModuleOptions> & ExtraOptions,
 ): void {
-  // The options the DI system uses; everything else is an extra option.
-  const {
-    dependencies: _,
-    imports,
-    exports,
-    providers,
-    controllers,
-    ...extra
-  } = options;
-  const norm = {
-    imports: imports ?? [],
-    exports: exports ?? [],
-    providers: providers ?? [],
-    controllers: controllers ?? [],
-  };
-
-  assert_array("imports", norm.imports);
-  assert_array("controllers", norm.controllers);
-  assert_array("exports", norm.exports);
-  assert_array("providers", norm.providers);
-  norm.imports.forEach(assert_ctr("all imports must be classes"));
-  norm.controllers.forEach(assert_ctr("all controllers must be classes"));
-  norm.exports.forEach(
-    assert_dependency(
-      "all exports must be classes, symbols or injection tokens",
-    ),
-  );
-  norm.providers.forEach(assert_provider);
+  const { norm, extra } = module_options(options);
 
   add_to_metadata_object(
     target,
@@ -546,7 +623,7 @@ export function set_module(
  */
 export function set_controller(
   target: MetaTarget,
-  options: Partial<ControllerOptions>,
+  options: Partial<ControllerOptions> & ExtraOptions,
 ): void {
   const { dependencies: _, ...extra } = options;
   add_to_metadata_object(target, { ...extra, [CONTROLLER]: true });
@@ -560,15 +637,25 @@ export function set_controller(
 // from the decorator's arguments, where its record must be written.
 
 /**
- * A decorated method: where its record is stored, its name, and whether it is
- * static or private.
+ * A decorated method: where its record is stored, the method, its name, and
+ * whether it is static or private.
  */
 export type DecoratedMethod = {
   /**
-   * The method function. Method records are stored on it, which is where the
-   * metadata graph reads them (`read_metadata_object(prototype[name])`).
+   * Where the method's record is stored: the target to give to
+   * `add_to_metadata_object` and `read_metadata_object`.
+   *
+   * It is the method's own metadata object, kept with its class by method
+   * name (see `method_metadata`), so the record survives a decorator that
+   * replaces the function, and is found for a subclass that inherits the
+   * method. When the class cannot be reached from the decorator's arguments
+   * (a static or private method, or TC39 decorators compiled for a runtime
+   * without `Symbol.metadata`), it is the method function itself.
    */
-  fn: MetaTarget;
+  meta: MetaTarget;
+  /** The method function. */
+  // deno-lint-ignore ban-types
+  fn: Function;
   /** The method name. A private method's name includes the `#`. */
   name: string | symbol;
   /** Whether the method is static. */
@@ -594,8 +681,8 @@ export type DecoratedMethod = {
  * @param target The decorator's first argument.
  * @param context The decorator's second argument.
  * @param descriptor The decorator's third argument (legacy / Bun only).
- * @returns The method function, its name, and whether it is static or
- *   private.
+ * @returns Where to write the method's record, the method function, its
+ *   name, and whether it is static or private.
  * @throws {TypeError} When the decorated member is not a method (a field, an
  *   accessor, a class).
  *
@@ -604,7 +691,7 @@ export type DecoratedMethod = {
  * function Command(name: string): ChoMethodDecorator {
  *   return (target, context, descriptor) => {
  *     const method = decorated_method("@Command()", target, context, descriptor);
- *     add_to_metadata_object(method.fn, { command: name });
+ *     add_to_metadata_object(method.meta, { command: name });
  *   };
  * }
  * ```
@@ -615,18 +702,30 @@ export function decorated_method(
 ): DecoratedMethod {
   if (typeof context === "object") {
     if (context.kind === "method" && typeof target === "function") {
+      const is_static = Boolean(context.static);
+      const is_private = Boolean(context.private);
       return {
+        // `context.metadata` is the metadata object of the class
+        meta: context.metadata && !is_static && !is_private
+          ? method_metadata(context.metadata, context.name)
+          : target,
         fn: target,
         name: context.name,
-        static: Boolean(context.static),
-        private: Boolean(context.private),
+        static: is_static,
+        private: is_private,
       };
     }
   } else if (typeof descriptor?.value === "function") {
+    // `target` is the prototype, or the class for a static method
+    const is_static = typeof target === "function";
+    const ctr: unknown = is_static ? undefined : target.constructor;
     return {
+      meta: typeof ctr === "function"
+        ? method_metadata(ctr, context)
+        : descriptor.value,
       fn: descriptor.value,
       name: context,
-      static: typeof target === "function",
+      static: is_static,
       private: false,
     };
   }
@@ -639,8 +738,11 @@ export function decorated_method(
  * - on a class with TC39 decorators: `context.metadata`, as the DI decorators
  *   do. The runtime installs it as the class's `Symbol.metadata` after the
  *   class decorators run, replacing anything written onto the class itself;
+ * - on a class with TC39 decorators but no `context.metadata` (compiled
+ *   decorators on a runtime without `Symbol.metadata`): the class itself, as
+ *   the DI decorators do;
  * - on a class with legacy / Bun decorators (no `context`): the class itself;
- * - on a method: the method function (see {@link decorated_method}).
+ * - on a method: the method's metadata object (see {@link decorated_method}).
  *
  * @param decorator The decorator's name, for the error message (`"@Help()"`).
  * @param target The decorator's first argument.
@@ -669,9 +771,17 @@ export function decorated_target(
       return target;
     }
   } else if (typeof context === "object" && context.kind === "class") {
-    return context.metadata;
+    // `context.metadata` is missing when the decorators were compiled for a
+    // runtime without `Symbol.metadata` (TypeScript's emit only creates the
+    // metadata object when the symbol exists): write to the class instead.
+    if (context.metadata) {
+      return context.metadata;
+    }
+    if (typeof target === "function") {
+      return target;
+    }
   } else {
-    return decorated_method(decorator, target, context, descriptor).fn;
+    return decorated_method(decorator, target, context, descriptor).meta;
   }
   throw new TypeError(`${decorator} can only decorate a class or a method`);
 }

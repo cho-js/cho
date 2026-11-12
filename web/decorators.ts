@@ -5,6 +5,8 @@
  *   a controller. They write the handler's method and route on the decorated
  *   method, under the private `HTTP` key (`keys.ts`), which the web graph
  *   builder reads (see `build-graph.ts`).
+ * - `@Module` and `@Controller` are the core's decorators, with the `route`
+ *   option of `@chojs/web`. They accept no other option.
  * - `@Middlewares` and `@Catch` declare the middlewares and the error handler
  *   of a feature module, a controller or a handler. They are the core's
  *   decorators, typed for `@chojs/web`.
@@ -14,10 +16,16 @@
 
 import {
   add_to_metadata_object,
+  assert_known_options,
+  type ChoClassDecorator,
   type ChoClassOrMethodDecorator,
   type ChoMethodDecorator,
+  Controller as CoreController,
+  type ControllerOptions,
   decorated_method,
   decorated_target,
+  Module as CoreModule,
+  type ModuleOptions,
   read_metadata_object,
   set_error_handler,
   set_middlewares,
@@ -25,6 +33,81 @@ import {
 import { HTTP, http_route, type HttpRoute } from "./keys.ts";
 import { normalize_route } from "./path.ts";
 import type { ChoWebErrorHandler, ChoWebMiddleware } from "./types.ts";
+
+/** The option `@chojs/web` adds to `@Module` and `@Controller`. */
+type RouteOption = {
+  /**
+   * The route of the feature module or of the controller, without leading or
+   * trailing `/` (`"users"`, `"api/v1"`). Default: none.
+   */
+  route?: string;
+};
+
+/**
+ * Options of `@Module` in a web application: the module options of the core,
+ * and the `route` of the feature.
+ */
+export type WebModuleOptions = Partial<ModuleOptions> & RouteOption;
+
+/**
+ * Options of `@Controller` in a web application: its `dependencies`, and its
+ * `route`.
+ */
+export type WebControllerOptions = Partial<ControllerOptions> & RouteOption;
+
+/**
+ * Mark a class as a module (see `@Module` of `@chojs/core`). A module that
+ * declares controllers is a feature: its `route` comes before the routes of
+ * its controllers.
+ *
+ * @param options What the module imports, declares and exports, and its
+ *   `route`.
+ * @returns The class decorator.
+ * @throws {Error} When an option is unknown or invalid, or when the class
+ *   already has a DI decorator.
+ *
+ * @example
+ * ```ts
+ * @Module({ route: "v1", providers: [UserStore], controllers: [UsersController] })
+ * class App {}
+ * ```
+ */
+export function Module(options: WebModuleOptions = {}): ChoClassDecorator {
+  assert_known_options("@Module()", options, [
+    "dependencies",
+    "imports",
+    "providers",
+    "controllers",
+    "exports",
+    "route",
+  ]);
+  return CoreModule<RouteOption>(options);
+}
+
+/**
+ * Mark a class as a controller (see `@Controller` of `@chojs/core`): its
+ * methods marked with `@Get`, `@Post`, ... are route handlers, under its
+ * `route`.
+ *
+ * @param options The controller's `dependencies` and its `route`.
+ * @returns The class decorator.
+ * @throws {Error} When an option is unknown or invalid, or when the class
+ *   already has a DI decorator.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users", dependencies: [UserStore] })
+ * class UsersController {
+ *   constructor(readonly store: UserStore) {}
+ * }
+ * ```
+ */
+export function Controller(
+  options: WebControllerOptions = {},
+): ChoClassDecorator {
+  assert_known_options("@Controller()", options, ["dependencies", "route"]);
+  return CoreController<RouteOption>(options);
+}
 
 /**
  * Create the decorator of one HTTP method. It works with both decorator
@@ -65,7 +148,7 @@ function create_http_decorator(
       );
     }
     normalize_route(route, `${decorator} on ${of}`);
-    const previous = http_route(read_metadata_object(decorated.fn) ?? {});
+    const previous = http_route(read_metadata_object(decorated.meta) ?? {});
     if (previous) {
       throw new Error(
         `Cannot add ${decorator} to ${of}: it already handles ${previous.method} ${
@@ -73,7 +156,7 @@ function create_http_decorator(
         }. A method can have one HTTP method decorator.`,
       );
     }
-    add_to_metadata_object(decorated.fn, {
+    add_to_metadata_object(decorated.meta, {
       [HTTP]: { method, route } satisfies HttpRoute,
     });
   };

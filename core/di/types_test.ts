@@ -118,11 +118,16 @@ describe("provider", () => {
     });
   });
 
-  it("requires the factory to return a promise", () => {
+  it("accepts a factory that returns the value itself, or a promise", () => {
+    provider({ provide: token<number>("n"), factory: () => 1 });
     provider({
       provide: token<number>("n"),
-      // @ts-expect-error factories are async
-      factory: () => 1,
+      factory: () => Promise.resolve(1),
+    });
+    provider({
+      provide: token<number>("n"),
+      // @ts-expect-error the value must be a number, promise or not
+      factory: () => "not a number",
     });
   });
 });

@@ -71,7 +71,9 @@ Deno.serve(app.handler); // or Bun.serve({ fetch: app.handler })
 - A **feature** is a module that declares controllers. Every feature is mounted
   at the root of the application, whatever imports it: importing a module does
   not nest its routes.
-- A **controller** is a `@Controller` class declared by a feature.
+- A **controller** is a `@Controller` class declared by a feature. Besides its
+  own handlers, it has the handlers it **inherits** from a base class; a
+  subclass that decorates an inherited method again replaces its route.
 - A **handler** is a controller method marked with `@Get(route)`,
   `@Post(route)`, `@Put(route)`, `@Patch(route)` or `@Delete(route)`. Other
   methods are not routes. A handler is a public, non-static method with a string
@@ -82,6 +84,12 @@ Only what serves a route counts. A controller without a handler is not part of
 the web application, and a module left without such a controller is not a
 feature: its `route` option, middlewares and error handler are ignored, and its
 middleware and error handler classes are not created.
+
+`@Module` and `@Controller` come from `@chojs/web`: they are the core's, with
+one more option, `route`. Any other option is rejected, by the types and when
+the class is defined, so a misspelled `dependencies` or `providers` cannot pass
+silently. A handler keeps its route under any other method decorator, including
+one that replaces the method.
 
 ### 2.2 The four levels
 
@@ -316,12 +324,12 @@ instance, middleware and error handler already created:
 
 ## 8. Public API
 
-| Entry point          | Exports                                                                                                                                                                                                                                                                                                                     |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Middlewares`, `Catch`, the types `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, and from the core `Controller`, `Module`, `Injectable` and their option types |
-| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                 |
-| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                          |
-| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                  |
+| Entry point          | Exports                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Middlewares`, `Catch`, the types `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable` and the option types |
+| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                 |
+| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                          |
+| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                                                                                                  |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 
@@ -329,11 +337,12 @@ instance, middleware and error handler already created:
 
 **Thrown by the decorators**, when the class is defined:
 
-| Mistake                                    | Message                                                                                                                     |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| A handler's route is invalid               | `Invalid route "<route>" of @Get() on method <name>: <reason>`                                                              |
-| A second HTTP method decorator on a method | `Cannot add @Get() to method <name>: it already handles POST "<route>". A method can have one HTTP method decorator.`       |
-| A static, private or symbol-named handler  | `TypeError: @Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`) |
+| Mistake                                        | Message                                                                                                                     |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| A handler's route is invalid                   | `Invalid route "<route>" of @Get() on method <name>: <reason>`                                                              |
+| A second HTTP method decorator on a method     | `Cannot add @Get() to method <name>: it already handles POST "<route>". A method can have one HTTP method decorator.`       |
+| An unknown option of `@Module` / `@Controller` | `@Controller(): unknown option "deps". Known options: dependencies, route`                                                  |
+| A static, private or symbol-named handler      | `TypeError: @Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`) |
 
 **Rejected by `ChoWeb.create`**: any module graph error of the core
 (`core/specs.md`, section 2.8), and:

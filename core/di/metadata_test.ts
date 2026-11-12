@@ -6,7 +6,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   add_to_metadata_object,
+  method_metadata,
+  method_records,
   read_metadata_object,
+  read_method_metadata,
   write_metadata_object,
 } from "./metadata.ts";
 
@@ -203,5 +206,60 @@ describe("inheritance", () => {
       Object.getPrototypeOf(Reflect.get(Sub, MetadataSymbol)),
       Reflect.get(Base, MetadataSymbol),
     );
+  });
+});
+
+describe("method records", () => {
+  it("stores a method's record with its class, by name", () => {
+    class Cli {
+      run() {}
+    }
+    add_to_metadata_object(method_metadata(Cli, "run"), { a: 1 });
+    add_to_metadata_object(method_metadata(Cli, "run"), { b: 2 });
+
+    assert.deepEqual(read_method_metadata(Cli, "run"), { a: 1, b: 2 });
+    assert.equal(read_method_metadata(Cli, "other"), undefined);
+    // not on the function, and not in the class's own record
+    assert.equal(read_metadata_object(Cli.prototype.run), undefined);
+    assert.equal(read_metadata_object(Cli), undefined);
+  });
+
+  it("reads a decorator metadata object's own table", () => {
+    const metadata = {};
+    add_to_metadata_object(method_metadata(metadata, "run"), { a: 1 });
+    assert.deepEqual(read_method_metadata(metadata, "run"), { a: 1 });
+    assert.equal(read_method_metadata({}, "run"), undefined);
+  });
+
+  it("accepts symbol names, and names of Object.prototype", () => {
+    const key = Symbol("run");
+    class Cli {}
+    add_to_metadata_object(method_metadata(Cli, key), { a: 1 });
+    assert.deepEqual(read_method_metadata(Cli, key), { a: 1 });
+    assert.equal(read_method_metadata(Cli, "toString"), undefined);
+    assert.equal(read_method_metadata(Cli, "constructor"), undefined);
+  });
+
+  it("gives a subclass its parents' records, without sharing its own", () => {
+    class Base {}
+    class Cli extends Base {}
+    add_to_metadata_object(method_metadata(Base, "run"), { from: "base" });
+    add_to_metadata_object(method_metadata(Cli, "copy"), { from: "cli" });
+
+    assert.deepEqual([...method_records(Cli)], [
+      ["run", { from: "base" }],
+      ["copy", { from: "cli" }],
+    ]);
+    assert.deepEqual([...method_records(Base)], [["run", { from: "base" }]]);
+  });
+
+  it("reads records written on a method function too", () => {
+    class Cli {
+      run() {}
+      static build() {}
+    }
+    write_metadata_object(Cli.prototype.run, { a: 1 });
+    write_metadata_object(Cli.build, { b: 2 }); // static: never listed
+    assert.deepEqual([...method_records(Cli)], [["run", { a: 1 }]]);
   });
 });

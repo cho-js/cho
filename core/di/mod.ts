@@ -71,8 +71,10 @@ export {
 } from "./decorators.ts";
 export type {
   ControllerOptions,
+  ExtraOptions,
   InjectableOptions,
   ModuleOptions,
+  NoExtraOptions,
 } from "./decorations.ts";
 export { Injector } from "./injector.ts";
 export { isToken, provider, token } from "./tokens.ts";
@@ -86,6 +88,7 @@ export type {
   MetadataGraph,
   MethodMetadata,
   ModuleMetadata,
+  OptionsMetadata,
   ProviderMetadata,
 } from "./metadata-graph.ts";
 export type {
@@ -98,7 +101,10 @@ export type {
 export {
   add_to_metadata_object,
   type MetaTarget,
+  method_metadata,
+  method_records,
   read_metadata_object,
+  read_method_metadata,
   write_metadata_object,
 } from "./metadata.ts";
 export * from "./decorations.ts";

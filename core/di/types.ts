@@ -143,12 +143,12 @@ export type ResolvedAll<D extends readonly unknown[]> = {
  *
  * A factory receives the values of the provider's dependencies as arguments,
  * in the order the dependencies are declared, and never resolves anything
- * itself. It always returns a promise, so creating a value can include
- * asynchronous initialization (opening a connection, reading a file).
+ * itself. It returns the value, or a promise of it, so creating a value can
+ * include asynchronous initialization (opening a connection, reading a file).
  *
  * @typeParam T The type of the created value.
  */
-export type Factory<T = Any> = (...deps: Any[]) => Promise<T>;
+export type Factory<T = Any> = (...deps: Any[]) => T | Promise<T>;
 
 /**
  * Binds a token to the factory that creates its value and to the dependencies

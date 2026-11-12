@@ -8,15 +8,16 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-  add_to_metadata_object,
-  Controller,
-  Injectable,
-  Injector,
-  Module,
-} from "@chojs/core/di";
+import { add_to_metadata_object, Injectable, Injector } from "@chojs/core/di";
 import { legacy, loose } from "@chojs/core/utils/test_utils";
-import { Catch, Get, Middlewares, Post } from "./decorators.ts";
+import {
+  Catch,
+  Controller,
+  Get,
+  Middlewares,
+  Module,
+  Post,
+} from "./decorators.ts";
 import { build_http_graph } from "./build-graph.ts";
 import { create_context } from "./context.ts";
 import type { ChoWebMiddlewareFn } from "./types.ts";
@@ -156,21 +157,6 @@ describe("build_http_graph", () => {
     // named after their class, for error messages
     assert.equal(controller.middlewares[0]!.name, "Auth.handle");
     assert.equal(controller.errorHandler!.name, "OnError.handle");
-  });
-
-  it("ignores user options named like the middlewares or error handler", async () => {
-    class Users {
-      list() {}
-    }
-    legacy(Get(""), Users, "list");
-    Controller({ middlewares: [mw_a], errorHandler: () => 1 })(Users);
-    class App {}
-    Module({ controllers: [Users] })(App);
-
-    const graph = await build_http_graph(new Injector(App), "");
-    const controller = graph.features[0]!.controllers[0]!;
-    assert.deepEqual(controller.middlewares, []);
-    assert.equal(controller.errorHandler, null);
   });
 
   it("leaves out controllers without a route handler, and features left empty", async () => {

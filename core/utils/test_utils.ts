@@ -17,6 +17,7 @@
  * @module
  */
 
+import { read_method_metadata } from "../di/metadata.ts";
 import type { Ctr } from "../di/types.ts";
 
 /** Bypass the parameter types, to pass the values JS callers can. */
@@ -51,16 +52,25 @@ export function legacy(
 export function method_context(
   name: string | symbol,
   { isStatic = false, isPrivate = false } = {},
+  metadata: DecoratorMetadataObject = {},
 ): ClassMethodDecoratorContext {
   return loose({
     kind: "method",
     name,
     static: isStatic,
     private: isPrivate,
-    metadata: {},
+    metadata,
     addInitializer: () => {},
   });
 }
+
+/**
+ * The class metadata object {@link tc39} uses for each method function: the
+ * decorators applied to one function share it, as the decorators of one
+ * class do.
+ */
+// deno-lint-ignore ban-types
+const tc39_metadata = new WeakMap<Function, DecoratorMetadataObject>();
 
 /**
  * Apply a method decorator the TC39 way.
@@ -68,6 +78,8 @@ export function method_context(
  * @param decorator The decorator.
  * @param fn The method function.
  * @param name The method name, as `context.name`.
+ * @returns The class metadata object given as `context.metadata`: the same
+ *   one for every call with the same function.
  */
 export function tc39(
   decorator: AnyMethodDecorator,
@@ -75,8 +87,30 @@ export function tc39(
   fn: Function,
   name: string | symbol,
   flags: { isStatic?: boolean; isPrivate?: boolean } = {},
-): void {
-  decorator(fn, method_context(name, flags));
+): DecoratorMetadataObject {
+  let metadata = tc39_metadata.get(fn);
+  if (!metadata) {
+    metadata = {};
+    tc39_metadata.set(fn, metadata);
+  }
+  decorator(fn, method_context(name, flags, metadata));
+  return metadata;
+}
+
+/**
+ * The record of a method decorated with {@link tc39}.
+ *
+ * @param fn The method function given to `tc39`.
+ * @param name The method name given to `tc39`. Default: the function's name.
+ * @returns The record, or `undefined` when the method has none.
+ */
+export function tc39_record(
+  // deno-lint-ignore ban-types
+  fn: Function,
+  name: string | symbol = fn.name,
+): unknown {
+  const metadata = tc39_metadata.get(fn);
+  return metadata ? read_method_metadata(metadata, name) : undefined;
 }
 
 /** What a function wrote to `console.log` and `console.error`. */

@@ -36,7 +36,7 @@ function get_route(
   meta: ModuleMetadata | ControllerMetadata,
   where: string,
 ): string {
-  const route = meta["route"];
+  const route = meta.options["route"];
   return route === undefined ? "" : normalize_route(route, where);
 }
 

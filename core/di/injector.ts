@@ -295,20 +295,14 @@ export class Injector {
    * @returns An iterator over the module scopes.
    */
   *modules(): IterableIterator<ModuleScope> {
-    const yielded = new WeakSet<ModuleScope>();
-    for (const scope of this.graph.modules.values()) {
-      if (!yielded.has(scope)) {
-        yielded.add(scope);
-        yield scope;
-      }
-    }
+    yield* this.graph.modules.values();
   }
 
   /**
-   * The controllers of the application, each once: for each module (see
-   * {@link modules}), the controller nodes of its scope. A controller that a
-   * module exports is visible in the modules that import it too, but is
-   * yielded once, from its first module.
+   * The controllers of the application, each once, from the module that
+   * declares it: for each module (see {@link modules}), the controllers it
+   * declares, in `controllers` order. A controller that a module exports is
+   * visible in the modules that import it too, but belongs to its own.
    *
    * Application modules use it to find their entry points, and create a
    * controller with `resolve(node.token, node.owner)`.
@@ -316,12 +310,10 @@ export class Injector {
    * @returns An iterator over the controller nodes.
    */
   *controllers(): IterableIterator<DependencyNode<ControllerMetadata>> {
-    const yielded = new WeakSet<DependencyNode>();
     for (const module of this.modules()) {
       for (const node of module.visible.values()) {
-        if (node.isController() && !yielded.has(node)) {
-          yielded.add(node);
-          yield node as DependencyNode<ControllerMetadata>;
+        if (node.owner === module.ctr && node.isController()) {
+          yield node;
         }
       }
     }

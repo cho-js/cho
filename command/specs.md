@@ -19,8 +19,10 @@ There are two kinds of applications:
   (`./app <command> [options] [args]`).
 
 Everything an application needs comes from `@chojs/command`: the command
-decorators, `ChoCommand`, and the DI decorators it re-exports from the core
-(`@Module`, `@Controller`, `@Injectable`, `@Catch`).
+decorators, `ChoCommand`, and the DI decorators (`@Module`, `@Controller`,
+`@Injectable`, `@Catch`). `@Module` and `@Controller` are the core's, and accept
+only the core's options: any other option is rejected, by the types and when the
+class is defined.
 
 A single command:
 
@@ -244,7 +246,9 @@ pass the result to `Deno.exit` or `process.exit`.
 | the command fails, and its `@Catch` handler returns `n`   | `n` (a non-negative int.) |
 | the command fails, and its `@Catch` handler returns other | `1`                       |
 | the command fails, without a `@Catch` handler             | `1`                       |
-| an unknown action                                         | `1`                       |
+
+An exit code above `255` is capped at `255`: a process reports exit codes modulo
+256, so `256` would read as success. | an unknown action | `1` |
 
 ### 4.3 Errors and `@Catch`
 
@@ -373,7 +377,8 @@ Run 'fs <command> --help' for help on a command.
 | `ChoCommand`, `ChoCommandOptions`                                                 | class    | 4       |
 | `Main`, `Action`, `Help`                                                          | function | 2       |
 | `ChoArgs`, `ParserOptions`                                                        | type     | 3       |
-| `Controller`, `Module`, `Injectable`, `Catch` (re-exported from `@chojs/core`)    | function | 2.1     |
+| `Controller`, `Module` (the core's, with no extra option)                         | function | 2.1     |
+| `Injectable`, `Catch` (re-exported from `@chojs/core`)                            | function | 2.1     |
 | `ControllerOptions`, `ModuleOptions`, `InjectableOptions` (re-exported, see core) | type     | 2.1     |
 
 ## 7. Errors
@@ -392,6 +397,9 @@ Run 'fs <command> --help' for help on a command.
 | A second `@Main` / `@Action` on a method     | `Cannot add <decorator> to method '<name>': it already has <existing>. A method can have at most one @Main or @Action.` |
 | `@Help` text is empty or not a string        | `TypeError: Help must be a non-empty string`                                                                            |
 | `@Help` on anything but a class or a method  | `TypeError: @Help() can only decorate a class or a method`                                                              |
+
+An unknown option of `@Module` or `@Controller` throws
+`@Controller(): unknown option "<name>". Known options: dependencies`.
 
 **By `ChoCommand.create`:** any module graph error of the core (`core/specs.md`,
 section 2.8), and:

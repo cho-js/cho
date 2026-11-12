@@ -15,7 +15,11 @@ import {
   Module,
 } from "./decorators.ts";
 import { build_meta_graph } from "./metadata-graph.ts";
-import { add_to_metadata_object, write_metadata_object } from "./metadata.ts";
+import {
+  add_to_metadata_object,
+  method_metadata,
+  write_metadata_object,
+} from "./metadata.ts";
 import {
   CONTROLLERS,
   DEPENDENCIES,
@@ -29,6 +33,7 @@ import {
 } from "./keys.ts";
 import { provider, token } from "./tokens.ts";
 import { legacy } from "../utils/test_utils.ts";
+import type { ExtraOptions } from "./decorations.ts";
 import type { Ctr } from "./types.ts";
 
 /** A value that is not a class, typed as one to reach the runtime checks. */
@@ -111,12 +116,12 @@ describe("build_meta_graph", () => {
     it("keeps the options and CHO modules' keys, not the core's keys", () => {
       const EXT = Symbol.for("test.ext");
       class App {}
-      Module({ route: "api" })(App);
+      Module<ExtraOptions>({ route: "api" })(App);
       add_to_metadata_object(App, { [EXT]: "ext" });
 
       const { root } = build_meta_graph(App);
-      assert.equal(root["route"], "api");
-      assert.equal(root[EXT], "ext");
+      assert.equal(root.options["route"], "api");
+      assert.equal(root.options[EXT], "ext");
       for (const key of [MODULE, INJECTABLE, DEPENDENCIES, IMPORTS]) {
         assert.equal(key in root, false);
       }
@@ -147,19 +152,23 @@ describe("build_meta_graph", () => {
     it("treats options named like the typed fields as plain options", () => {
       const mw = () => Promise.resolve();
       class App {}
-      Module({ isController: true, middlewares: [mw], errorHandler: mw })(App);
+      Module<ExtraOptions>({
+        isController: true,
+        middlewares: [mw],
+        errorHandler: mw,
+      })(App);
 
       const { root } = build_meta_graph(App);
       assert.deepEqual(root.middlewares, []);
       assert.equal(root.errorHandler, undefined);
-      assert.equal(root["isController"], true);
+      assert.equal(root.options["isController"], true);
     });
 
     it("does not let a record key override the normalized keys", () => {
       class Db {}
       Injectable()(Db);
       class App {}
-      Module({
+      Module<ExtraOptions>({
         providers: [Db],
         isProvider: "no",
         provider: "no",
@@ -281,15 +290,19 @@ describe("build_meta_graph", () => {
       const EXT = Symbol.for("test.ext");
       class Logger {}
       class Cli {}
-      Controller({ dependencies: [Logger], name: "cli", tags: ["a"] })(Cli);
+      Controller<ExtraOptions>({
+        dependencies: [Logger],
+        name: "cli",
+        tags: ["a"],
+      })(Cli);
       add_to_metadata_object(Cli, { [EXT]: "ext" });
       class App {}
       Module({ controllers: [Cli] })(App);
 
       const [cli] = build_meta_graph(App).root.controllers;
-      assert.equal(cli!["name"], "cli");
-      assert.deepEqual(cli!["tags"], ["a"]);
-      assert.equal(cli![EXT], "ext");
+      assert.equal(cli!.options["name"], "cli");
+      assert.deepEqual(cli!.options["tags"], ["a"]);
+      assert.equal(cli!.options[EXT], "ext");
       assert.equal(DEPENDENCIES in cli!, false);
       assert.equal("dependencies" in cli!, false);
     });
@@ -302,7 +315,7 @@ describe("build_meta_graph", () => {
       Middlewares(mw)(Cli);
       Catch(onError)(Cli);
       class App {}
-      Module({ controllers: [Cli] })(App);
+      Module<ExtraOptions>({ controllers: [Cli] })(App);
 
       const [cli] = build_meta_graph(App).root.controllers;
       assert.deepEqual(cli!.middlewares, [mw]);
@@ -319,9 +332,9 @@ describe("build_meta_graph", () => {
       add_to_metadata_object(Cli.prototype.run, { [EXT]: "run" });
       legacy(Middlewares(mw), Cli, "run");
       legacy(Catch(onError), Cli, "run");
-      Controller()(Cli);
+      Controller<ExtraOptions>()(Cli);
       class App {}
-      Module({ controllers: [Cli] })(App);
+      Module<ExtraOptions>({ controllers: [Cli] })(App);
 
       const [cli] = build_meta_graph(App).root.controllers;
       assert.deepEqual(cli!.methods, [{
@@ -340,7 +353,7 @@ describe("build_meta_graph", () => {
       }
       write_metadata_object(Cli.prototype.run, { command: "run" });
       // isController and isInjectable are reserved: @Controller rejects them.
-      Controller({
+      Controller<ExtraOptions>({
         isProvider: "no",
         methods: "no",
         provider: "no",
@@ -397,18 +410,79 @@ describe("build_meta_graph", () => {
       assert.deepEqual(cli!.methods.map((m) => m.name), ["run"]);
     });
 
-    it("does not collect inherited methods", () => {
+    it("collects inherited methods, parents first", () => {
       class Base {
         inherited() {}
+        both() {}
       }
-      write_metadata_object(Base.prototype.inherited, { command: "x" });
-      class Cli extends Base {}
+      add_to_metadata_object(method_metadata(Base, "inherited"), { from: "b" });
+      add_to_metadata_object(method_metadata(Base, "both"), { from: "b" });
+      class Cli extends Base {
+        own() {}
+        override both() {}
+      }
+      add_to_metadata_object(method_metadata(Cli, "own"), { from: "c" });
+      add_to_metadata_object(method_metadata(Cli, "both"), { by: "c" });
+      Controller()(Cli);
+      class Other extends Base {}
+      Controller()(Other);
+      class App {}
+      Module({ controllers: [Cli, Other] })(App);
+
+      const [cli, other] = build_meta_graph(App).root.controllers;
+      assert.deepEqual(
+        cli!.methods.map((m) => [m.name, m.meta]),
+        [
+          ["inherited", { from: "b" }],
+          // the subclass's record replaces the parent's, it is not merged
+          ["both", { by: "c" }],
+          ["own", { from: "c" }],
+        ],
+      );
+      // a sibling subclass is not affected
+      assert.deepEqual(
+        other!.methods.map((m) => [m.name, m.meta]),
+        [["inherited", { from: "b" }], ["both", { from: "b" }]],
+      );
+    });
+
+    it("keeps a method's record when a decorator replaces the function", () => {
+      class Cli {
+        run() {}
+      }
+      add_to_metadata_object(method_metadata(Cli, "run"), { command: "run" });
+      Cli.prototype.run = function wrapper() {}; // what a wrapping decorator does
       Controller()(Cli);
       class App {}
       Module({ controllers: [Cli] })(App);
 
       const [cli] = build_meta_graph(App).root.controllers;
-      assert.deepEqual(cli!.methods, []);
+      assert.deepEqual(cli!.methods.map((m) => [m.name, m.meta]), [
+        ["run", { command: "run" }],
+      ]);
+    });
+
+    it("merges a record written on the method function", () => {
+      class Cli {
+        run() {}
+      }
+      write_metadata_object(Cli.prototype.run, { a: 1, b: 1 });
+      add_to_metadata_object(method_metadata(Cli, "run"), { b: 2, c: 2 });
+      Controller()(Cli);
+      class App {}
+      Module({ controllers: [Cli] })(App);
+
+      const [cli] = build_meta_graph(App).root.controllers;
+      assert.deepEqual(cli!.methods[0]!.meta, { a: 1, b: 2, c: 2 });
+    });
+
+    it("leaves out a record whose method the class does not have", () => {
+      class Cli {}
+      add_to_metadata_object(method_metadata(Cli, "gone"), { command: "x" });
+      Controller()(Cli);
+      class App {}
+      Module({ controllers: [Cli] })(App);
+      assert.deepEqual(build_meta_graph(App).root.controllers[0]!.methods, []);
     });
   });
 

@@ -2,7 +2,7 @@
  * The help text of a command-line application, built from its `@Help` records.
  *
  * - `@Help` on a controller class is in the controller node's metadata
- *   (`node.meta[HELP]`);
+ *   (`node.meta.options[HELP]`);
  * - `@Help` on a command method is in the method's metadata
  *   (`method.meta[HELP]`).
  *
@@ -68,7 +68,7 @@ function main_help(
 ): string {
   return sections(
     `Usage: ${name} [options] [args]`,
-    help_of(node.meta),
+    help_of(node.meta.options),
     help_of(method.meta),
     options_section(),
   );
@@ -95,7 +95,7 @@ function action_help(
 function global_help(name: string, graph: CommandGraph): string {
   const groups = new Map<string, [string, string | undefined][]>();
   for (const [node, method] of graph.actions) {
-    const help = help_of(node.meta);
+    const help = help_of(node.meta.options);
     const heading = help ? summary(help) : DEFAULT_GROUP;
     const methodHelp = help_of(method.meta);
     const group = groups.get(heading) ?? [];

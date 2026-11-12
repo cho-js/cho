@@ -214,8 +214,9 @@ describe("ChoCommand.run, exit code", () => {
       await app.run(["code", "0"]),
       await app.run(["code", "2"]),
       await app.run(["code", "255"]),
+      await app.run(["code", "256"]), // capped: 256 would read as success
     ]);
-    assert.deepEqual(result, [0, 2, 255]);
+    assert.deepEqual(result, [0, 2, 255, 255]);
   });
 
   it("exits 0 when the handler returns anything else", async () => {

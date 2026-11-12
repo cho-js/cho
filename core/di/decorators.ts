@@ -28,9 +28,12 @@ import type {
   Dependency,
 } from "./types.ts";
 import {
+  assert_module_options,
   type ControllerOptions,
   decorated_target,
+  type ExtraOptions,
   type ModuleOptions,
+  type NoExtraOptions,
   set_controller,
   set_error_handler,
   set_injectable,
@@ -38,7 +41,13 @@ import {
   set_module,
 } from "./decorations.ts";
 
-export type { ControllerOptions, Dependency, ModuleOptions };
+export type {
+  ControllerOptions,
+  Dependency,
+  ExtraOptions,
+  ModuleOptions,
+  NoExtraOptions,
+};
 
 /**
  * Mark a class as injectable.
@@ -87,12 +96,15 @@ export function Injectable(dependencies: Dependency[] = []): ChoClassDecorator {
  * A module is injectable itself: the injector creates it with the values of
  * `dependencies`, which resolve in the module's own scope.
  *
+ * @typeParam E The extra options a CHO module accepts (such as the `route` of
+ *   `@chojs/web`), stored as is and handed back as `ModuleMetadata.options`.
+ *   By default there is none, so an unknown option is a compile error.
  * @param options What the module imports, declares and exports. Every field
  *   defaults to `[]`.
  * @returns The class decorator.
  * @throws {Error} When the class already has a DI decorator.
- * @throws {Error} When an option is invalid, or named `isInjectable`,
- *   `isModule` or `isController` (reserved).
+ * @throws {Error} When an option is invalid. Nothing is written: the class is
+ *   left undecorated.
  *
  * @example
  * ```ts
@@ -109,11 +121,14 @@ export function Injectable(dependencies: Dependency[] = []): ChoClassDecorator {
  * class UserModule {}
  * ```
  */
-export function Module(
-  options: Partial<ModuleOptions> = {},
+export function Module<E extends ExtraOptions = NoExtraOptions>(
+  options: Partial<ModuleOptions> & NoInfer<E> = {} as NoInfer<E>,
 ): ChoClassDecorator {
   return (target, context) => {
     const meta = context?.metadata ?? target;
+    // Checked first, so a bad option leaves the class undecorated instead of
+    // half-decorated (injectable, but not a module).
+    assert_module_options(options);
     set_injectable(meta, { dependencies: options.dependencies ?? [] });
     set_module(meta, options);
   };
@@ -127,18 +142,20 @@ export function Module(
  * `providers`. It is injectable: the injector creates it with the values of
  * `dependencies`, which resolve in the scope of the module that declares it.
  *
- * Any option other than `dependencies` is stored as is in the controller's
- * record, for the application module, except the reserved names
- * `isInjectable`, `isModule` and `isController`, which throw. Application modules can also attach
- * metadata to the controller's methods; the DI system collects it (see
- * `ControllerMetadata.methods`) but does not interpret it.
+ * CHO modules can accept options of their own (type parameter `E`), and
+ * attach metadata to the controller's methods; the DI system collects both
+ * (`ControllerMetadata.options` and `.methods`) but does not interpret them.
  *
- * @param options The controller's dependencies (default `[]`), plus any extra
- *   metadata for the application module.
+ * @typeParam E The extra options a CHO module accepts (such as the `route` of
+ *   `@chojs/web`), stored as is and handed back as
+ *   `ControllerMetadata.options`. By default there is none, so an unknown
+ *   option is a compile error.
+ * @param options The controller's dependencies (default `[]`), plus the extra
+ *   options of `E`.
+
  * @returns The class decorator.
- * @throws {Error} When the class already has a DI decorator.
- * @throws {Error} When an option is named `isInjectable`, `isModule` or
- *   `isController` (reserved).
+ * @throws {Error} When the class already has a DI decorator, or when
+ *   `dependencies` is invalid.
  *
  * @example
  * ```ts
@@ -151,8 +168,8 @@ export function Module(
  * class App {}
  * ```
  */
-export function Controller(
-  options: Partial<ControllerOptions> = {},
+export function Controller<E extends ExtraOptions = NoExtraOptions>(
+  options: Partial<ControllerOptions> & NoInfer<E> = {} as NoInfer<E>,
 ): ChoClassDecorator {
   return (target, context) => {
     const meta = context?.metadata ?? target;

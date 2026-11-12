@@ -14,7 +14,7 @@ import {
   set_middlewares,
   set_module,
 } from "./decorations.ts";
-import { read_metadata_object } from "./metadata.ts";
+import { method_metadata, read_metadata_object } from "./metadata.ts";
 import {
   CONTROLLER,
   CONTROLLERS,
@@ -524,7 +524,9 @@ function legacy_args(
 describe("decorated_method", () => {
   it("finds a TC39 method: the method itself and the context's name", () => {
     function run() {}
-    assert.deepEqual(decorated_method("@X()", run, context_of("method")), {
+    const context = context_of("method");
+    assert.deepEqual(decorated_method("@X()", run, context), {
+      meta: method_metadata(context.metadata, "run"),
       fn: run,
       name: "run",
       static: false,
@@ -548,6 +550,7 @@ describe("decorated_method", () => {
       run() {}
     }
     assert.deepEqual(decorated_method("@X()", ...legacy_args(Cli, "run")), {
+      meta: method_metadata(Cli, "run"),
       fn: Cli.prototype.run,
       name: "run",
       static: false,
@@ -574,6 +577,20 @@ describe("decorated_method", () => {
     assert.equal(priv.name, "#run");
   });
 
+  it("stores on the function when the class cannot be reached", () => {
+    function run() {}
+    // static, private, and compiled TC39 decorators without context.metadata
+    for (
+      const context of [
+        context_of("method", "run", { static: true }),
+        context_of("method", "#run", { private: true }),
+        { ...context_of("method"), metadata: undefined },
+      ]
+    ) {
+      assert.equal(decorated_method("@X()", run, context).meta, run);
+    }
+  });
+
   it("tells a legacy static method: the target is the class", () => {
     class Cli {
       static run() {}
@@ -585,6 +602,7 @@ describe("decorated_method", () => {
       Object.getOwnPropertyDescriptor(Cli, "run"),
     );
     assert.deepEqual(method, {
+      meta: Cli.run, // a static method keeps its record on the function
       fn: Cli.run,
       name: "run",
       static: true,
@@ -630,9 +648,23 @@ describe("decorated_target", () => {
     assert.equal(decorated_target("@X()", Cli), Cli);
   });
 
+  it("returns the class for a TC39 class without context.metadata", () => {
+    // what compiled TC39 decorators pass on a runtime without Symbol.metadata
+    class Cli {}
+    const context = loose({
+      ...context_of("class", "Cli"),
+      metadata: undefined,
+    });
+    assert.equal(decorated_target("@X()", Cli, context), Cli);
+  });
+
   it("returns the method for a TC39 method", () => {
     function run() {}
-    assert.equal(decorated_target("@X()", run, context_of("method")), run);
+    const context = context_of("method");
+    assert.equal(
+      decorated_target("@X()", run, context),
+      method_metadata(context.metadata, "run"),
+    );
   });
 
   it("returns the method for a legacy method", () => {
@@ -641,7 +673,7 @@ describe("decorated_target", () => {
     }
     assert.equal(
       decorated_target("@X()", ...legacy_args(Cli, "run")),
-      Cli.prototype.run,
+      method_metadata(Cli, "run"),
     );
   });
 

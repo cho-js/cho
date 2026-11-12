@@ -8,10 +8,10 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { read_metadata_object } from "@chojs/core/di";
-import { Action, Help, Main } from "./decorators.ts";
+import { read_metadata_object, read_method_metadata } from "@chojs/core/di";
+import { Action, Controller, Help, Main, Module } from "./decorators.ts";
 import { ACTION, ALIAS, HELP, MAIN } from "./keys.ts";
-import { legacy, loose, tc39 } from "@chojs/core/utils/test_utils";
+import { legacy, loose, tc39, tc39_record } from "@chojs/core/utils/test_utils";
 
 const ONE_COMMAND = "A method can have at most one @Main or @Action.";
 
@@ -19,7 +19,7 @@ describe("@Main", () => {
   it("marks a method as main (TC39)", () => {
     function run() {}
     tc39(Main(), run, "run");
-    assert.deepEqual(read_metadata_object(run), {
+    assert.deepEqual(tc39_record(run), {
       [MAIN]: true,
       [ALIAS]: "main",
     });
@@ -30,7 +30,7 @@ describe("@Main", () => {
       run() {}
     }
     legacy(Main(), Cli, "run");
-    assert.deepEqual(read_metadata_object(Cli.prototype.run), {
+    assert.deepEqual(read_method_metadata(Cli, "run"), {
       [MAIN]: true,
       [ALIAS]: "main",
     });
@@ -64,7 +64,7 @@ describe("@Action", () => {
   it("marks a method as an action (TC39)", () => {
     function copy() {}
     tc39(Action("cp"), copy, "copy");
-    assert.deepEqual(read_metadata_object(copy), {
+    assert.deepEqual(tc39_record(copy), {
       [ACTION]: true,
       [ALIAS]: "cp",
     });
@@ -75,7 +75,7 @@ describe("@Action", () => {
       copy() {}
     }
     legacy(Action("cp"), Cli, "copy");
-    assert.deepEqual(read_metadata_object(Cli.prototype.copy), {
+    assert.deepEqual(read_method_metadata(Cli, "copy"), {
       [ACTION]: true,
       [ALIAS]: "cp",
     });
@@ -86,7 +86,7 @@ describe("@Action", () => {
       const run = function run() {};
       tc39(Action(name), run, "run");
       assert.equal(
-        read_metadata_object<{ [ALIAS]: string }>(run)?.[ALIAS],
+        (tc39_record(run) as { [ALIAS]: string })[ALIAS],
         name,
       );
     }
@@ -163,7 +163,7 @@ describe("@Action", () => {
   it("does not write anything when it throws", () => {
     function run() {}
     assert.throws(() => tc39(Action("-x"), run, "run"));
-    assert.equal(read_metadata_object(run), undefined);
+    assert.equal(tc39_record(run), undefined);
   });
 });
 
@@ -195,7 +195,7 @@ describe("one command per method", () => {
       message:
         `Cannot add @Action("x") to method 'run': it already has @Action("y"). ${ONE_COMMAND}`,
     });
-    assert.equal(read_metadata_object<{ [ALIAS]: string }>(run)?.[ALIAS], "y");
+    assert.equal((tc39_record(run) as { [ALIAS]: string })[ALIAS], "y");
   });
 
   it("allows @Help with a command, in any order", () => {
@@ -205,12 +205,12 @@ describe("one command per method", () => {
     function b() {}
     tc39(Action("b"), b, "b");
     tc39(Help("after"), b, "b");
-    assert.deepEqual(read_metadata_object(a), {
+    assert.deepEqual(tc39_record(a), {
       [HELP]: "before",
       [ACTION]: true,
       [ALIAS]: "a",
     });
-    assert.deepEqual(read_metadata_object(b), {
+    assert.deepEqual(tc39_record(b), {
       [ACTION]: true,
       [ALIAS]: "b",
       [HELP]: "after",
@@ -227,6 +227,16 @@ describe("@Help", () => {
     assert.equal(read_metadata_object(Cli), undefined);
   });
 
+  it("writes to the class on a TC39 class without context.metadata", () => {
+    // compiled TC39 decorators on a runtime without Symbol.metadata
+    class Cli {}
+    Help("text")(
+      Cli,
+      loose({ kind: "class", name: "Cli", metadata: undefined }),
+    );
+    assert.deepEqual(read_metadata_object(Cli), { [HELP]: "text" });
+  });
+
   it("writes to the class on a legacy class", () => {
     class Cli {}
     Help("text")(Cli);
@@ -236,13 +246,13 @@ describe("@Help", () => {
   it("writes to the method (TC39 and legacy)", () => {
     function run() {}
     tc39(Help("tc39"), run, "run");
-    assert.deepEqual(read_metadata_object(run), { [HELP]: "tc39" });
+    assert.deepEqual(tc39_record(run), { [HELP]: "tc39" });
 
     class Cli {
       run() {}
     }
     legacy(Help("legacy"), Cli, "run");
-    assert.deepEqual(read_metadata_object(Cli.prototype.run), {
+    assert.deepEqual(read_method_metadata(Cli, "run"), {
       [HELP]: "legacy",
     });
   });
@@ -251,6 +261,7 @@ describe("@Help", () => {
     function run() {}
     tc39(Help("s"), run, "run", { isStatic: true });
     tc39(Help("p"), run, "#run", { isPrivate: true });
+    // static and private methods keep their record on the function
     assert.deepEqual(read_metadata_object(run), { [HELP]: "p" });
   });
 
@@ -260,5 +271,33 @@ describe("@Help", () => {
       name: "TypeError",
       message: "Help must be a non-empty string",
     });
+  });
+});
+
+describe("@Module and @Controller", () => {
+  it("accept the core's options", () => {
+    class Disk {}
+    class Files {}
+    Controller({ dependencies: [Disk] })(Files);
+    class App {}
+    Module({ controllers: [Files] })(App);
+    assert.ok(read_metadata_object(Files));
+    assert.ok(read_metadata_object(App));
+  });
+
+  it("reject any other option, in the types and at runtime", () => {
+    assert.throws(
+      // @ts-expect-error `deps` is not an option: it is `dependencies`
+      () => Controller({ deps: [] })(class {}),
+      {
+        message:
+          '@Controller(): unknown option "deps". Known options: dependencies',
+      },
+    );
+    assert.throws(
+      // @ts-expect-error a command module has no route
+      () => Module({ route: "x" })(class {}),
+      { message: /^@Module\(\): unknown option "route"/ },
+    );
   });
 });

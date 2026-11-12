@@ -8,10 +8,17 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Controller, Injectable, Module } from "@chojs/core/di";
+import { Injectable } from "@chojs/core/di";
 import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
 import type { ChoWebContext } from "./context.ts";
-import { Catch, Get, Middlewares, Post } from "./decorators.ts";
+import {
+  Catch,
+  Controller,
+  Get,
+  Middlewares,
+  Module,
+  Post,
+} from "./decorators.ts";
 import { TestLinker } from "./testing.ts";
 import type { ChoWebMiddlewareFn } from "./types.ts";
 import { ChoWeb } from "./web.ts";

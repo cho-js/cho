@@ -48,10 +48,11 @@ Using it takes two steps:
    created.
 2. **`init()` / `resolve()`** create the instances, asynchronously.
 
-Every value is created by an **async factory**, classes included (their
-constructor is called inside an async factory). A provider can therefore do
-asynchronous work before its value is ready, such as opening a connection or
-reading a file, and everything that depends on it simply waits for it:
+Every value is created by a factory that can be **async**, classes included: a
+factory returns the value or a promise of it, and the injector always awaits it.
+A provider can therefore do asynchronous work before its value is ready, such as
+opening a connection or reading a file, and everything that depends on it simply
+waits for it:
 
 ```ts
 import { Injectable, Injector, Module, provider, token } from "@chojs/core";
@@ -114,8 +115,9 @@ A provider says how to create the value of a token. There are two kinds:
   ```
 
 - **A provider object**, built with `provider()`: a token, the dependencies, and
-  an async factory that receives their values, in order. The factory's argument
-  types are inferred from `deps`, and its result must match the token's type.
+  a factory (sync or async) that receives their values, in order. The factory's
+  argument types are inferred from `deps`, and its result must match the token's
+  type.
 
   ```ts
   const API_URL = token<string>("API_URL");
@@ -142,11 +144,31 @@ Every dependency is required: there are no optional dependencies.
 class UsersModule {}
 ```
 
-Every option defaults to `[]`. Any other option (such as a route for
-`@chojs/web`) is kept as is for the CHO module; the DI system ignores it,
-whatever its name. An option named `isController` or `middlewares` is just an
-option: the DI system stores its own data under private keys (section 4.1), so
-no option can change what a class is or what it declares.
+Every option defaults to `[]`.
+
+**The option types are closed.** An option that is not listed is a compile
+error, so a typo (`provider` for `providers`, `deps` for `dependencies`) cannot
+pass as an option nobody reads. A CHO module that has options of its own
+declares them with the type parameter of `@Module` and `@Controller`, and
+exports decorators typed with it; `assert_known_options` gives it the same check
+at runtime:
+
+```ts
+// in @chojs/web
+type RouteOption = { route?: string };
+
+export function Controller(
+  options: Partial<ControllerOptions> & RouteOption = {},
+): ChoClassDecorator {
+  assert_known_options("@Controller()", options, ["dependencies", "route"]);
+  return CoreController<RouteOption>(options);
+}
+```
+
+Such extra options are stored as is; the DI system ignores them, whatever their
+names, and hands them back apart from its own fields, as `options` (section
+4.1). It stores its own data under private keys, so no option can change what a
+class is or what it declares.
 
 **Scope rules.** These decide which token a module can inject:
 
@@ -205,12 +227,17 @@ class App {}
 
 - It is created like any other declaration, with its `dependencies` resolved in
   the scope of the module that declares it.
-- Any other option is kept as is for the CHO module (for example
-  `{ route: "users" }` for `@chojs/web`), whatever its name (section 2.4).
+- Its only option is `dependencies`; a CHO module can add its own (for example
+  `{ route: "users" }` for `@chojs/web`), handed back as `options` (section
+  2.4).
 - CHO modules attach metadata to the controller's methods with their own
-  decorators. The core collects it, for the controller's own string-named
-  methods that have any, and hands it to the CHO module as `methods`, with each
-  method's middlewares and error handler.
+  decorators. The core collects it, for the controller's string-named methods
+  that have any, and hands it to the CHO module as `methods`, with each method's
+  middlewares and error handler.
+- Method metadata follows the method: a controller gets the metadata of the
+  methods it **inherits** (parents first; a subclass that decorates a method
+  again replaces its parent's metadata for it), and a decorator that replaces
+  the method function does not lose it.
 
 ### 2.6 Middlewares and error handlers
 
@@ -373,16 +400,18 @@ The DI essentials:
 Everything in `@chojs/core`, plus what CHO module authors need to write their
 own decorators and read them back:
 
-| Export                                                                                     | Use                                                                                        |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| `read_metadata_object`, `write_metadata_object`, `add_to_metadata_object`                  | Read and write the CHO record of a class or a method (section 4.1).                        |
-| `decorated_method`, `decorated_target`                                                     | Find what a decorator was applied to, in both decorator call shapes (TC39 and legacy/Bun). |
-| `set_injectable`, `set_module`, `set_controller`, `set_middlewares`, `set_error_handler`   | What the core decorators do, for decorators that wrap them.                                |
-| `isToken`                                                                                  | Whether a value is a token.                                                                |
-| `ChoClassDecorator`, `ChoMethodDecorator`, `ChoClassOrMethodDecorator`                     | Decorator types that accept both call shapes.                                              |
-| `Token`, `InjectionToken`, `Provider`, `Factory`, `Resolved`, `ResolvedAll`, `AbstractCtr` | Token and provider types.                                                                  |
-| `ChoMiddleware`, `ChoErrorHandler`                                                         | What `@Middlewares` and `@Catch` store: any function or class.                             |
-| `InjectableOptions`, `DecoratedMethod`, `MetaTarget`, the `*Metadata` types                | Option, record and graph types.                                                            |
+| Export                                                                                     | Use                                                                                                            |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `read_metadata_object`, `write_metadata_object`, `add_to_metadata_object`                  | Read and write the CHO record of a class or a method (section 4.1).                                            |
+| `method_metadata`, `read_method_metadata`, `method_records`                                | Where a method's record is stored, and reading the records of a class's methods (section 4.1).                 |
+| `assert_known_options`, `ExtraOptions`, `NoExtraOptions`                                   | For a CHO module's own `@Module` / `@Controller`: its extra options, and rejecting unknown ones (section 2.4). |
+| `decorated_method`, `decorated_target`                                                     | Find what a decorator was applied to, in both decorator call shapes (TC39 and legacy/Bun).                     |
+| `set_injectable`, `set_module`, `set_controller`, `set_middlewares`, `set_error_handler`   | What the core decorators do, for decorators that wrap them.                                                    |
+| `isToken`                                                                                  | Whether a value is a token.                                                                                    |
+| `ChoClassDecorator`, `ChoMethodDecorator`, `ChoClassOrMethodDecorator`                     | Decorator types that accept both call shapes.                                                                  |
+| `Token`, `InjectionToken`, `Provider`, `Factory`, `Resolved`, `ResolvedAll`, `AbstractCtr` | Token and provider types.                                                                                      |
+| `ChoMiddleware`, `ChoErrorHandler`                                                         | What `@Middlewares` and `@Catch` store: any function or class.                                                 |
+| `InjectableOptions`, `DecoratedMethod`, `MetaTarget`, the `*Metadata` types                | Option, record and graph types.                                                                                |
 
 Every decorator must accept both call shapes: TC39 `(value, context)`, and
 legacy / Bun `(prototype, name, descriptor)`. A typical method decorator of a
@@ -402,7 +431,7 @@ const ACTION: unique symbol = Symbol.for("chojs.my-module.action");
 export function Action(name: string): ChoMethodDecorator {
   return (target, context, descriptor) => {
     const method = decorated_method("@Action()", target, context, descriptor);
-    add_to_metadata_object(method.fn, { [ACTION]: name });
+    add_to_metadata_object(method.meta, { [ACTION]: name });
   };
 }
 
@@ -470,8 +499,16 @@ creates nothing.
   none), under the key `Symbol.for("chojs.meta")`, so every copy of the package
   shares it. With TC39 decorators it is written to `context.metadata`; with
   legacy or Bun decorators, to the class itself.
-- Records are **own-only**: a subclass never sees its parent's record, and can
-  be decorated on its own.
+- Class records are **own-only**: a subclass never sees its parent's record, and
+  can be decorated on its own.
+- **Method records are stored with the class**, by method name, in a method
+  table next to the class's record (`Symbol.for("chojs.meta.methods")`), not on
+  the method function. `decorated_method` gives a decorator where to write
+  (`.meta`). Reading a class's methods (`method_records`) walks its prototype
+  chain, parents first, so inherited methods keep their records. Where a
+  decorator cannot reach the class (a static or private method, or TC39
+  decorators compiled for a runtime without `Symbol.metadata`), the record is
+  written on the function, and read from there too.
 - Records are frozen and replaced on every write, never mutated.
   `add_to_metadata_object` merges into the existing record: arrays are
   concatenated, any other value replaces the previous one.
@@ -485,8 +522,10 @@ creates nothing.
   and the dependencies, plus the module flag and lists, or the controller flag,
   and any extra options.
 - CHO modules never read core's keys: the metadata graph (section 4.2) exposes
-  the same data as plain, typed fields, and passes every other key of a record
-  on as it is (user options, and CHO modules' own keys).
+  the same data as plain, typed fields. Every other key of a class's record (the
+  extra options, and CHO modules' own keys) is passed on as it is, apart from
+  those fields, as `options`; every other key of a method's record, as the
+  method's `meta`.
 
 ### 4.2 Dependency graph
 

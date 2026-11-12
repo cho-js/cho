@@ -84,7 +84,7 @@ const ACTION: unique symbol = Symbol.for("chojs.my-module.action");
 export function Action(name: string): ChoMethodDecorator {
   return (target, context, descriptor) => {
     const method = decorated_method("@Action()", target, context, descriptor);
-    add_to_metadata_object(method.fn, { [ACTION]: name });
+    add_to_metadata_object(method.meta, { [ACTION]: name });
   };
 }
 
