@@ -5,7 +5,7 @@
   (`AppRef → FeatureRef → ControllerRef → MethodRef`). Every route in it can be
   invoked without the DI system, so a vendor linker (Hono, Fastify, …) can
   register them.
-- **Rules (`web/specs.md`):**
+- **Rules (`specs.old.md`):**
   1. A module with controllers is a feature.
   2. Only features, controllers and methods have routes.
   3. There are 4 route levels: global prefix, feature, controller, action.
@@ -100,7 +100,7 @@ and the message gives nothing to search for.
 description to the message, for example
 `@Catch(Auth2) on controller C8: Auth2 is not visible in module A8. Add it to
 the module's providers.`
-Also document the `@Injectable` + `providers` requirement in `web/specs.md`.
+Also document the `@Injectable` + `providers` requirement in `specs.old.md`.
 
 ### M-5: The `*Ref` types don't describe the values stored in them (lines 15-22, 55, 80, 102)
 

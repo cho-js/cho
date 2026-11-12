@@ -111,7 +111,7 @@ of `@std/cli/parse-args` in `lib/parse-args.ts`, so the package has no
 
 ### 2.1 Controllers and commands
 
-The command module relies on core's controllers (`core/specs.md` §3.4, §6.6):
+The command module relies on core's controllers (`../core/specs.old.md` §3.4, §6.6):
 `@Controller()` marks a class, `@Module({ controllers: [...] })` declares it,
 and the injector creates it. The command module never creates instances any
 other way.

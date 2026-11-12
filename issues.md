@@ -1,12 +1,12 @@
 # Open issues
 
 Issues found while documenting the packages and auditing the specs, to handle
-later. Section A comes from an automated audit of `core/specs.md` against the
+later. Section A comes from an automated audit of `core/specs.old.md` against the
 code (probe scripts and code reading); verify each item before fixing it.
 
-## A. `core/specs.md` does not match the code
+## A. `core/specs.old.md` does not match the code
 
-The code wins: update the spec. `command/specs.md` cites core §3.4, §4.1, §4.2,
+The code wins: update the spec. `command/specs.old.md` cites core §3.4, §4.1, §4.2,
 §6.6, §8.2 and §8.3, so append new sections instead of renumbering those.
 
 1. **"Already decorated" message** (spec §3, §8.1). The spec says
@@ -38,7 +38,7 @@ The code wins: update the spec. `command/specs.md` cites core §3.4, §4.1, §4.
 6. **`@Middlewares`, `@Catch`, `decorated_target`, `decorated_method` and the
    types `ChoMiddlewareFn`, `ChoMiddleware`, `ChoErrorHandler`,
    `ChoErrorHandlerFn`, `ChoMethodDecorator`, `ChoClassOrMethodDecorator` are
-   not specified.** `command/specs.md` relies on them. Add them as §3.6–§3.8:
+   not specified.** `command/specs.old.md` relies on them. Add them as §3.6–§3.8:
    middlewares are kept in source order (prepended, top decorator first);
    `@Catch` allows one handler per target; the error messages.
 7. **`@Controller` flags** (spec §3.4 and §9). It now writes
@@ -83,9 +83,9 @@ The code wins: update the spec. `command/specs.md` cites core §3.4, §4.1, §4.
    (`command/command.ts`, `run()`). A class given to `@Catch` is resolved, then
    the instance is called as a function with `args` instead of the error. The
    call always throws, so the original error is printed and the exit code is
-   `2`, whatever the class does. Documented in `command/specs.md` §9.
+   `2`, whatever the class does. Documented in `command/specs.old.md` §9.
 2. **A function error handler that throws makes `ChoCommand.run()` reject**
-   instead of resolving to an exit code (`command/specs.md` §9).
+   instead of resolving to an exit code (`command/specs.old.md` §9).
 3. **`@Catch` and web error handlers disagree on the type.** `@Catch` takes
    `ChoErrorHandler` (`(error) => unknown`), but `web/build-graph.ts` and the
    Hono linker call handlers as `ChoErrorHandlerFn` (`(ctx, error) => unknown`).
