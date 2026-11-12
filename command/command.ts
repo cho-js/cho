@@ -320,12 +320,19 @@ export class ChoCommand {
 
       // error handler as a function
       if (typeof errorHandler === "function") {
-        const ret =
-          await (errorHandler as (error: unknown, ctx?: unknown) => unknown)(
-            err,
-            args,
+        try {
+          const ret =
+              await (errorHandler as (error: unknown, ctx?: unknown) => unknown)(
+                  err,
+                  args,
+              );
+          return is_positive_integer(ret) ? ret : 1;
+        } catch (_handlerErr) {
+          console.error(
+            `Error: ${err instanceof Error ? err.message : String(err)}`,
           );
-        return is_positive_integer(ret) ? ret : 1;
+          return 2;
+        }
       }
 
       // default error handling: log the error and return 1
