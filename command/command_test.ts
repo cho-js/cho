@@ -17,6 +17,7 @@ import {
   Controller,
   Injectable,
   Module,
+  provider,
   set_error_handler,
 } from "@chojs/core/di";
 import type { Ctr } from "@chojs/core/di";
@@ -675,7 +676,7 @@ describe("ChoCommand.run, parseOptions", () => {
   });
 });
 
-describe("ChoCommand.run, initModule", () => {
+describe("ChoCommand.run, what it creates", () => {
   /** An app whose root module records when it is created. */
   function module_app(created: unknown[]): Ctr {
     class Cli {
@@ -692,7 +693,7 @@ describe("ChoCommand.run, initModule", () => {
     return App;
   }
 
-  it("does not create the controller's module by default", async () => {
+  it("does not create the controller's module", async () => {
     const created: unknown[] = [];
     const app = ChoCommand.create(module_app(created));
 
@@ -701,15 +702,39 @@ describe("ChoCommand.run, initModule", () => {
     assert.equal(created.length, 0);
   });
 
-  it("creates the controller's module first with initModule", async () => {
-    const created: unknown[] = [];
-    const app = ChoCommand.create(module_app(created), { initModule: true });
+  it("creates a setup provider before the controller, once", async () => {
+    const events: string[] = [];
+    class Setup {}
+    class Cli {
+      constructor() {
+        events.push("controller");
+      }
+      run() {
+        events.push("run");
+      }
+    }
+    legacy(Main(), Cli, "run");
+    Controller({ dependencies: [Setup] })(Cli);
+    class App {}
+    Module({
+      providers: [
+        provider({
+          provide: Setup,
+          factory: async () => {
+            await Promise.resolve();
+            events.push("setup");
+            return new Setup();
+          },
+        }),
+      ],
+      controllers: [Cli],
+    })(App);
+    const app = ChoCommand.create(App);
 
-    const { result } = await capture(async () => [
-      await app.run([]),
-      await app.run([]),
-    ]);
-    assert.deepEqual(result, [0, 0]);
-    assert.equal(created.length, 1);
+    await capture(async () => {
+      await app.run([]);
+      await app.run([]);
+    });
+    assert.deepEqual(events, ["setup", "controller", "run", "run"]);
   });
 });

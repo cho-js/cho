@@ -212,15 +212,16 @@ Builds the application from its root module: it reads and checks the module
 graph and the commands, and throws on any mistake (sections 2.5 and 7). It
 creates no instance.
 
-| Option         | Default   | Use                                                                               |
-| -------------- | --------- | --------------------------------------------------------------------------------- |
-| `name`         | `"chojs"` | the program name, in `--version` and the help usage lines                         |
-| `version`      | `"1.0.0"` | printed by `--version`                                                            |
-| `parseOptions` | none      | flag declarations (section 3.3)                                                   |
-| `initModule`   | off       | create the module that declares a command's controller before the controller (\*) |
+| Option         | Default   | Use                                                       |
+| -------------- | --------- | --------------------------------------------------------- |
+| `name`         | `"chojs"` | the program name, in `--version` and the help usage lines |
+| `version`      | `"1.0.0"` | printed by `--version`                                    |
+| `parseOptions` | none      | flag declarations (section 3.3)                           |
 
-(\*) The module is created with its own dependencies, so it can set itself up in
-its constructor before the command runs.
+To run setup code before a command (open a connection, read a configuration
+file, …), put it in a provider, an async factory if needed, and make the
+controller depend on it: the injector creates it before the controller, once per
+application.
 
 ### 4.2 `run(argv)`
 

@@ -85,7 +85,6 @@ function find_error_handler(
  * const app = ChoCommand.create(App, {
  *   name: "fs",
  *   version: "2.1.0", // ./fs --version -> fs version 2.1.0
- *   initModule: true,
  *   parseOptions: { boolean: ["force"], alias: { f: "force" } },
  * });
  * ```
@@ -98,12 +97,6 @@ export type ChoCommandOptions = {
    * Default: `"chojs"`.
    */
   name: string;
-  /**
-   * Create the module that declares a command's controller before the
-   * controller, so the module can configure itself first. Default: off.
-   */
-  initModule: boolean;
-
   /**
    * `parseArgs` options that declare the handlers' flags, for example
    * `{ boolean: ["force"] }`. `--help` and `--version` stay negatable
@@ -162,7 +155,7 @@ export class ChoCommand {
     );
   }
 
-  /** Creates the controllers (and, with `initModule`, their modules). */
+  /** Creates the controllers, with their dependencies. */
   readonly #injector: Injector;
   /** The mode and the command methods. */
   readonly #graph: CommandGraph;
@@ -266,12 +259,6 @@ export class ChoCommand {
       );
 
       const [node, meta] = action;
-
-      if (this.#options.initModule) {
-        // we are initializing the module contain the controller only
-        // allow the module to pre-configure itself before the controller is resolved
-        await this.#injector.resolve(node.owner, node.owner);
-      }
 
       const ctrl = await this.#injector.resolve(
         node.token,
