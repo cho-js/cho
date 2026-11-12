@@ -92,6 +92,18 @@ describe("set_injectable", () => {
     });
   }
 
+  it("throws when the dependencies are not an array", () => {
+    class Logger {}
+    class Foo {}
+    assert.throws(() => set_injectable(Foo, { dependencies: loose(Logger) }), {
+      message: "dependencies must be an array, got Logger",
+    });
+    assert.throws(() => set_injectable(Foo, { dependencies: loose(null) }), {
+      message: "dependencies must be an array, got null",
+    });
+    assert.equal(read_metadata_object(Foo), undefined);
+  });
+
   it("writes nothing when a dependency is invalid", () => {
     class Logger {}
     class Foo {}
@@ -211,6 +223,23 @@ describe("set_module", () => {
     assert.equal(record["isModule"], true);
     assert.equal(record["isInjectable"], true);
   });
+
+  for (
+    const [option, value, got] of [
+      ["imports", class Db {}, "Db"],
+      ["controllers", "Cli", '"Cli"'],
+      ["exports", token("URL"), "InjectionToken(URL)"],
+      ["providers", { provide: "x" }, "{ provide }"],
+    ] as const
+  ) {
+    it(`throws when ${option} is not an array`, () => {
+      class App {}
+      assert.throws(() => set_module(App, loose({ [option]: value })), {
+        message: `${option} must be an array, got ${got}`,
+      });
+      assert.equal(read_metadata_object(App), undefined);
+    });
+  }
 
   it("throws on an import that is not a class", () => {
     class App {}

@@ -24,6 +24,7 @@
  * Only the shape of the options, so that a mistake fails at the decorator
  * that made it, with a message naming the bad value:
  *
+ * - every list option is an array;
  * - dependencies and exports are tokens (classes, symbols or injection
  *   tokens);
  * - imports and controllers are classes;
@@ -197,6 +198,24 @@ function describe_value(value: unknown): string {
 }
 
 /**
+ * Assert that an option is an array. Without this check, a value such as
+ * `@Injectable(Logger)` (instead of `[Logger]`) fails with an unhelpful
+ * `forEach is not a function`.
+ *
+ * @param name The option name, for the message.
+ * @param value The option value.
+ * @throws {Error} When the value is not an array.
+ */
+function assert_array(
+  name: string,
+  value: unknown,
+): asserts value is unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${name} must be an array, got ${describe_value(value)}`);
+  }
+}
+
+/**
  * Make an assertion that a value is a token: a class (or any function), a
  * symbol, or an injection token (see `isToken`).
  *
@@ -349,7 +368,8 @@ function assert_provider(provider: unknown): asserts provider is Provider {
  * @param options The constructor's dependencies, in argument order.
  * @throws {Error} When the target already has a DI decorator. This is checked
  *   first, before the dependencies.
- * @throws {Error} When a dependency is not a class, symbol or injection token.
+ * @throws {Error} When `dependencies` is not an array, or a dependency is not
+ *   a class, symbol or injection token.
  *   Nothing is written.
  *
  * @example
@@ -366,6 +386,7 @@ export function set_injectable(
   options: InjectableOptions,
 ): void {
   assert_decorated(target);
+  assert_array("dependencies", options.dependencies);
   options.dependencies.forEach(
     assert_dependency(
       "all dependencies must be classes, symbols or injection tokens",
@@ -406,6 +427,8 @@ export function set_injectable(
  *
  * @param target The class, or its decorator metadata object.
  * @param options The module's options. Every field is optional.
+ * @throws {Error} When `imports`, `controllers`, `exports` or `providers` is
+ *   not an array.
  * @throws {Error} When an import or a controller is not a class.
  * @throws {Error} When an export is not a class, symbol or injection token.
  * @throws {Error} When a provider is neither a class nor a well-formed
@@ -441,6 +464,10 @@ export function set_module(
     controllers: options.controllers ?? [],
   };
 
+  assert_array("imports", norm.imports);
+  assert_array("controllers", norm.controllers);
+  assert_array("exports", norm.exports);
+  assert_array("providers", norm.providers);
   norm.imports.forEach(assert_ctr("all imports must be classes"));
   norm.controllers.forEach(assert_ctr("all controllers must be classes"));
   norm.exports.forEach(
@@ -668,11 +695,7 @@ export function set_middlewares(
   target: MetaTarget,
   middlewares: ChoMiddleware[],
 ): void {
-  if (!Array.isArray(middlewares)) {
-    throw new Error(
-      `middlewares must be an array, got ${describe_value(middlewares)}`,
-    );
-  }
+  assert_array("middlewares", middlewares);
   middlewares.forEach(assert_function("all middlewares must be functions"));
 
   const record = read_metadata_object<Record<string, unknown>>(target) ?? {};
