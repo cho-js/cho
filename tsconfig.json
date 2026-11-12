@@ -21,7 +21,12 @@
       "@chojs/core": ["./core/mod.ts"],
       "@chojs/core/di": ["./core/di/mod.ts"],
       "@chojs/core/utils": ["./core/utils/mod.ts"],
-      "@chojs/core/utils/test_utils": ["./core/utils/test_utils.ts"]
+      "@chojs/core/utils/test_utils": ["./core/utils/test_utils.ts"],
+      "@chojs/command": ["./command/mod.ts"],
+      "@chojs/web": ["./web/mod.ts"],
+      "@chojs/web/linker": ["./web/linker.ts"],
+      "@chojs/web/graph": ["./web/graph.ts"],
+      "@chojs/vendor-hono": ["./vendor/hono/mod.ts"]
     },
 
     // Other Outputs
