@@ -13,7 +13,12 @@
  * @module
  */
 
-import type { ChoErrorHandler, Ctr, MethodMetadata } from "@chojs/core/di";
+import type {
+  ChoErrorHandler,
+  Ctr,
+  MethodMetadata,
+  Provider,
+} from "@chojs/core/di";
 import { Injector } from "@chojs/core/di";
 import { type Debuglog, debuglog, describe, isClass } from "@chojs/core/utils";
 import {
@@ -118,6 +123,11 @@ export type ChoCommandOptions = {
    * booleans whatever they declare. Default: none.
    */
   parseOptions: ParserOptions;
+  /**
+   * Providers that replace the declared providers of the same token, for
+   * tests (see `InjectorOptions.overrides` of `@chojs/core`). Default: none.
+   */
+  overrides: readonly Provider[];
 };
 
 /**
@@ -159,7 +169,10 @@ export class ChoCommand {
     app: Ctr,
     options: Partial<ChoCommandOptions> = {},
   ): ChoCommand {
-    const inj = new Injector(app);
+    const inj = new Injector(
+      app,
+      options.overrides ? { overrides: options.overrides } : {},
+    );
     const graph = command_graph(inj);
 
     return new ChoCommand(
@@ -369,6 +382,37 @@ export class ChoCommand {
       );
       return 1;
     }
+  }
+
+  /**
+   * Release the instances the application created: every provider,
+   * controller and module that has a `[Symbol.asyncDispose]()` or
+   * `[Symbol.dispose]()` method is disposed, in reverse creation order (see
+   * `Injector.dispose`).
+   *
+   * `run()` does not do it: instances are kept between runs. Call it once,
+   * after the last `run()` and before exiting the process. Afterwards `run()`
+   * fails with exit code `1`. Calling it again does nothing more.
+   *
+   * @returns A promise that resolves when everything is disposed.
+   * @throws {AggregateError} (as a rejection) When instances failed to
+   *   dispose.
+   *
+   * @example
+   * ```ts
+   * const app = ChoCommand.create(AppModule);
+   * const code = await app.run(Deno.args);
+   * await app.close();
+   * Deno.exit(code);
+   * ```
+   */
+  close(): Promise<void> {
+    return this.#injector.dispose();
+  }
+
+  /** Close the application at the end of an `await using` block. */
+  [Symbol.asyncDispose](): Promise<void> {
+    return this.close();
   }
 
   /**

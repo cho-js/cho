@@ -52,7 +52,7 @@ import {
   type ModuleRecord,
   PROVIDERS,
 } from "./keys.ts";
-import { provider } from "./tokens.ts";
+import { isToken, provider } from "./tokens.ts";
 import { describe } from "../utils/describe.ts";
 
 // Types
@@ -307,6 +307,7 @@ function provider_metadata(
  *   several paths is normalized once.
  * @param path The chain of imports that led to `mdl`, from the root, used to
  *   detect circular imports.
+ * @param overrides The providers that replace declared ones.
  * @returns The module's normalized metadata.
  * @throws {TypeError} When `mdl` is not a class.
  * @throws {Error} When the imports are circular, when a class is not
@@ -317,6 +318,7 @@ function module_metadata(
   mdl: Ctr,
   modules: Map<Ctr, ModuleMetadata>,
   path: Ctr[],
+  overrides: Overrides,
 ): ModuleMetadata {
   if (typeof mdl !== "function") {
     throw new TypeError(`Expected a module class, got ${typeof mdl}`);
@@ -349,9 +351,11 @@ function module_metadata(
     ...handlers(record),
     exports: record[EXPORTS],
     imports: record[IMPORTS].map((imp) =>
-      module_metadata(imp, modules, [...path, mdl])
+      module_metadata(imp, modules, [...path, mdl], overrides)
     ),
-    providers: record[PROVIDERS].map(provider_metadata),
+    providers: record[PROVIDERS].map((p) =>
+      provider_metadata(overrides.replace(p))
+    ),
     controllers: record[CONTROLLERS].map(controller_metadata),
     provider: provider({
       provide: mdl,
@@ -365,10 +369,79 @@ function module_metadata(
 }
 
 /**
+ * The providers that replace declared ones (see `InjectorOptions.overrides`),
+ * by token, and which of them were used.
+ */
+class Overrides {
+  readonly #providers = new Map<Token, Provider>();
+  readonly #used = new Set<Token>();
+
+  /**
+   * @param providers The overriding providers.
+   * @throws {Error} When an entry is not a provider object, or when two
+   *   entries have the same token.
+   */
+  constructor(providers: readonly Provider[]) {
+    for (const p of providers) {
+      if (
+        typeof p !== "object" || p === null || !isToken(p.provide) ||
+        typeof p.factory !== "function"
+      ) {
+        throw new Error(
+          "An override must be a provider object, built with provider()",
+        );
+      }
+      if (this.#providers.has(p.provide)) {
+        throw new Error(`${describe(p.provide)} is overridden more than once`);
+      }
+      this.#providers.set(p.provide, provider(p));
+    }
+  }
+
+  /**
+   * The provider to use for a `providers` entry: its override, if its token
+   * has one, or the entry itself.
+   *
+   * @param declared A `providers` entry of a module.
+   * @returns The entry to normalize.
+   */
+  replace(declared: Provider | Ctr): Provider | Ctr {
+    const token = typeof declared === "function" ? declared : declared.provide;
+    const override = this.#providers.get(token);
+    if (!override) {
+      return declared;
+    }
+    this.#used.add(token);
+    return override;
+  }
+
+  /**
+   * Throw if an override replaced nothing: its token is misspelled, or no
+   * module of the application provides it.
+   *
+   * @throws {Error} Naming the first unused override.
+   */
+  assert_all_used(): void {
+    for (const token of this.#providers.keys()) {
+      if (!this.#used.has(token)) {
+        throw new Error(
+          `Cannot override ${
+            describe(token)
+          }: no module of the application provides it`,
+        );
+      }
+    }
+  }
+}
+
+/**
  * Read and normalize the metadata of an application, starting from its root
  * module.
  *
  * @param ctr The root module class.
+ * @param overrides Providers that replace the declared providers of the same
+ *   token, in every module that declares one (see
+ *   `InjectorOptions.overrides`).
  * @returns The metadata graph: the root module and every module it imports,
  *   directly or not. In `modules`, imported modules come before the modules
  *   that import them, and the root comes last.
@@ -380,8 +453,13 @@ function module_metadata(
  * graph.root.providers; // the normalized providers of AppModule
  * ```
  */
-export function build_meta_graph(ctr: Ctr): MetadataGraph {
+export function build_meta_graph(
+  ctr: Ctr,
+  overrides: readonly Provider[] = [],
+): MetadataGraph {
   const modules = new Map<Ctr, ModuleMetadata>();
-  const root = module_metadata(ctr, modules, []);
+  const replaced = new Overrides(overrides);
+  const root = module_metadata(ctr, modules, [], replaced);
+  replaced.assert_all_used();
   return { modules, root };
 }

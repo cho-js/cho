@@ -27,6 +27,8 @@ const app = await ChoCommand.create(MultiActionApp, {
   name: "multi-action",
   version: "0.1.0",
 });
-Deno.exit(await app.run(Deno.args));
+const code = await app.run(Deno.args);
+await app.close(); // release what the application created
+Deno.exit(code);
 
 // run with ./examples/multi-actions-cli.ts goodbye --foo bar

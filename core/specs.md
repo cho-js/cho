@@ -170,6 +170,42 @@ names, and hands them back apart from its own fields, as `options` (section
 4.1). It stores its own data under private keys, so no option can change what a
 class is or what it declares.
 
+**Modules are not configured.** A module is a fixed declaration: it takes no
+parameters, and it never sees the providers of the modules that import it
+(below), so an importer cannot pass it configuration. What needs configuration
+is a value, and a value is created by a provider. A reusable package therefore
+ships classes, and the application declares the providers that construct them
+with its own configuration:
+
+```ts
+// a library: a class, no module
+export class HttpClient {
+  constructor(readonly url: string) {}
+}
+
+// the application: one provider per configured client
+const USERS = token<HttpClient>("USERS");
+const BILLING = token<HttpClient>("BILLING");
+
+@Module({
+  providers: [
+    Config,
+    provider({
+      provide: USERS,
+      deps: [Config],
+      factory: (config) => new HttpClient(config.usersUrl),
+    }),
+    provider({
+      provide: BILLING,
+      deps: [Config],
+      factory: (config) => new HttpClient(config.billingUrl),
+    }),
+  ],
+  exports: [USERS, BILLING],
+})
+class ClientsModule {}
+```
+
 **Scope rules.** These decide which token a module can inject:
 
 - A module sees what it declares (its providers, its controllers and itself),
@@ -295,7 +331,76 @@ const cli = await injector.resolve(Cli, CliModule); // from CliModule's scope
 rejects with `Failed to create X in module M`, with the original error as
 `cause`. Everything that depends on it rejects with that same error, which names
 the declaration that actually failed. **There is no retry:** the failure is
-remembered, and every later request gets the same error.
+remembered, and every later request gets the same error. An application that
+must not run half-created calls `init()` at startup and stops if it rejects
+(`@chojs/web` does).
+
+**Releasing instances.** `dispose()` releases what the injector created:
+
+```ts
+@Injectable()
+class Db {
+  async [Symbol.asyncDispose]() {
+    await this.connection.close();
+  }
+}
+
+const injector = new Injector(App);
+try {
+  await injector.init();
+  // … run the application
+} finally {
+  await injector.dispose();
+}
+```
+
+- It waits for the creations in flight, then goes through the created values in
+  **reverse creation order**: a value is disposed before what it depends on.
+- A value is disposed by its own `[Symbol.asyncDispose]()` or, without one,
+  `[Symbol.dispose]()`: the standard methods of explicit resource management
+  (`using`), so there is no CHO interface to implement. It applies to every
+  created value: classes, modules, controllers, and what provider factories
+  return. A value with neither method is skipped, and a value provided under
+  several tokens is disposed once.
+- One failure does not stop the others: `dispose()` then rejects with an
+  `AggregateError` holding one `Failed to dispose X in module M` per failure.
+- Afterwards `resolve()` and `init()` reject with `The injector is disposed`.
+  Calling `dispose()` again returns the same disposal. `await using` works too.
+
+**The injector never disposes on its own.** When an application ends is not its
+decision: whatever runs the application calls `dispose()`. The CHO modules do it
+in their `close()` (`ChoWeb.close()`, `ChoCommand.close()`).
+
+**Overrides, for tests.** `new Injector(App, { overrides })` replaces declared
+providers, wherever they are in the module graph, without changing any module:
+
+```ts
+const injector = new Injector(App, {
+  overrides: [provider({ provide: Db, factory: () => new FakeDb() })],
+});
+```
+
+- An override replaces the `providers` entries of its token (a class or a
+  provider object), in every module that declares one. Controllers and modules
+  cannot be overridden.
+- Its `deps` resolve in the scope of the module that declares the provider it
+  replaces, like any provider.
+- An override that replaces nothing is an error, so a stale test fails loudly.
+
+**Design positions.** These are decisions, not gaps:
+
+- **Singletons only.** A declaration has one instance per injector. Data that
+  belongs to a request lives in the request's context (the `state` of
+  `@chojs/web`'s context), not in the DI. A value that must be new each time is
+  made by a factory function: provide the function, and call it.
+- **Every dependency is required.** An application does not start with a missing
+  dependency: it is a wiring error, thrown by `new Injector()`. For something
+  that may be absent, provide a default.
+- **A failed creation stops the application.** It is not retried. Create
+  everything at startup with `init()` and stop if it rejects, unless creating
+  lazily is the point (a command-line application, where `--help` must not need
+  the database).
+- **Modules are not configured** (section 2.4).
 
 ### 2.8 Errors
 
@@ -357,6 +462,17 @@ from zero.
 | The token is not in module's scope | `X is not visible in module M`                                                                                  |
 | The token is ambiguous there       | `X is ambiguous in module M: A, B export different instances of it. Provide X in M to choose which one to use.` |
 | A factory or constructor failed    | `Failed to create X in module M`, with `cause`                                                                  |
+| The injector is disposed           | `The injector is disposed`                                                                                      |
+
+**Thrown by `new Injector(root, { overrides })`:**
+
+- `An override must be a provider object, built with provider()`
+- `X is overridden more than once`
+- `Cannot override X: no module of the application provides it`
+
+**Rejected by `dispose()`:** an `AggregateError`,
+`Failed to dispose N of the injector's instances`, whose `errors` are
+`Failed to dispose X in module M`, each with its `cause`.
 
 ### 2.9 Debug logging
 
@@ -454,7 +570,9 @@ For this, the `Injector` also exposes:
   its options, its `middlewares` and `errorHandler`, and its `methods`;
 - `modules()`: every module, once each, imported modules before the modules that
   import them, the root last;
-- `graph` and `meta`: the dependency graph and the metadata graph (section 4).
+- `graph` and `meta`: the dependency graph and the metadata graph (section 4);
+- `dispose()`: releases the instances; a CHO module calls it from its own
+  `close()` (section 2.7).
 
 ### 3.3 `@chojs/core/utils`
 
@@ -559,3 +677,7 @@ creating an instance needs no lookup.
   initialization is stored too, so it runs once.
 - A failing factory is wrapped once, where it fails; dependents pass that error
   on unchanged.
+- Each created value is recorded with its node when its factory returns, so the
+  record is in dependency order; `dispose()` walks it backwards.
+- Overrides are applied when the metadata graph is read: a `providers` entry
+  whose token has an override is normalized from the override instead.

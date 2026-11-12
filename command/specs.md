@@ -219,11 +219,26 @@ creates no instance.
 | `name`         | `"chojs"` | the program name, in `--version` and the help usage lines |
 | `version`      | `"1.0.0"` | printed by `--version`                                    |
 | `parseOptions` | none      | flag declarations (section 3.3)                           |
+| `overrides`    | none      | providers that replace declared ones, for tests           |
 
 To run setup code before a command (open a connection, read a configuration
 file, …), put it in a provider, an async factory if needed, and make the
 controller depend on it: the injector creates it before the controller, once per
 application.
+
+To release it afterwards (close the connection), give the provider a
+`[Symbol.asyncDispose]()` or `[Symbol.dispose]()` method and call `app.close()`
+after the last `run()`. `run()` never does it: instances are kept between runs.
+
+```ts
+const app = ChoCommand.create(App);
+const code = await app.run(Deno.args);
+await app.close(); // disposes the instances, in reverse creation order
+Deno.exit(code);
+```
+
+After `close()`, `run()` prints `Error: The injector is disposed` and resolves
+to `1`.
 
 ### 4.2 `run(argv)`
 

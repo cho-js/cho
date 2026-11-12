@@ -24,24 +24,24 @@ item (which brought D1 and D2 with them). The text below is the original review;
 items are marked **[FIXED]**, **[PARTLY FIXED]** or left unmarked when still
 open. Each mark was checked against the code.
 
-| Item | Status | Note                                                                        |
-| ---- | ------ | --------------------------------------------------------------------------- |
-| A1   | fixed  | middlewares are composed per route by `@chojs/web`; regression tests        |
-| A2   | fixed  | `decorated_target` falls back to the class                                  |
-| A3   | fixed  | guards added; wrapped and inherited handlers now work (D2)                  |
-| A4   | fixed  | option types are closed; unknown options also throw at runtime (D1)         |
-| A5   | fixed  | all six items                                                               |
-| B2   | fixed  | handlers, middlewares and error handlers receive `ChoWebContext`            |
-| B3   | open   |                                                                             |
-| D1   | fixed  | extras are `meta.options`; closed types. Dependency-list spelling unchanged |
-| D2   | fixed  | method records are stored with the class, by method name                    |
-| D3   | open   |                                                                             |
-| D4   | open   |                                                                             |
-| D5   | open   |                                                                             |
-| D6   | fixed  | `web/syntax_test.ts` runs real decorator syntax on Deno, Bun and Node       |
+| Item | Status   | Note                                                                        |
+| ---- | -------- | --------------------------------------------------------------------------- |
+| A1   | fixed    | middlewares are composed per route by `@chojs/web`; regression tests        |
+| A2   | fixed    | `decorated_target` falls back to the class                                  |
+| A3   | fixed    | guards added; wrapped and inherited handlers now work (D2)                  |
+| A4   | fixed    | option types are closed; unknown options also throw at runtime (D1)         |
+| A5   | fixed    | all six items                                                               |
+| B2   | fixed    | handlers, middlewares and error handlers receive `ChoWebContext`            |
+| B3   | resolved | teardown and overrides implemented; the other three are design positions    |
+| D1   | fixed    | extras are `meta.options`; closed types. Dependency-list spelling unchanged |
+| D2   | fixed    | method records are stored with the class, by method name                    |
+| D3   | open     |                                                                             |
+| D4   | open     |                                                                             |
+| D5   | open     |                                                                             |
+| D6   | fixed    | `web/syntax_test.ts` runs real decorator syntax on Deno, Bun and Node       |
 
-Current checks: `deno check`, `deno lint` pass; 90 tests / 585 steps on Deno,
-568 on Bun and on Node.
+Current checks: `deno check`, `deno lint` pass; 94 tests / 606 steps on Deno,
+589 on Bun and on Node.
 
 ## Verdict
 
@@ -247,29 +247,39 @@ option fits the project best: handlers take a small CHO context built on
 `Request` (`req`, `params`, `url`) and return a `Response` or a JSON value; each
 linker adapts it. Access to the vendor context can remain as an escape hatch.
 
-### B3. Missing pieces in the DI model
+### B3. [RESOLVED] Lifecycle and scope of the DI
 
-These are absent by design today; each one will be asked for early:
+The review listed five things as "missing pieces". After discussion, two were
+implemented and three are design positions of the project, not gaps.
 
-1. **No teardown.** Factories are async so they can open connections, but
-   nothing can close them. An `injector.dispose()` that calls a hook on created
-   instances in reverse creation order is cheap to add now, since the injector
-   already knows the order.
-2. **No way to override a provider for tests.** Because dependencies resolve in
-   the declaring module, a test cannot replace `DbConn` inside an imported
-   module. `new Injector(App, { overrides: [provider(...)] })` applied at link
-   time would cover it.
-3. **No configurable modules.** A module is a static class, so a reusable module
-   cannot take parameters (`DbModule.with({ url })`). The usual answer is a
-   function that returns a module class, or a dynamic-module object in
-   `imports`. Worth deciding before 3.0 since it affects `imports` validation
-   ("all imports must be classes").
-4. **Failures are permanent** (probed: a factory that fails once is never called
-   again). Documented, and right for CLI and startup. For a long-lived server
-   that resolves lazily, one transient failure poisons the token until restart.
-   At least document that servers should `init()` and exit on failure.
-5. Singleton only: no transient or request scope, no optional dependencies. Fine
-   for v3, but say so in the README.
+**Implemented**
+
+1. **Teardown.** `Injector.dispose()` releases what was created, in reverse
+   creation order, through the standard `Symbol.asyncDispose` / `Symbol.dispose`
+   methods. The DI provides the mechanism and never the trigger:
+   `ChoWeb.close()` and `ChoCommand.close()` call it, when the application says
+   so. `resolve()` and `init()` reject afterwards.
+2. **Test overrides.** `new Injector(App, { overrides })` replaces declared
+   providers anywhere in the graph; `ChoWeb.create` and `ChoCommand.create` take
+   the same option. An override that replaces nothing is an error. The design is
+   still to be discussed.
+
+**Design positions** (documented in `core/specs.md`, sections 2.4 and 2.7)
+
+3. **Modules are not configured.** The review asked for configurable modules;
+   that is an anti-pattern here. Configuration belongs to the creation of
+   values: a library ships classes, and the application declares the providers
+   that construct them. A module never sees its importer's providers, so it
+   cannot be handed configuration either.
+4. **A DI failure stops the application.** A missing dependency is a wiring
+   error thrown by `new Injector()`, before anything is created. A factory that
+   fails is not retried; `@chojs/web` creates everything at startup and refuses
+   to start. `@chojs/command` creates lazily, so `--help` does not need the
+   database. There are no optional dependencies. The review's concern (a
+   long-lived server that resolves lazily) does not apply to either.
+5. **Singletons only.** Transient and request scope are not the DI's job:
+   request data lives in the request context (`ctx.state` in `@chojs/web`), and
+   a value that must be new each time comes from an injected factory function.
 
 ## C. Recommended design changes (D1–D6)
 
@@ -447,4 +457,4 @@ Repository housekeeping:
    `@Middlewares` is still ignored.
 4. **[DONE]** D1 and D2 together, as the one breaking change to the metadata
    contract. D3 is still open and fits the same area.
-5. `dispose()` and test overrides (B3.1, B3.2).
+5. **[DONE]** `dispose()` and test overrides (B3.1, B3.2).

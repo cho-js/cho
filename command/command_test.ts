@@ -784,3 +784,62 @@ describe("ChoCommand, debug logging", () => {
     assert.match(logs, /ERROR fail failed: Error: copy failed/);
   });
 });
+
+describe("ChoCommand, closing and overrides", () => {
+  /** An app whose `name` action prints the name of its `Db`. */
+  function db_app(log: string[]) {
+    class Db {
+      name = "real";
+      [Symbol.dispose]() {
+        log.push(`closed ${this.name}`);
+      }
+    }
+    Injectable()(Db);
+    class Cli {
+      constructor(readonly db: Db) {}
+      name() {
+        console.log(this.db.name);
+      }
+    }
+    legacy(Action("name"), Cli, "name");
+    Controller({ dependencies: [Db] })(Cli);
+    class App {}
+    Module({ providers: [Db], controllers: [Cli] })(App);
+    return { App, Db };
+  }
+
+  it("keeps instances between runs, and disposes them on close()", async () => {
+    const log: string[] = [];
+    const app = ChoCommand.create(db_app(log).App);
+    await capture(async () => {
+      await app.run(["name"]);
+      await app.run(["name"]);
+    });
+    assert.deepEqual(log, []);
+    await app.close();
+    await app.close();
+    assert.deepEqual(log, ["closed real"]);
+  });
+
+  it("fails a run after close(), with exit code 1", async () => {
+    const app = ChoCommand.create(db_app([]).App);
+    await app.close();
+    const { result, output } = await capture(() => app.run(["name"]));
+    assert.equal(result, 1);
+    assert.deepEqual(output.error, ["Error: The injector is disposed"]);
+  });
+
+  it("replaces providers with the overrides option", async () => {
+    const { App, Db } = db_app([]);
+    const app = ChoCommand.create(App, {
+      overrides: [
+        provider({
+          provide: Db,
+          factory: () => ({ name: "fake" }) as InstanceType<typeof Db>,
+        }),
+      ],
+    });
+    const { output } = await capture(() => app.run(["name"]));
+    assert.deepEqual(output.log, ["fake"]);
+  });
+});

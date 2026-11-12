@@ -13,6 +13,10 @@
  * Each declaration is created at most once per injector, and its value is
  * shared by everything that depends on it.
  *
+ * {@link Injector.dispose} releases what was created, in reverse order. The
+ * injector never calls it itself: when the application ends is decided by
+ * what runs it (a CHO module such as `@chojs/web`, or the application).
+ *
  * ## Debug logging
  *
  * The injector logs to the `cho:di` debug context (see `debuglog`): enable it
@@ -24,7 +28,7 @@
  * @module
  */
 
-import type { Ctr, Token } from "./types.ts";
+import type { Ctr, Provider, Token } from "./types.ts";
 import {
   build_meta_graph,
   type ControllerMetadata,
@@ -41,6 +45,41 @@ import { describe } from "../utils/describe.ts";
 import { type Debuglog, debuglog } from "../utils/debuglog.ts";
 
 export type { DependencyGraph, DependencyNode, MetadataGraph, ModuleScope };
+
+/**
+ * The well-known symbols of explicit resource management, with the fallback
+ * transpilers use on runtimes that do not have them yet.
+ */
+const AsyncDispose: symbol = Symbol.asyncDispose ??
+  Symbol.for("Symbol.asyncDispose");
+const Dispose: symbol = Symbol.dispose ?? Symbol.for("Symbol.dispose");
+
+/** The error of `resolve()` and `init()` once the injector is disposed. */
+const DISPOSED = "The injector is disposed";
+
+/** Options of {@link Injector}. */
+export type InjectorOptions = {
+  /**
+   * Providers that replace the declared providers of the same token, in every
+   * module that declares one. For tests: swap a database, a clock or a remote
+   * service for a fake, deep inside the module graph, without changing any
+   * module.
+   *
+   * - An override replaces `providers` entries only (classes and provider
+   *   objects), not controllers or modules.
+   * - Its `deps` are resolved in the scope of the module that declares the
+   *   provider it replaces, like any provider.
+   * - An override that replaces nothing is an error.
+   *
+   * @example
+   * ```ts
+   * const injector = new Injector(App, {
+   *   overrides: [provider({ provide: Db, factory: () => new FakeDb() })],
+   * });
+   * ```
+   */
+  overrides?: readonly Provider[];
+};
 /**
  * Creates and holds the instances of an application.
  *
@@ -51,7 +90,12 @@ export type { DependencyGraph, DependencyNode, MetadataGraph, ModuleScope };
  * awaited, so concurrent and later requests for the same node share one
  * creation, and one instance. A failed creation is memoized too: every later
  * request for the node, or for anything that depends on it, gets the same
- * error. There is no retry.
+ * error. There is no retry: an application that must not run half-created
+ * calls `init()` at startup and stops if it rejects.
+ *
+ * Every instance is a singleton of its injector, by design: request data
+ * belongs to the request's context, not to the DI. Every dependency is
+ * required.
  *
  * @example
  * ```ts
@@ -76,6 +120,15 @@ export class Injector {
   readonly #modules = new Map<ModuleScope, Promise<void>>();
 
   /**
+   * The nodes whose value was created, in the order they were: a node always
+   * comes after the nodes it depends on. `dispose()` goes through it backwards.
+   */
+  readonly #created: [DependencyNode, unknown][] = [];
+
+  /** The disposal, once `dispose()` was called. */
+  #disposal: Promise<void> | undefined;
+
+  /**
    * The `cho:di` debug logger. Created per injector, not when the module is
    * loaded, so it follows `set_env` and the environment at creation time.
    */
@@ -86,15 +139,17 @@ export class Injector {
    * created yet.
    *
    * @param root The root module class.
+   * @param options The options: `overrides`, for tests.
    * @throws {Error} On any invalid declaration or wiring error, such as a
    *   class without its decorator, a dependency that is not provided, an
-   *   ambiguous or duplicate token, or a circular dependency.
+   *   ambiguous or duplicate token, or a circular dependency; and on an
+   *   override that is invalid or replaces nothing.
    */
-  constructor(root: Ctr) {
+  constructor(root: Ctr, options: InjectorOptions = {}) {
     this.#log = debuglog("cho:di");
     const done = this.#log.start();
     try {
-      this.meta = build_meta_graph(root);
+      this.meta = build_meta_graph(root, options.overrides);
       this.graph = build_dependency_graph(this.meta);
     } catch (error) {
       this.#log.error(`invalid graph of ${describe(root)}:`, error);
@@ -134,10 +189,113 @@ export class Injector {
    *
    * @returns A promise that resolves when everything is created.
    * @throws {Error} (as a rejection) When a factory fails:
-   *   `Failed to create X in module M`, with the original error as `cause`.
+   *   `Failed to create X in module M`, with the original error as `cause`;
+   *   and when the injector is disposed.
    */
   async init(): Promise<void> {
+    if (this.#disposal) {
+      throw new Error(DISPOSED);
+    }
     await this.#init_module(this.graph.root);
+  }
+
+  /**
+   * Release everything the injector created.
+   *
+   * It waits for the creations in flight, then goes through the created
+   * values in reverse creation order, so a value is always disposed before
+   * what it depends on. A value is disposed by its own
+   * `[Symbol.asyncDispose]()` or, without one, `[Symbol.dispose]()`: the
+   * standard methods of explicit resource management (`using`). Values that
+   * have neither are skipped. A value provided under several tokens is
+   * disposed once.
+   *
+   * ```ts
+   * @Injectable()
+   * class Db {
+   *   async [Symbol.asyncDispose]() {
+   *     await this.connection.close();
+   *   }
+   * }
+   * ```
+   *
+   * The injector never disposes on its own: call this when the application
+   * ends (CHO modules do, in their `close()`). Afterwards `resolve()` and
+   * `init()` reject. Calling it again returns the same disposal.
+   *
+   * A value that fails to dispose does not stop the others.
+   *
+   * @returns A promise that resolves when every value is disposed.
+   * @throws {AggregateError} (as a rejection) When values failed to dispose:
+   *   one `Failed to dispose X in module M` error for each, with the original
+   *   error as `cause`.
+   *
+   * @example
+   * ```ts
+   * const injector = new Injector(App);
+   * try {
+   *   await injector.init();
+   *   // ... run the application
+   * } finally {
+   *   await injector.dispose();
+   * }
+   * ```
+   *
+   * @example With `await using`
+   * ```ts
+   * await using injector = new Injector(App);
+   * const users = await injector.resolve(UserService);
+   * // disposed when the block ends
+   * ```
+   */
+  dispose(): Promise<void> {
+    return this.#disposal ??= this.#dispose();
+  }
+
+  /** Dispose the injector at the end of an `await using` block. */
+  [Symbol.asyncDispose](): Promise<void> {
+    return this.dispose();
+  }
+
+  /** What `dispose()` does, once. */
+  async #dispose(): Promise<void> {
+    const done = this.#log.start();
+    // Every creation in flight already asked for its dependencies (see
+    // `#create`), and no new request is accepted: this is the whole set.
+    await Promise.allSettled(this.#instances.values());
+
+    const disposed = new Set<unknown>();
+    const errors: Error[] = [];
+    for (const [node, value] of this.#created.reverse()) {
+      if (
+        (typeof value !== "object" && typeof value !== "function") ||
+        value === null || disposed.has(value)
+      ) {
+        continue;
+      }
+      disposed.add(value);
+      const holder = value as Record<symbol, unknown>;
+      const method = holder[AsyncDispose] ?? holder[Dispose];
+      if (typeof method !== "function") {
+        continue;
+      }
+      const name = `${describe(node.token)} in module ${describe(node.owner)}`;
+      try {
+        await method.call(value);
+        this.#log(`disposed ${name}`);
+      } catch (cause) {
+        this.#log.error(`failed to dispose ${name}:`, cause);
+        errors.push(new Error(`Failed to dispose ${name}`, { cause }));
+      }
+    }
+    this.#created.length = 0;
+    done("disposed");
+    if (errors.length > 0) {
+      throw new AggregateError(
+        errors,
+        `Failed to dispose ${errors.length} of the injector's instances`,
+      );
+    }
   }
 
   /**
@@ -155,8 +313,9 @@ export class Injector {
    * @returns The value of the token. The same value for every call.
    * @throws {Error} (as a rejection) When `module` is not part of the
    *   application, when the token is not visible in its scope, when it is
-   *   ambiguous there (two imports export different instances of it), or
-   *   when a factory fails (`Failed to create X in module M`, with `cause`).
+   *   ambiguous there (two imports export different instances of it), when
+   *   a factory fails (`Failed to create X in module M`, with `cause`), or
+   *   when the injector is disposed.
    *
    * @example
    * ```ts
@@ -166,6 +325,9 @@ export class Injector {
    * ```
    */
   resolve<T>(token: Token<T>, module?: Ctr): Promise<T> {
+    if (this.#disposal) {
+      return this.#reject(new Error(DISPOSED));
+    }
     const scope = module ? this.graph.modules.get(module) : this.graph.root;
     if (!scope) {
       return this.#reject(
@@ -280,6 +442,7 @@ export class Injector {
     const done = this.#log.start();
     try {
       const value = await node.meta.provider.factory(...args);
+      this.#created.push([node, value]);
       done(`created ${name}`);
       return value;
     } catch (cause) {

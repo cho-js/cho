@@ -11,7 +11,7 @@
  * @module
  */
 
-import type { Ctr } from "@chojs/core/di";
+import type { Ctr, Provider } from "@chojs/core/di";
 import { Injector } from "@chojs/core/di";
 import { debuglog, describe } from "@chojs/core/utils";
 import { build_http_graph } from "./build-graph.ts";
@@ -50,6 +50,11 @@ export type ChoWebOptions<T = unknown> = {
    * leading or trailing `/` (for example `"api"`). Default: `""`, no prefix.
    */
   prefix?: string;
+  /**
+   * Providers that replace the declared providers of the same token, for
+   * tests (see `InjectorOptions.overrides` of `@chojs/core`). Default: none.
+   */
+  overrides?: readonly Provider[];
 };
 
 /**
@@ -98,6 +103,8 @@ export class ChoWeb<T = unknown> {
   readonly graph: AppRef;
   /** The routes of the application, as given to the linker. */
   readonly routes: readonly Route[];
+  /** Holds the instances of the application; disposed by {@link close}. */
+  readonly #injector: Injector;
 
   /**
    * Create the web application of a root module.
@@ -130,8 +137,12 @@ export class ChoWeb<T = unknown> {
     // Created here, not when the module is loaded, so it follows `set_env`.
     const log = debuglog("cho:web");
     const done = log.start();
+    let inj: Injector | undefined;
     try {
-      const inj = new Injector(app);
+      inj = new Injector(
+        app,
+        options.overrides ? { overrides: options.overrides } : {},
+      );
       await inj.init();
       const graph = await build_http_graph(inj, options.prefix ?? "");
       const routes = compile_routes(graph, log);
@@ -140,11 +151,16 @@ export class ChoWeb<T = unknown> {
           log(`${route.method} ${route.path} -> ${route.name}`);
         }
       }
-      const web = new ChoWeb(options.linker.link(routes), graph, routes);
+      const web = new ChoWeb(options.linker.link(routes), graph, routes, inj);
       done(`application ${describe(app)} created`);
       return web;
     } catch (error) {
       log.error(`cannot create application ${describe(app)}:`, error);
+      // Release what was created before the failure (an open connection,
+      // say); the failure to create is the error to report.
+      await inj?.dispose().catch((cause) =>
+        log.error("cleanup after the failure failed:", cause)
+      );
       throw error;
     }
   }
@@ -156,11 +172,50 @@ export class ChoWeb<T = unknown> {
    * @param linked The linked HTTP application.
    * @param graph The HTTP graph of the application.
    * @param routes The routes given to the linker.
+   * @param injector The injector that holds the application's instances.
    */
-  constructor(linked: Linked<T>, graph: AppRef, routes: readonly Route[]) {
+  constructor(
+    linked: Linked<T>,
+    graph: AppRef,
+    routes: readonly Route[],
+    injector: Injector,
+  ) {
     this.linked = linked;
     this.graph = graph;
     this.routes = routes;
+    this.#injector = injector;
+  }
+
+  /**
+   * Release the instances of the application: every provider, controller and
+   * module that has a `[Symbol.asyncDispose]()` or `[Symbol.dispose]()`
+   * method is disposed, in reverse creation order (see `Injector.dispose`).
+   *
+   * Call it when the server has stopped: `@chojs/web` does not run the
+   * server, so it cannot know. Requests still in flight keep the instances
+   * they hold, disposed or not. Calling it again does nothing more.
+   *
+   * @returns A promise that resolves when everything is disposed.
+   * @throws {AggregateError} (as a rejection) When instances failed to
+   *   dispose.
+   *
+   * @example
+   * ```ts
+   * const app = await ChoWeb.create(AppModule, { linker: new HonoLinker() });
+   * const server = Deno.serve(app.handler);
+   * Deno.addSignalListener("SIGTERM", async () => {
+   *   await server.shutdown(); // stop accepting, finish the requests
+   *   await app.close();
+   * });
+   * ```
+   */
+  close(): Promise<void> {
+    return this.#injector.dispose();
+  }
+
+  /** Close the application at the end of an `await using` block. */
+  [Symbol.asyncDispose](): Promise<void> {
+    return this.close();
   }
 
   /**

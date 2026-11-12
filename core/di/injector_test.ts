@@ -834,3 +834,303 @@ describe("Injector, sync factories and iteration", () => {
     );
   });
 });
+
+describe("Injector.dispose", () => {
+  /** An app of three chained classes that record their disposal. */
+  function chain(log: string[]) {
+    class Conn {
+      async [Symbol.asyncDispose]() {
+        await Promise.resolve();
+        log.push("Conn");
+      }
+    }
+    Injectable()(Conn);
+    class Repo {
+      constructor(readonly conn: Conn) {}
+      [Symbol.dispose]() {
+        log.push("Repo");
+      }
+    }
+    Injectable([Conn])(Repo);
+    class Service {
+      constructor(readonly repo: Repo) {}
+      [Symbol.dispose]() {
+        log.push("Service");
+      }
+    }
+    Injectable([Repo])(Service);
+    class Plain {} // nothing to dispose
+    Injectable()(Plain);
+    class App {}
+    Module({ providers: [Service, Plain, Repo, Conn] })(App);
+    return { App, Conn, Repo, Service, Plain };
+  }
+
+  it("disposes what was created, dependents before their dependencies", async () => {
+    const log: string[] = [];
+    const { App } = chain(log);
+    const injector = new Injector(App);
+    await injector.init();
+    await injector.dispose();
+    assert.deepEqual(log, ["Service", "Repo", "Conn"]);
+  });
+
+  it("only disposes what was created", async () => {
+    const log: string[] = [];
+    const { App, Repo } = chain(log);
+    const injector = new Injector(App);
+    await injector.resolve(Repo); // Service is never created
+    await injector.dispose();
+    assert.deepEqual(log, ["Repo", "Conn"]);
+  });
+
+  it("prefers asyncDispose, and disposes values of provider objects", async () => {
+    const log: string[] = [];
+    const POOL = token<object>("POOL");
+    class App {}
+    Module({
+      providers: [provider({
+        provide: POOL,
+        factory: () => ({
+          [Symbol.dispose]: () => log.push("sync"),
+          [Symbol.asyncDispose]: () => Promise.resolve(log.push("async")),
+        }),
+      })],
+    })(App);
+    const injector = new Injector(App);
+    await injector.init();
+    await injector.dispose();
+    assert.deepEqual(log, ["async"]);
+  });
+
+  it("disposes a value provided under several tokens once", async () => {
+    let count = 0;
+    class Db {
+      [Symbol.dispose]() {
+        count++;
+      }
+    }
+    Injectable()(Db);
+    const ALIAS = token<Db>("ALIAS");
+    class App {}
+    Module({
+      providers: [
+        Db,
+        provider({ provide: ALIAS, deps: [Db], factory: (db) => db }),
+      ],
+    })(App);
+    const injector = new Injector(App);
+    await injector.init();
+    await injector.dispose();
+    assert.equal(count, 1);
+  });
+
+  it("waits for a creation in flight, then disposes it", async () => {
+    const log: string[] = [];
+    const SLOW = token<object>("SLOW");
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => finish = resolve);
+    class App {}
+    Module({
+      providers: [provider({
+        provide: SLOW,
+        factory: async () => {
+          await gate;
+          log.push("created");
+          return { [Symbol.dispose]: () => log.push("disposed") };
+        },
+      })],
+    })(App);
+    const injector = new Injector(App);
+    const pending = injector.resolve(SLOW);
+    const disposal = injector.dispose();
+    finish();
+    await Promise.all([pending, disposal]);
+    assert.deepEqual(log, ["created", "disposed"]);
+  });
+
+  it("rejects resolve() and init() afterwards, and disposes once", async () => {
+    const log: string[] = [];
+    const { App, Service } = chain(log);
+    const injector = new Injector(App);
+    await injector.init();
+    const first = injector.dispose();
+    assert.equal(injector.dispose(), first);
+    await first;
+    await injector.dispose();
+    assert.equal(log.length, 3);
+    await assert.rejects(injector.resolve(Service), {
+      message: "The injector is disposed",
+    });
+    await assert.rejects(injector.init(), {
+      message: "The injector is disposed",
+    });
+  });
+
+  it("keeps disposing after a failure, and reports every failure", async () => {
+    const log: string[] = [];
+    class A {
+      [Symbol.dispose]() {
+        log.push("A");
+      }
+    }
+    Injectable()(A);
+    class B {
+      constructor(readonly a: A) {}
+      [Symbol.dispose]() {
+        throw new Error("B is stuck");
+      }
+    }
+    Injectable([A])(B);
+    class App {}
+    Module({ providers: [A, B] })(App);
+    const injector = new Injector(App);
+    await injector.init();
+
+    await assert.rejects(injector.dispose(), (error) => {
+      assert.ok(error instanceof AggregateError);
+      assert.equal(
+        error.message,
+        "Failed to dispose 1 of the injector's instances",
+      );
+      assert.equal(
+        error.errors[0].message,
+        "Failed to dispose B in module App",
+      );
+      assert.equal(error.errors[0].cause.message, "B is stuck");
+      return true;
+    });
+    assert.deepEqual(log, ["A"]);
+  });
+
+  it("ignores failed creations and values that are not objects", async () => {
+    const N = token<number>("N");
+    const BAD = token<object>("BAD");
+    class App {}
+    Module({
+      providers: [
+        provider({ provide: N, factory: () => 1 }),
+        provider({
+          provide: BAD,
+          factory: () => {
+            throw new Error("no");
+          },
+        }),
+      ],
+    })(App);
+    const injector = new Injector(App);
+    await injector.init().catch(() => {});
+    await injector.dispose();
+  });
+
+  it("is what `await using` calls", async () => {
+    const log: string[] = [];
+    const { App } = chain(log);
+    {
+      await using injector = new Injector(App);
+      await injector.init();
+    }
+    assert.deepEqual(log, ["Service", "Repo", "Conn"]);
+  });
+});
+
+describe("Injector, overrides", () => {
+  /** `Service` in `App` depends on `Db`, private to the imported `Data`. */
+  function app() {
+    class Config {
+      url = "real";
+    }
+    Injectable()(Config);
+    class Db {
+      constructor(readonly config: Config) {}
+      name = "real db";
+    }
+    Injectable([Config])(Db);
+    class Repo {
+      constructor(readonly db: Db) {}
+    }
+    Injectable([Db])(Repo);
+    class Data {}
+    Module({ providers: [Config, Db, Repo], exports: [Repo] })(Data);
+    class Service {
+      constructor(readonly repo: Repo) {}
+    }
+    Injectable([Repo])(Service);
+    class App {}
+    Module({ imports: [Data], providers: [Service] })(App);
+    return { App, Config, Db, Service };
+  }
+
+  it("replaces a provider deep in an imported module", async () => {
+    const { App, Db, Service } = app();
+    const fake = { name: "fake db" } as InstanceType<typeof Db>;
+    const injector = new Injector(App, {
+      overrides: [provider({ provide: Db, factory: () => fake })],
+    });
+    const service = await injector.resolve(Service);
+    assert.equal(service.repo.db, fake);
+  });
+
+  it("resolves an override's deps in the module of the replaced provider", async () => {
+    const { App, Config, Db, Service } = app();
+    const injector = new Injector(App, {
+      overrides: [provider({
+        provide: Db,
+        deps: [Config], // private to Data: not visible from App
+        factory: (config) =>
+          ({ name: `fake on ${config.url}` }) as InstanceType<typeof Db>,
+      })],
+    });
+    const service = await injector.resolve(Service);
+    assert.equal(service.repo.db.name, "fake on real");
+  });
+
+  it("replaces a provider object, in every module that declares the token", async () => {
+    const URL = token<string>("URL");
+    const real = provider({ provide: URL, factory: () => "real" });
+    class A {}
+    Module({ providers: [real], exports: [URL] })(A);
+    class App {}
+    Module({ providers: [real] })(App);
+    class Root {}
+    Module({ imports: [A, App] })(Root);
+
+    const injector = new Injector(Root, {
+      overrides: [provider({ provide: URL, factory: () => "fake" })],
+    });
+    assert.equal(await injector.resolve(URL, A), "fake");
+    assert.equal(await injector.resolve(URL, App), "fake");
+    // the declarations themselves are untouched
+    assert.equal(await new Injector(Root).resolve(URL, A), "real");
+  });
+
+  it("rejects an override that replaces nothing", () => {
+    const { App } = app();
+    const TYPO = token<string>("TYPO");
+    assert.throws(
+      () =>
+        new Injector(App, {
+          overrides: [provider({ provide: TYPO, factory: () => "x" })],
+        }),
+      {
+        message:
+          "Cannot override InjectionToken(TYPO): no module of the application provides it",
+      },
+    );
+  });
+
+  it("rejects an invalid or a repeated override", () => {
+    const { App, Db } = app();
+    const override = provider({
+      provide: Db,
+      factory: () => ({}) as InstanceType<typeof Db>,
+    });
+    assert.throws(() => new Injector(App, { overrides: [Db as never] }), {
+      message: "An override must be a provider object, built with provider()",
+    });
+    assert.throws(
+      () => new Injector(App, { overrides: [override, override] }),
+      { message: "Db is overridden more than once" },
+    );
+  });
+});

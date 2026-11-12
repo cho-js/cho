@@ -246,13 +246,40 @@ app.handler; // (req: Request) => Promise<Response>
 app.linked.instance; // the runtime's own application (a Hono app)
 app.routes; // every route: method, path, name
 app.graph; // the same routes as a tree: features, controllers, handlers
+await app.close(); // when the server has stopped: release the instances
 ```
 
 `ChoWeb.create` builds the injector, creates **every** instance of the
 application up front (`injector.init()`), builds and checks the routes, and
 registers them with the adapter. Every wiring, route, middleware or error
-handler mistake makes it reject, before the server starts. The `name` and
-`version` options are accepted but not used yet.
+handler mistake makes it reject, before the server starts; what was created
+until then is disposed. The `name` and `version` options are accepted but not
+used yet.
+
+**Closing.** `app.close()` disposes the application's instances, in reverse
+creation order: every provider, controller or module with a
+`[Symbol.asyncDispose]()` or `[Symbol.dispose]()` method (`core/specs.md`,
+section 2.7). `@chojs/web` does not run the server, so it never closes on its
+own: stop the server first, then close.
+
+```ts
+const server = Deno.serve(app.handler);
+Deno.addSignalListener("SIGTERM", async () => {
+  await server.shutdown(); // stop accepting, finish the requests in flight
+  await app.close();
+});
+```
+
+**Testing.** The `overrides` option replaces providers with fakes, anywhere in
+the module graph (`core/specs.md`, section 2.7):
+
+```ts
+const app = await ChoWeb.create(App, {
+  linker: new HonoLinker(),
+  overrides: [provider({ provide: Db, factory: () => new FakeDb() })],
+});
+const response = await app.handler(new Request("http://localhost/users/1"));
+```
 
 **Debug logging.** `@chojs/web` logs to the `cho:web` debug context, on stderr.
 It is off by default; enable it with `CHO_DEBUGLOG=cho:web`, all of CHO with

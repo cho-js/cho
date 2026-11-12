@@ -8,7 +8,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Injectable } from "@chojs/core/di";
+import { Injectable, provider } from "@chojs/core/di";
 import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
 import { Controller, Get, Module } from "./decorators.ts";
 import type { Ctr } from "@chojs/core/di";
@@ -169,5 +169,79 @@ describe("ChoWeb.create, debug logging", () => {
       logs,
       /ERROR cannot create application NotAModule: Error: Class NotAModule is not a module/,
     );
+  });
+});
+
+describe("ChoWeb, closing and overrides", () => {
+  /** An app whose `GET /` answers with the name of its `Db`. */
+  function db_app(log: string[]) {
+    class Db {
+      name = "real";
+      [Symbol.asyncDispose]() {
+        log.push(`closed ${this.name}`);
+        return Promise.resolve();
+      }
+    }
+    Injectable()(Db);
+    class Home {
+      constructor(readonly db: Db) {}
+      get() {
+        return this.db.name;
+      }
+    }
+    legacy(Get(""), Home, "get");
+    Controller({ dependencies: [Db] })(Home);
+    class App {}
+    Module({ providers: [Db], controllers: [Home] })(App);
+    return { App, Db };
+  }
+
+  it("close() disposes the application's instances, once", async () => {
+    const log: string[] = [];
+    const app = await ChoWeb.create(db_app(log).App, {
+      linker: new FakeLinker(),
+    });
+    assert.deepEqual(log, []);
+    await app.close();
+    await app.close();
+    assert.deepEqual(log, ["closed real"]);
+  });
+
+  it("is closed at the end of an `await using` block", async () => {
+    const log: string[] = [];
+    {
+      await using _app = await ChoWeb.create(db_app(log).App, {
+        linker: new FakeLinker(),
+      });
+    }
+    assert.deepEqual(log, ["closed real"]);
+  });
+
+  it("disposes what was created when the application cannot be created", async () => {
+    const log: string[] = [];
+    const { App } = db_app(log);
+    await assert.rejects(
+      ChoWeb.create(App, { linker: new FakeLinker(), prefix: "/bad" }),
+      /Invalid route "\/bad" of the global prefix/,
+    );
+    assert.deepEqual(log, ["closed real"]);
+  });
+
+  it("replaces providers with the overrides option", async () => {
+    const { App, Db } = db_app([]);
+    const linker = new FakeLinker();
+    await ChoWeb.create(App, {
+      linker,
+      overrides: [
+        provider({
+          provide: Db,
+          factory: () => ({ name: "fake" }) as InstanceType<typeof Db>,
+        }),
+      ],
+    });
+    const response = await linker.calls[0]![0]!.handle(
+      new Request("http://localhost/"),
+    );
+    assert.equal(await response.json(), "fake");
   });
 });

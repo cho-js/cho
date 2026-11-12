@@ -16,6 +16,15 @@ injection system driven by decorators, plus the helpers CHO modules build on.
 - **Async by default.** Every value is created by an async factory, so a
   provider can connect to a database or read a file before it is ready, and
   everything that depends on it waits.
+- **Releases what it created.** `injector.dispose()` disposes instances in
+  reverse creation order, through the standard `Symbol.asyncDispose` /
+  `Symbol.dispose` methods. The injector never decides when: the application, or
+  the CHO module that runs it, does.
+- **Testable.** `new Injector(App, { overrides })` swaps a provider for a fake,
+  anywhere in the module graph.
+- **Singletons, by design.** One instance per declaration and injector. Request
+  data belongs to the request's context, every dependency is required, and
+  modules are not configured: providers are.
 - **Fails early.** `new Injector(App)` checks the whole module graph
   synchronously: a missing provider, a circular dependency or a missing
   decorator throws before anything is created.
