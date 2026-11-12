@@ -142,6 +142,7 @@ export class HonoLinker implements Linker<Hono> {
   }
 
   #createMiddlewares(middlewares: ChoMiddlewareFn[]): MiddlewareHandler[] {
-    return middlewares.map(createMiddleware);
+    // ChoMiddlewareFn resolves to `unknown`; Hono wants `void | Response`.
+    return middlewares.map((mw) => createMiddleware(mw as MiddlewareHandler));
   }
 }

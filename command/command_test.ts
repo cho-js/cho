@@ -5,9 +5,9 @@
  * `console.log` and `console.error` are captured (see `capture`), so the tests
  * check what a user would see and keep the test output clean.
  *
- * Failures are reported through the `cho` debug logger, which only writes when
- * `CHO_DEBUG` / `CHO_DEBUGLOG` enable it. The tests check the exit code, not
- * stderr, so they pass with or without debug logging.
+ * Failures without an error handler are printed to stderr as
+ * `Error: <message>`; the tests check the exit code and, where it matters,
+ * what was printed.
  */
 
 import { describe, it } from "node:test";
@@ -438,6 +438,84 @@ function catch_app(
   Module({ controllers: [Cli, Other] })(App);
   return App;
 }
+
+describe("ChoCommand.run, failures without a usable handler", () => {
+  it("prints the error to stderr and exits 1 without an error handler", async () => {
+    const app = ChoCommand.create(actions_app([]));
+
+    const { result, output } = await capture(() => app.run(["fail"]));
+    assert.equal(result, 1);
+    assert.deepEqual(output.error, ["Error: copy failed"]);
+  });
+
+  it("prints a non-Error throw with String()", async () => {
+    class Cli {
+      run() {
+        throw 42;
+      }
+    }
+    legacy(Main(), Cli, "run");
+    Controller()(Cli);
+    class App {}
+    Module({ controllers: [Cli] })(App);
+
+    const { result, output } = await capture(() =>
+      ChoCommand.create(App).run([])
+    );
+    assert.equal(result, 1);
+    assert.deepEqual(output.error, ["Error: 42"]);
+  });
+
+  it("reports a command method that the instance replaced", async () => {
+    class Cli {
+      constructor() {
+        // an own property shadows the decorated prototype method
+        Object.defineProperty(this, "run", { value: "not a function" });
+      }
+      run() {}
+    }
+    legacy(Main(), Cli, "run");
+    Controller()(Cli);
+    class App {}
+    Module({ controllers: [Cli] })(App);
+
+    const { result, output } = await capture(() =>
+      ChoCommand.create(App).run([])
+    );
+    assert.equal(result, 1);
+    assert.deepEqual(output.error, [
+      "Error: Method 'run' is not a function on controller 'Cli'.",
+    ]);
+  });
+
+  it("prints the error and exits 2 with a class error handler", async () => {
+    // Current behavior, a known bug (command/issues.md #1): the handler
+    // instance is called as a function, which throws. Update this test when
+    // class error handlers are fixed.
+    class OnError {
+      handle() {
+        return 5;
+      }
+    }
+    Injectable()(OnError);
+    class Cli {
+      run() {
+        throw new Error("boom");
+      }
+    }
+    legacy(Main(), Cli, "run");
+    legacy(Catch(OnError), Cli, "run");
+    Controller()(Cli);
+    class App {}
+    Module({ providers: [OnError], controllers: [Cli] })(App);
+
+    const { result, output } = await capture(() =>
+      ChoCommand.create(App).run([])
+    );
+    assert.equal(result, 2);
+    assert.deepEqual(output.error, ["Error: boom"]);
+  });
+});
 
 describe("ChoCommand.run, error handler lookup", () => {
   it("uses the method's handler before the controller's", async () => {

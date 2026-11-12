@@ -12,6 +12,8 @@
  *   `(prototype, name, descriptor)`;
  * - {@link tc39} calls it the TC39 way: `(method, context)`.
  *
+ * {@link with_env} sets environment variables for the duration of a test.
+ *
  * @module
  */
 
@@ -99,5 +101,46 @@ export async function capture<T>(
   } finally {
     console.log = log;
     console.error = error;
+  }
+}
+
+/**
+ * Run a function with environment variables set, then restore their previous
+ * values, even when it throws.
+ *
+ * Variables are set through `process.env`, which Deno, Node.js and Bun all
+ * provide (Deno needs `--allow-env`).
+ *
+ * @param vars The variables to set; `undefined` removes a variable.
+ * @param fn The function to run.
+ *
+ * @example
+ * ```ts
+ * with_env({ CHO_DEBUG: "1", CHO_DEBUGLOG: undefined }, () => {
+ *   assert.equal(debuglog("cho").enabled, true);
+ * });
+ * ```
+ */
+export function with_env(
+  vars: Record<string, string | undefined>,
+  fn: () => void,
+): void {
+  const env = (globalThis as unknown as {
+    process: { env: Record<string, string | undefined> };
+  }).process.env;
+  const apply = (values: Record<string, string | undefined>) => {
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) delete env[key];
+      else env[key] = value;
+    }
+  };
+  const saved = Object.fromEntries(
+    Object.keys(vars).map((key) => [key, env[key]]),
+  );
+  apply(vars);
+  try {
+    fn();
+  } finally {
+    apply(saved);
   }
 }
