@@ -1,0 +1,17 @@
+{
+  "name": "@chojs/web",
+  "version": "3.0.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./mod.ts",
+    "./linker": "./linker.ts",
+    "./graph": "./graph.ts"
+  },
+  "imports": {
+  },
+  "publish": {
+    "exclude": [
+      "./**/*_test.ts"
+    ]
+  }
+}

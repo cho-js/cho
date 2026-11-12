@@ -1,0 +1,16 @@
+{
+  "name": "@chojs/vendor-hono",
+  "version": "3.0.0",
+  "license": "MIT",
+  "exports": "./mod.ts",
+  "imports": {
+    "hono": "jsr:@hono/hono@^4.13.6"
+  },
+  "publish": {
+    "exclude": [
+      "./**/*_test.ts",
+      "./*.mjs",
+      "./hono-cors.ts"
+    ]
+  }
+}
