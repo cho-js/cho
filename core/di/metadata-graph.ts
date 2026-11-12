@@ -52,7 +52,7 @@ import {
   type ModuleRecord,
   PROVIDERS,
 } from "./keys.ts";
-import { isToken, provider } from "./tokens.ts";
+import { is_token, provider } from "./tokens.ts";
 import { describe } from "../utils/describe.ts";
 
 // Types
@@ -270,16 +270,36 @@ function controller_metadata(ctr: Ctr): ControllerMetadata {
  * @returns The normalized declaration: {@link InjectableMetadata} for a class,
  *   {@link ProviderMetadata} for a provider object.
  * @throws {Error} When the entry is a class that is not decorated with
- *   `@Injectable` (or `@Module` / `@Controller`, which are injectable too).
+ *   `@Injectable`, or that is a `@Controller` or a `@Module`: those belong in
+ *   `controllers` and `imports`.
  */
 function provider_metadata(
   p: Provider | Ctr,
 ): ProviderMetadata | InjectableMetadata {
   if (typeof p === "function") {
-    const record = read_metadata_object<InjectableRecord>(p);
+    const record = read_metadata_object<
+      InjectableRecord & Partial<ControllerRecord & ModuleRecord>
+    >(p);
     if (!record?.[INJECTABLE]) {
       throw new Error(
         `Class ${describe(p)} is not injectable. Did you forget @Injectable?`,
+      );
+    }
+    // A controller or a module in `providers` would be created as a plain
+    // provider: its routes or commands, or its declarations, would silently
+    // not exist.
+    if (record[CONTROLLER]) {
+      throw new Error(
+        `Class ${
+          describe(p)
+        } is a controller: declare it in "controllers", not in "providers".`,
+      );
+    }
+    if (record[MODULE]) {
+      throw new Error(
+        `Class ${
+          describe(p)
+        } is a module: list it in "imports", not in "providers".`,
       );
     }
     return {
@@ -384,7 +404,7 @@ class Overrides {
   constructor(providers: readonly Provider[]) {
     for (const p of providers) {
       if (
-        typeof p !== "object" || p === null || !isToken(p.provide) ||
+        typeof p !== "object" || p === null || !is_token(p.provide) ||
         typeof p.factory !== "function"
       ) {
         throw new Error(

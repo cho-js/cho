@@ -255,6 +255,49 @@ describe("method records", () => {
     assert.deepEqual([...method_records(Base)], [["run", { from: "base" }]]);
   });
 
+  it("merges a subclass's record over its parent's, at every level", () => {
+    class A {}
+    class B extends A {}
+    class C extends B {}
+    add_to_metadata_object(method_metadata(A, "run"), {
+      route: "a",
+      mws: ["a"],
+      a: 1,
+    });
+    add_to_metadata_object(method_metadata(B, "run"), { mws: ["b"], b: 2 });
+    add_to_metadata_object(method_metadata(C, "run"), {
+      route: "c",
+      mws: ["c"],
+    });
+
+    assert.deepEqual(read_method_metadata(A, "run"), {
+      route: "a",
+      mws: ["a"],
+      a: 1,
+    });
+    // B only adds: it keeps what A declared
+    assert.deepEqual(read_method_metadata(B, "run"), {
+      route: "a",
+      mws: ["a", "b"],
+      a: 1,
+      b: 2,
+    });
+    // C declares the route again: it replaces it
+    assert.deepEqual(read_method_metadata(C, "run"), {
+      route: "c",
+      mws: ["a", "b", "c"],
+      a: 1,
+      b: 2,
+    });
+    assert.ok(Object.isFrozen(read_method_metadata(C, "run")));
+    // the parents' own records are untouched
+    assert.deepEqual(read_metadata_object(method_metadata(A, "run")), {
+      route: "a",
+      mws: ["a"],
+      a: 1,
+    });
+  });
+
   it("reads records written on a method function too", () => {
     class Cli {
       run() {}

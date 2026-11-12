@@ -22,6 +22,8 @@ import {
   Main,
   Middlewares,
   Module,
+  provider,
+  token,
 } from "./mod.ts";
 
 const seen: string[] = [];
@@ -121,6 +123,35 @@ describe("decorator syntax", () => {
     assert.equal(code, 0);
     assert.match(log, /Usage: fs copy[\s\S]*Copy a file[\s\S]*-f, --force/);
     assert.match((await run()).log, /File commands:\n {2}copy {2}Copy a file/);
+  });
+
+  it("has token and provider, so an application needs no other import", async () => {
+    const GREETING = token<string>("GREETING");
+
+    @Controller({ dependencies: [GREETING] })
+    class Hello {
+      constructor(readonly greeting: string) {}
+
+      @Main()
+      main() {
+        console.log(this.greeting);
+      }
+    }
+
+    @Module({
+      providers: [provider({ provide: GREETING, factory: () => "hi" })],
+      controllers: [Hello],
+    })
+    class TokenApp {}
+
+    const said = async (app: ChoCommand) =>
+      (await capture(() => app.run([]))).output.log;
+    assert.deepEqual(await said(ChoCommand.create(TokenApp)), ["hi"]);
+    // and the same pair writes the overrides of a test
+    const overridden = ChoCommand.create(TokenApp, {
+      overrides: [provider({ provide: GREETING, factory: () => "hello" })],
+    });
+    assert.deepEqual(await said(overridden), ["hello"]);
   });
 
   it("runs a single @Main command", async () => {

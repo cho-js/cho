@@ -20,7 +20,7 @@ describe("placeholder", () => {});
 //       "Injectable",
 //       "Injector",
 //       "Module",
-//       "isToken",
+//       "is_token",
 //       "provider",
 //       "token",
 //     ]);

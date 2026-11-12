@@ -220,8 +220,9 @@ export function Middlewares(
  *
  * An error thrown by a handler or a middleware goes to the nearest one: the
  * handler's, else the controller's, else the feature's. What it returns is
- * the response, converted like a handler's result. A class or method has at
- * most one `@Catch`.
+ * the response, converted like a handler's result; when it returns nothing,
+ * the error is still unhandled and goes on to the HTTP runtime (a `500`). A
+ * class or method has at most one `@Catch`.
  *
  * @param handler A function `(error, ctx)`, or a class with a
  *   `handle(error, ctx)` method, created by the injector in the feature
@@ -251,7 +252,8 @@ export function Catch(handler: ChoWebErrorHandler): ChoClassOrMethodDecorator {
  * Mark a method as the handler of `GET route`.
  *
  * The method receives the request's `ChoWebContext`. What it returns is the
- * response: a `Response` as is, nothing as `204`, anything else as JSON.
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
  *
  * @param route The route of the handler, relative to its controller, without
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
@@ -288,7 +290,8 @@ export function Get(route: string): ChoMethodDecorator {
  * Mark a method as the handler of `POST route`.
  *
  * The method receives the request's `ChoWebContext`. What it returns is the
- * response: a `Response` as is, nothing as `204`, anything else as JSON.
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
  *
  * @param route The route of the handler, relative to its controller, without
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
@@ -320,7 +323,8 @@ export function Post(route: string): ChoMethodDecorator {
  * Mark a method as the handler of `PUT route`.
  *
  * The method receives the request's `ChoWebContext`. What it returns is the
- * response: a `Response` as is, nothing as `204`, anything else as JSON.
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
  *
  * @param route The route of the handler, relative to its controller, without
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
@@ -352,7 +356,8 @@ export function Put(route: string): ChoMethodDecorator {
  * Mark a method as the handler of `PATCH route`.
  *
  * The method receives the request's `ChoWebContext`. What it returns is the
- * response: a `Response` as is, nothing as `204`, anything else as JSON.
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
  *
  * @param route The route of the handler, relative to its controller, without
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
@@ -421,7 +426,8 @@ export function Head(route: string): ChoMethodDecorator {
  * Mark a method as the handler of `OPTIONS route`.
  *
  * The method receives the request's `ChoWebContext`. What it returns is the
- * response: a `Response` as is, nothing as `204`, anything else as JSON.
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
  *
  * @param route The route of the handler, relative to its controller, without
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
@@ -455,7 +461,8 @@ export function Options(route: string): ChoMethodDecorator {
  * Mark a method as the handler of `DELETE route`.
  *
  * The method receives the request's `ChoWebContext`. What it returns is the
- * response: a `Response` as is, nothing as `204`, anything else as JSON.
+ * response: a `Response` as is, nothing as `204`, a string or bytes as they
+ * are, anything else as JSON.
  *
  * @param route The route of the handler, relative to its controller, without
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the

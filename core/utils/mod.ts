@@ -10,5 +10,5 @@ export { engine, type EngineType } from "./engine.ts";
 export { compose, type MiddlewareFn, type ResultKind } from "./compose.ts";
 export { describe } from "./describe.ts";
 export { debuglog } from "./debuglog.ts";
-export { isClass, isClassImplement } from "./is.ts";
+export { is_class, is_class_implement } from "./is.ts";
 export type { Debuglog } from "./debuglog.ts";

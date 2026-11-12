@@ -1,10 +1,10 @@
 /**
- * Tests for `tokens.ts`: injection tokens, `isToken` and `provider`.
+ * Tests for `tokens.ts`: injection tokens, `is_token` and `provider`.
  */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isToken, provider, token } from "./tokens.ts";
+import { is_token, provider, token } from "./tokens.ts";
 
 describe("token", () => {
   it("has the given description", () => {
@@ -25,42 +25,42 @@ describe("token", () => {
     assert.notEqual(token("API_URL"), token("API_URL"));
   });
 
-  it("is recognized by isToken", () => {
-    assert.ok(isToken(token("API_URL")));
+  it("is recognized by is_token", () => {
+    assert.ok(is_token(token("API_URL")));
   });
 });
 
-describe("isToken", () => {
+describe("is_token", () => {
   it("accepts classes and functions", () => {
     class Foo {}
     abstract class Base {}
-    assert.ok(isToken(Foo));
-    assert.ok(isToken(Base));
-    assert.ok(isToken(function factory() {}));
+    assert.ok(is_token(Foo));
+    assert.ok(is_token(Base));
+    assert.ok(is_token(function factory() {}));
   });
 
   it("accepts symbols", () => {
-    assert.ok(isToken(Symbol("cache")));
-    assert.ok(isToken(Symbol.for("cache")));
+    assert.ok(is_token(Symbol("cache")));
+    assert.ok(is_token(Symbol.for("cache")));
   });
 
   it("accepts injection tokens created by another copy of the package", () => {
     const foreign = { description: "x", [Symbol.for("chojs.token")]: true };
-    assert.ok(isToken(foreign));
+    assert.ok(is_token(foreign));
   });
 
   it("rejects strings", () => {
-    assert.ok(!isToken("API_URL"));
+    assert.ok(!is_token("API_URL"));
   });
 
   it("rejects plain objects, even shaped like a token", () => {
-    assert.ok(!isToken({}));
-    assert.ok(!isToken({ description: "API_URL" }));
+    assert.ok(!is_token({}));
+    assert.ok(!is_token({ description: "API_URL" }));
   });
 
   it("rejects other values", () => {
     for (const value of [null, undefined, 0, 1, true, false, []]) {
-      assert.ok(!isToken(value), `${String(value)} should not be a token`);
+      assert.ok(!is_token(value), `${String(value)} should not be a token`);
     }
   });
 });

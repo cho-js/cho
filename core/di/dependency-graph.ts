@@ -94,7 +94,7 @@ export class DependencyNode<M extends ProviderMetadata = ProviderMetadata> {
    * Whether the node was built from a `@Controller` class, so that its `meta`
    * is a {@link ControllerMetadata}.
    */
-  isController(): this is DependencyNode<ControllerMetadata> {
+  is_controller(): this is DependencyNode<ControllerMetadata> {
     return "isController" in this.meta && this.meta.isController === true;
   }
 }

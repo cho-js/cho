@@ -26,7 +26,7 @@ export type EngineType =
   | "unknown";
 
 /** Whether `navigator.userAgent` mentions the given platform. */
-function checkUserAgent(platform: string): boolean {
+function check_user_agent(platform: string): boolean {
   const userAgent = globalThis?.navigator?.userAgent;
   return typeof userAgent === "string" && userAgent.includes(platform);
 }
@@ -35,14 +35,14 @@ function checkUserAgent(platform: string): boolean {
  * Detect if the current runtime is Cloudflare Workers.
  * @see https://developers.cloudflare.com/workers/runtime-apis/web-standards/#navigatoruseragent
  */
-export function isCloudflareRt(): boolean {
-  return checkUserAgent("Cloudflare-Workers");
+export function is_cloudflare_rt(): boolean {
+  return check_user_agent("Cloudflare-Workers");
 }
 
 /**
  * Detect if the current runtime is an Edge Runtime (like Vercel Edge Functions or Netlify Edge Functions).
  */
-export function isEdgeRt(): boolean {
+export function is_edge_rt(): boolean {
   return "EdgeRuntime" in globalThis;
 }
 
@@ -50,24 +50,24 @@ export function isEdgeRt(): boolean {
  * Detect if the current runtime is Deno.
  * @see https://docs.deno.com/api/web/~/Navigator.userAgent
  */
-export function isDenoRt(): boolean {
-  return checkUserAgent("Deno");
+export function is_deno_rt(): boolean {
+  return check_user_agent("Deno");
 }
 
 /**
  * Detect if the current runtime is Bun.
  * @see https://bun.com/reference/globals/Navigator/userAgent
  */
-export function isBunRt(): boolean {
-  return checkUserAgent("Bun");
+export function is_bun_rt(): boolean {
+  return check_user_agent("Bun");
 }
 
 /**
  * Detect if the current runtime is Node.js.
  * @see https://nodejs.org/api/process.html#processrelease
  */
-export function isNodeRt(): boolean {
-  return checkUserAgent("Node.js") ||
+export function is_node_rt(): boolean {
+  return check_user_agent("Node.js") ||
     globalThis.process?.release?.name === "node";
 }
 
@@ -89,23 +89,23 @@ export function isNodeRt(): boolean {
  * ```
  */
 export function engine(): EngineType {
-  if (isCloudflareRt()) {
+  if (is_cloudflare_rt()) {
     return "workerd";
   }
 
-  if (isEdgeRt()) {
+  if (is_edge_rt()) {
     return "edge";
   }
 
-  if (isDenoRt()) {
+  if (is_deno_rt()) {
     return "deno";
   }
 
-  if (isBunRt()) {
+  if (is_bun_rt()) {
     return "bun";
   }
 
-  if (isNodeRt()) {
+  if (is_node_rt()) {
     return "node";
   }
 

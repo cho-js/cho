@@ -119,7 +119,14 @@ export function compile_routes(
                 throw error;
               }
               log.error(`${req.method} ${ctx.url.pathname} failed:`, error);
-              return finish(to_response(await on_error(error, ctx)));
+              const handled = await on_error(error, ctx);
+              // Nothing returned is no response: the error is still
+              // unhandled. Answering 204, as for a handler that returns
+              // nothing, would report a failed request as a success.
+              if (handled === undefined) {
+                throw error;
+              }
+              return finish(to_response(handled));
             }
           },
         });

@@ -6,7 +6,9 @@
  * from a runtime adapter (such as `HonoLinker` from `@chojs/vendor-hono`),
  * which gives a `fetch`-style request handler. `@Middlewares` and `@Catch`
  * declare middlewares and error handlers; `@Controller`, `@Module` and
- * `@Injectable` come from `@chojs/core`.
+ * `@Injectable` come from `@chojs/core`, and so do `token` and `provider`,
+ * to declare values that are not classes: an application imports everything
+ * from `@chojs/web`.
  *
  * Handlers, middlewares and error handlers receive a {@link ChoWebContext},
  * built on the standard `Request`: application code does not depend on the
@@ -57,11 +59,18 @@
  * @module
  */
 
+// What an application needs from the core, so that it only imports
+// `@chojs/web`: the `@Injectable` decorator, and `token` and `provider` to
+// declare values that are not classes (and the `overrides` of tests).
 export {
   type ControllerOptions,
   Injectable,
   type InjectableOptions,
+  type InjectionToken,
   type ModuleOptions,
+  type Provider,
+  provider,
+  token,
 } from "@chojs/core/di";
 export * from "./decorators.ts";
 export * from "./web.ts";

@@ -11,9 +11,10 @@ disagree, the code wins. Known bugs are tracked in `web/issues.md`.
 
 ## 1. Overview
 
-An application imports everything from `@chojs/web`, plus a **runtime adapter**
-that matches requests to routes with an HTTP library. The only adapter today is
-`@chojs/vendor-hono` (Hono).
+An application imports everything from `@chojs/web` (the core's `@Injectable`,
+`token` and `provider` included, so it never imports `@chojs/core`), plus a
+**runtime adapter** that matches requests to routes with an HTTP library. The
+only adapter today is `@chojs/vendor-hono` (Hono).
 
 `@chojs/web` does the rest itself, the same way on every adapter: it creates the
 request context, runs the middlewares, the handler and the error handler, and
@@ -72,8 +73,10 @@ Deno.serve(app.handler); // or Bun.serve({ fetch: app.handler })
   at the root of the application, whatever imports it: importing a module does
   not nest its routes.
 - A **controller** is a `@Controller` class declared by a feature. Besides its
-  own handlers, it has the handlers it **inherits** from a base class; a
-  subclass that decorates an inherited method again replaces its route.
+  own handlers, it has the handlers it **inherits** from a base class. An
+  override keeps the inherited route unless it declares one itself:
+  `@Middlewares` on it adds to the parent's middlewares (which run first), and
+  `@Get(…)` on it replaces the route.
 - A **handler** is a controller method marked with `@Get(route)`,
   `@Post(route)`, `@Put(route)`, `@Patch(route)`, `@Delete(route)`,
   `@Head(route)` or `@Options(route)`. Other methods are not routes. A handler
@@ -139,9 +142,26 @@ The middlewares, the handler and the error handler of a request share one
 context. Code that uses `native` only runs on that adapter.
 
 - A handler can be `async`.
-- What it returns is the response: a `Response` is sent as is; `undefined`
-  answers `204 No Content`; anything else is sent as JSON with status `200` (a
-  string becomes a JSON string, `null` becomes `null`).
+- What it returns is the response:
+
+  | Returned                                                         | Sent                                                        |
+  | ---------------------------------------------------------------- | ----------------------------------------------------------- |
+  | a `Response`                                                     | as is                                                       |
+  | nothing (`undefined`)                                            | `204 No Content`                                            |
+  | a string                                                         | as text: `text/plain;charset=UTF-8`                         |
+  | bytes: `Uint8Array` and other typed arrays, `ArrayBuffer`        | as bytes, with no content type                              |
+  | a `Blob`                                                         | its bytes, with the blob's own type                         |
+  | a `ReadableStream`                                               | streamed, with no content type                              |
+  | a `FormData`, a `URLSearchParams`                                | as a form: `multipart/form-data` or `x-www-form-urlencoded` |
+  | anything else: objects, arrays, numbers, booleans, `null`, dates | as JSON: `application/json`                                 |
+
+  The rows between `undefined` and "anything else" are the bodies the platform's
+  `Response` accepts: the value is given to `new Response(value)`, with status
+  `200`. The platform sets the content type, except for a string, where
+  `@chojs/web` sets it so that it is the same on every runtime (Bun only adds it
+  when the response is sent). For another status or content type, return a
+  `Response`. A value that cannot be serialized as JSON (a `BigInt`, a cycle) is
+  an error (section 5).
 - The response of a `@Head` handler is sent **without its body**: only its
   status and headers. Without a `@Head` handler, what a `HEAD` request gets is
   up to the adapter (Hono answers it from the `@Get` handler, without the body).
@@ -219,6 +239,12 @@ handler is a function `(error, ctx)`, or a class with a `handle(error, ctx)`
 method created by the injector like a middleware class. Its result is the
 response, converted like a handler's result. It can be `async`.
 
+**An error handler that returns nothing has not handled the error.** A handler's
+`undefined` is a `204`; an error handler's is not, or a handler that only logs
+would report every failed request as a success. The error goes on to the adapter
+instead, as if there were no handler. To answer with an empty body, return a
+`Response`.
+
 An error thrown by a handler or by a middleware goes to the nearest one: the
 handler's, else the controller's, else the feature's, else the application's.
 
@@ -252,9 +278,10 @@ class UsersController {
 }
 ```
 
-Without any error handler at any level, or when the error handler throws too,
-the error goes to the adapter: the Hono adapter logs it and answers `500` (or
-calls the `onError` of the Hono application given to the linker).
+Without any error handler at any level, when the error handler returns nothing,
+or when it throws too, the error goes to the adapter: the Hono adapter logs it
+and answers `500` (or calls the `onError` of the Hono application given to the
+linker).
 
 ## 6. The application: `ChoWeb`
 
@@ -275,8 +302,7 @@ await app.close(); // when the server has stopped: release the instances
 application up front (`injector.init()`), builds and checks the routes, and
 registers them with the adapter. Every wiring, route, middleware or error
 handler mistake makes it reject, before the server starts; what was created
-until then is disposed. The `name` and `version` options are accepted but not
-used yet.
+until then is disposed.
 
 **Closing.** `app.close()` disposes the application's instances, in reverse
 creation order: every provider, controller or module with a
@@ -373,12 +399,12 @@ instance, middleware and error handler already created:
 
 ## 8. Public API
 
-| Entry point          | Exports                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Middlewares`, `Catch`, the types `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable` and the option types |
-| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                             |
-| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Entry point          | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Middlewares`, `Catch`, the types `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                |
+| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 

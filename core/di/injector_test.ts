@@ -949,6 +949,62 @@ describe("Injector.dispose", () => {
     assert.deepEqual(log, ["created", "disposed"]);
   });
 
+  it("creates nothing after a dispose() called while init() is running", async () => {
+    // init() asks for a module's own nodes only once its imports are ready.
+    // Here module A fails at once, so init() rejects while module B is still
+    // waiting for its import B0: disposing then must not let B create `Conn`.
+    const log: string[] = [];
+    const FAIL = token<object>("FAIL");
+    const SLOW = token<object>("SLOW");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => release = resolve);
+
+    class A {}
+    Module({
+      providers: [provider({
+        provide: FAIL,
+        factory: () => Promise.reject(new Error("no")),
+      })],
+    })(A);
+    class B0 {}
+    Module({
+      providers: [provider({
+        provide: SLOW,
+        factory: async () => {
+          await gate;
+          log.push("slow created");
+          return { [Symbol.dispose]: () => log.push("slow disposed") };
+        },
+      })],
+      exports: [SLOW],
+    })(B0);
+    class Conn {
+      constructor() {
+        log.push("Conn created");
+      }
+      [Symbol.dispose]() {
+        log.push("Conn disposed");
+      }
+    }
+    Injectable([SLOW])(Conn);
+    class B {}
+    Module({ imports: [B0], providers: [Conn] })(B);
+    class App {}
+    Module({ imports: [A, B] })(App);
+
+    const injector = new Injector(App);
+    await assert.rejects(injector.init(), {
+      message: "Failed to create InjectionToken(FAIL) in module A",
+    });
+    const disposal = injector.dispose();
+    release();
+    await disposal;
+    // let whatever init() still had to do, run
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(log, ["slow created", "slow disposed"]);
+  });
+
   it("rejects resolve() and init() afterwards, and disposes once", async () => {
     const log: string[] = [];
     const { App, Service } = chain(log);

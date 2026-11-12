@@ -5,7 +5,7 @@
  *   class instance: a URL, a configuration object, a function.
  * - {@link provider} defines a provider object, with the arguments of its
  *   factory typed from its dependencies.
- * - {@link isToken} tells whether a value can be used as a token.
+ * - {@link is_token} tells whether a value can be used as a token.
  *
  * @module
  */
@@ -20,7 +20,7 @@ import type {
 } from "./types.ts";
 
 /**
- * Brand of the objects created by {@link token}, used by {@link isToken} to
+ * Brand of the objects created by {@link token}, used by {@link is_token} to
  * tell an injection token from any other object. `Symbol.for` returns the same
  * symbol across copies and versions of this package, so their tokens are
  * recognized too.
@@ -81,7 +81,7 @@ export function token<T>(description: string): InjectionToken<T> {
  * @param value The value to check.
  * @returns `true` when the value is a token.
  */
-export function isToken(value: unknown): value is Token {
+export function is_token(value: unknown): value is Token {
   return typeof value === "function" || typeof value === "symbol" ||
     (typeof value === "object" && value !== null &&
       (value as Any)[TokenBrand] === true);

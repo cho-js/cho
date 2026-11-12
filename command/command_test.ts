@@ -249,11 +249,20 @@ describe("ChoCommand.run, --version and --help", () => {
     assert.deepEqual(calls, []);
   });
 
-  it("defaults the name and version", async () => {
+  it("defaults the name, and reports no version when none is set", async () => {
     const app = ChoCommand.create(main_app([]));
 
-    const { output } = await capture(() => app.run(["--version"]));
-    assert.deepEqual(output.log, ["chojs version 1.0.0"]);
+    const { result, output } = await capture(() => app.run(["--version"]));
+    assert.equal(result, 0);
+    assert.deepEqual(output.log, ["chojs (no version)"]);
+  });
+
+  it('prints a version that is an empty string or "0"', async () => {
+    for (const version of ["", "0"]) {
+      const app = ChoCommand.create(main_app([]), { name: "fs", version });
+      const { output } = await capture(() => app.run(["--version"]));
+      assert.deepEqual(output.log, [`fs version ${version}`]);
+    }
   });
 
   it("prints the command's help on --help, exits 0 and runs nothing", async () => {
@@ -542,9 +551,11 @@ describe("ChoCommand.run, failures without a usable handler", () => {
   });
 
   it("prints the error and exits 2 when a class error handler fails", async () => {
-    // The class is not a provider of the controller's module, so the
-    // injector cannot create it.
+    // The injector cannot create the handler: its constructor throws.
     class OnError {
+      constructor() {
+        throw new Error("no reporter");
+      }
       handle() {
         return 5;
       }
@@ -559,7 +570,7 @@ describe("ChoCommand.run, failures without a usable handler", () => {
     legacy(Catch(OnError), Cli, "run");
     Controller()(Cli);
     class App {}
-    Module({ controllers: [Cli] })(App);
+    Module({ providers: [OnError], controllers: [Cli] })(App);
 
     const { result, output } = await capture(() =>
       ChoCommand.create(App).run([])

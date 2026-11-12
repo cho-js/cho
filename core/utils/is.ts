@@ -8,16 +8,16 @@ import type { Ctr } from "../di/types.ts";
  * class MyClass {}
  * function myFunction() {}
  *
- * console.log(isClass(MyClass));
+ * console.log(is_class(MyClass));
  * // true
- * console.log(isClass(myFunction));
+ * console.log(is_class(myFunction));
  * // false
- * console.log(isClass({}));
+ * console.log(is_class({}));
  * // false
  * ```
  * @param v
  */
-export function isClass(v: unknown): v is Ctr {
+export function is_class(v: unknown): v is Ctr {
   if (typeof v !== "function") {
     return false;
   }
@@ -31,6 +31,6 @@ export function isClass(v: unknown): v is Ctr {
  * @param v The value to check.
  * @param method The method name.
  */
-export function isClassImplement<T>(v: unknown, method: string): v is Ctr<T> {
-  return isClass(v) && typeof v.prototype?.[method] === "function";
+export function is_class_implement<T>(v: unknown, method: string): v is Ctr<T> {
+  return is_class(v) && typeof v.prototype?.[method] === "function";
 }

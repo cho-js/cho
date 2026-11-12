@@ -236,19 +236,34 @@ describe("build_meta_graph", () => {
       assert.deepEqual(root.providers.map((p) => p.provider.provide), [A, B]);
     });
 
-    it("accepts @Module and @Controller classes, which are injectable too", () => {
-      class SomeModule {}
-      Module()(SomeModule);
+    it("rejects a @Controller or a @Module class: they are not providers", () => {
       class SomeController {}
       Controller()(SomeController);
-      class App {}
-      Module({ providers: [SomeModule, SomeController] })(App);
+      class WithController {}
+      Module({ providers: [SomeController] })(WithController);
+      assert.throws(() => build_meta_graph(WithController), {
+        message:
+          'Class SomeController is a controller: declare it in "controllers", not in "providers".',
+      });
 
-      const { root } = build_meta_graph(App);
-      assert.deepEqual(
-        root.providers.map((p) => p.provider.provide),
-        [SomeModule, SomeController],
-      );
+      class SomeModule {}
+      Module()(SomeModule);
+      class WithModule {}
+      Module({ providers: [SomeModule] })(WithModule);
+      assert.throws(() => build_meta_graph(WithModule), {
+        message:
+          'Class SomeModule is a module: list it in "imports", not in "providers".',
+      });
+    });
+
+    it("still lets a provider depend on a declared controller", () => {
+      class Ctrl {}
+      Controller()(Ctrl);
+      class Uses {}
+      Injectable([Ctrl])(Uses);
+      class App {}
+      Module({ providers: [Uses], controllers: [Ctrl] })(App);
+      assert.doesNotThrow(() => build_meta_graph(App));
     });
 
     it("gives classes factories that reject, rather than throw, when the constructor throws", async () => {
@@ -416,13 +431,21 @@ describe("build_meta_graph", () => {
         both() {}
       }
       add_to_metadata_object(method_metadata(Base, "inherited"), { from: "b" });
-      add_to_metadata_object(method_metadata(Base, "both"), { from: "b" });
+      add_to_metadata_object(method_metadata(Base, "both"), {
+        from: "b",
+        route: "x",
+        tags: ["base"],
+      });
       class Cli extends Base {
         own() {}
         override both() {}
       }
       add_to_metadata_object(method_metadata(Cli, "own"), { from: "c" });
-      add_to_metadata_object(method_metadata(Cli, "both"), { by: "c" });
+      add_to_metadata_object(method_metadata(Cli, "both"), {
+        by: "c",
+        route: "y",
+        tags: ["cli"],
+      });
       Controller()(Cli);
       class Other extends Base {}
       Controller()(Other);
@@ -434,15 +457,19 @@ describe("build_meta_graph", () => {
         cli!.methods.map((m) => [m.name, m.meta]),
         [
           ["inherited", { from: "b" }],
-          // the subclass's record replaces the parent's, it is not merged
-          ["both", { by: "c" }],
+          // the subclass's record is merged over the parent's: its values
+          // replace the parent's, arrays are concatenated, parent's first
+          ["both", { from: "b", by: "c", route: "y", tags: ["base", "cli"] }],
           ["own", { from: "c" }],
         ],
       );
       // a sibling subclass is not affected
       assert.deepEqual(
         other!.methods.map((m) => [m.name, m.meta]),
-        [["inherited", { from: "b" }], ["both", { from: "b" }]],
+        [
+          ["inherited", { from: "b" }],
+          ["both", { from: "b", route: "x", tags: ["base"] }],
+        ],
       );
     });
 

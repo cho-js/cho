@@ -42,10 +42,6 @@ export type ChoWebOptions<T = unknown> = {
    * such as `HonoLinker` from `@chojs/vendor-hono`.
    */
   linker: Linker<T>;
-  /** The application version. Not used yet. */
-  version?: string;
-  /** The application name. Not used yet. */
-  name?: string;
   /**
    * The global route prefix, added before every feature route, without
    * leading or trailing `/` (for example `"api"`). Default: `""`, no prefix.
@@ -57,8 +53,9 @@ export type ChoWebOptions<T = unknown> = {
    * and the feature's come first). Like `@Catch`, it takes a function
    * `(error, ctx)`, or a class with a `handle(error, ctx)` method, created by
    * the injector in the scope of the root module; what it returns is the
-   * response, converted like a handler's result. Default: none, such errors
-   * go to the HTTP runtime, which answers `500`.
+   * response, converted like a handler's result. When it returns nothing
+   * (it only logs, say), the error is still unhandled. Default: none.
+   * Unhandled errors go to the HTTP runtime, which answers `500`.
    *
    * It covers the errors of routes only: a request that matches no route
    * never reaches it (set the runtime's own not-found handler).
@@ -92,8 +89,8 @@ export type ChoWebOptions<T = unknown> = {
  *
  * Handlers, middlewares and error handlers receive a `ChoWebContext`, built
  * on the standard `Request`, whatever the HTTP runtime. What a handler
- * returns is the response: a `Response` as is, nothing as `204`, anything
- * else as JSON.
+ * returns is the response: a `Response` as is, nothing as `204`, a string
+ * or bytes as they are, anything else as JSON.
  *
  * @typeParam T The application object of the HTTP runtime, such as `Hono`.
  *

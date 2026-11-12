@@ -220,8 +220,9 @@ export class Injector {
    * ```
    *
    * The injector never disposes on its own: call this when the application
-   * ends (CHO modules do, in their `close()`). Afterwards `resolve()` and
-   * `init()` reject. Calling it again returns the same disposal.
+   * ends (CHO modules do, in their `close()`). Disposal is final: afterwards
+   * `resolve()` and `init()` reject, and an `init()` that was still running
+   * creates nothing more. Calling it again returns the same disposal.
    *
    * A value that fails to dispose does not stop the others.
    *
@@ -260,8 +261,9 @@ export class Injector {
   /** What `dispose()` does, once. */
   async #dispose(): Promise<void> {
     const done = this.#log.start();
-    // Every creation in flight already asked for its dependencies (see
-    // `#create`), and no new request is accepted: this is the whole set.
+    // This is the whole set: a creation in flight already asked for its
+    // dependencies (see `#create`), and `#instantiate` starts nothing new
+    // once the disposal has begun, not even for an `init()` still running.
     await Promise.allSettled(this.#instances.values());
 
     const disposed = new Set<unknown>();
@@ -409,12 +411,22 @@ export class Injector {
    * for the node share one creation. This relies on the graph being acyclic:
    * a node is never requested again while its own creation is being set up.
    *
+   * Once the injector is disposed, a node that was not started is not
+   * created: the request rejects.
+   *
    * @param node The node to create.
    * @returns The node's value.
    */
   #instantiate(node: DependencyNode): Promise<unknown> {
     let instance = this.#instances.get(node);
     if (!instance) {
+      // Disposal is final. An `init()` that is still running asks for a
+      // module's nodes only once its imports are ready, which can be after
+      // `dispose()` was called: creating them then would leave instances
+      // that nothing disposes.
+      if (this.#disposal) {
+        return Promise.reject(new Error(DISPOSED));
+      }
       instance = this.#create(node);
       this.#instances.set(node, instance);
     }
@@ -475,7 +487,7 @@ export class Injector {
   *controllers(): IterableIterator<DependencyNode<ControllerMetadata>> {
     for (const module of this.modules()) {
       for (const node of module.visible.values()) {
-        if (node.owner === module.ctr && node.isController()) {
+        if (node.owner === module.ctr && node.is_controller()) {
           yield node;
         }
       }

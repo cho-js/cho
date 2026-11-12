@@ -12,7 +12,9 @@ import type { ChoWebContext } from "./context.ts";
  * A route handler: a controller method marked with `@Get`, `@Post`, ...
  *
  * What it returns (or resolves to) is the response: a `Response` is sent as
- * is, `undefined` answers `204 No Content`, anything else is sent as JSON.
+ * is, `undefined` answers `204 No Content`, a body the platform knows (a
+ * string, bytes, a `Blob`, a `ReadableStream`, a form) is sent as it is, and
+ * anything else is sent as JSON.
  */
 export type ChoWebHandler = (ctx: ChoWebContext) => unknown;
 
@@ -59,7 +61,10 @@ export type ChoWebMiddleware =
 
 /**
  * An error handler function. What it returns is the response, converted like
- * a handler's result.
+ * a handler's result, with one difference: returning nothing is not a
+ * response. The error is then still unhandled, and goes on to the HTTP
+ * runtime (a `500`), so a handler that only logs does not turn a failed
+ * request into a success.
  *
  * @example
  * ```ts

@@ -9,11 +9,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   engine,
-  isBunRt,
-  isCloudflareRt,
-  isDenoRt,
-  isEdgeRt,
-  isNodeRt,
+  is_bun_rt,
+  is_cloudflare_rt,
+  is_deno_rt,
+  is_edge_rt,
+  is_node_rt,
 } from "./engine.ts";
 
 /** The runtime the tests run on, detected independently of `engine.ts`. */
@@ -29,18 +29,18 @@ describe("engine", () => {
   });
 
   it("is consistent with the is*Rt checks", () => {
-    assert.equal(isDenoRt(), actual === "deno");
-    assert.equal(isBunRt(), actual === "bun");
-    assert.equal(isCloudflareRt(), false);
-    assert.equal(isEdgeRt(), false);
-    if (actual === "node") assert.equal(isNodeRt(), true);
+    assert.equal(is_deno_rt(), actual === "deno");
+    assert.equal(is_bun_rt(), actual === "bun");
+    assert.equal(is_cloudflare_rt(), false);
+    assert.equal(is_edge_rt(), false);
+    if (actual === "node") assert.equal(is_node_rt(), true);
   });
 
   it("detects an edge runtime by its EdgeRuntime global, first", () => {
     const g = globalThis as { EdgeRuntime?: unknown };
     g.EdgeRuntime = "edge-runtime";
     try {
-      assert.equal(isEdgeRt(), true);
+      assert.equal(is_edge_rt(), true);
       assert.equal(engine(), "edge");
     } finally {
       delete g.EdgeRuntime;
@@ -54,7 +54,7 @@ describe("engine", () => {
       configurable: true,
     });
     try {
-      assert.equal(isCloudflareRt(), true);
+      assert.equal(is_cloudflare_rt(), true);
       assert.equal(engine(), "workerd");
     } finally {
       if (saved) Object.defineProperty(globalThis, "navigator", saved);

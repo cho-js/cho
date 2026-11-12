@@ -8,7 +8,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Injectable, provider } from "@chojs/core/di";
+import { Injectable, provider, token } from "@chojs/core/di";
 import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
 import { Controller, Get, Module } from "./decorators.ts";
 import type { Ctr } from "@chojs/core/di";
@@ -227,6 +227,47 @@ describe("ChoWeb, closing and overrides", () => {
     assert.deepEqual(log, ["closed real"]);
   });
 
+  it("leaves nothing created when one module fails while another is starting", async () => {
+    const log: string[] = [];
+    const FAIL = token<object>("FAIL");
+    const SLOW = token<object>("SLOW");
+    class A {}
+    Module({
+      providers: [provider({
+        provide: FAIL,
+        factory: () => Promise.reject(new Error("no")),
+      })],
+    })(A);
+    class B0 {}
+    Module({
+      providers: [provider({
+        provide: SLOW,
+        // ready after module A has failed
+        factory: () => new Promise((resolve) => setTimeout(resolve, 5, {})),
+      })],
+      exports: [SLOW],
+    })(B0);
+    class Conn {
+      constructor() {
+        log.push("opened");
+      }
+      [Symbol.dispose]() {
+        log.push("closed");
+      }
+    }
+    Injectable([SLOW])(Conn);
+    class B {}
+    Module({ imports: [B0], providers: [Conn] })(B);
+    class App {}
+    Module({ imports: [A, B] })(App);
+
+    await assert.rejects(ChoWeb.create(App, { linker: new FakeLinker() }), {
+      message: "Failed to create InjectionToken(FAIL) in module A",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(log, []);
+  });
+
   it("replaces providers with the overrides option", async () => {
     const { App, Db } = db_app([]);
     const linker = new FakeLinker();
@@ -242,6 +283,6 @@ describe("ChoWeb, closing and overrides", () => {
     const response = await linker.calls[0]![0]!.handle(
       new Request("http://localhost/"),
     );
-    assert.equal(await response.json(), "fake");
+    assert.equal(await response.text(), "fake");
   });
 });

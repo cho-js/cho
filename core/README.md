@@ -7,9 +7,14 @@ injection system driven by decorators, plus the helpers CHO modules build on.
 
 > **Building an application?** Use a CHO module instead:
 > [`@chojs/command`](../command/README.md) for command-line applications or
-> [`@chojs/web`](../web/README.md) for HTTP applications. They re-export the
-> decorators you need, so applications never import `@chojs/core` directly. This
-> package is for authors of CHO modules.
+> [`@chojs/web`](../web/README.md) for HTTP applications. They re-export what an
+> application needs (the decorators, `token`, `provider`), so applications never
+> import `@chojs/core` directly. This package is for authors of CHO modules.
+>
+> **This package is internal.** Its functions are named in `snake_case`
+> (`read_metadata_object`, `is_token`), which in CHO marks an internal API: they
+> can change between versions without a major release. The `camelCase` and
+> `PascalCase` names of `@chojs/command` and `@chojs/web` are the public API.
 
 ## Features
 

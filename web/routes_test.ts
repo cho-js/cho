@@ -91,7 +91,7 @@ describe("routes", () => {
   it("gives the root path to a handler with no route at any level", async () => {
     const app = await create(feature([controller("", () => "root")]));
     assert.equal(app.routes[0]!.path, "/");
-    assert.equal(await (await send(app, "/")).json(), "root");
+    assert.equal(await (await send(app, "/")).text(), "root");
   });
 
   it("gives handlers a context with the request, the parameters and the URL", async () => {
@@ -118,6 +118,44 @@ describe("routes", () => {
     });
   });
 
+  it("sends strings, bytes and streams as they are, not as JSON", async () => {
+    const app = await create(feature([
+      controller("text", () => "plain text"),
+      controller("bytes", () => new Uint8Array([1, 2, 3])),
+      controller("blob", () => new Blob(["<p>hi</p>"], { type: "text/html" })),
+      controller(
+        "stream",
+        () => new Blob(["chunk"]).stream(),
+      ),
+      controller("form", () => new URLSearchParams({ a: "1", b: "x y" })),
+      controller("date", () => new Date(0)),
+    ]));
+    const type = (response: Response) =>
+      response.headers.get("content-type") ?? "";
+
+    const text = await send(app, "/text");
+    assert.equal(type(text), "text/plain;charset=UTF-8");
+    assert.equal(await text.text(), "plain text");
+
+    const bytes = await send(app, "/bytes");
+    assert.deepEqual([...new Uint8Array(await bytes.arrayBuffer())], [1, 2, 3]);
+
+    const blob = await send(app, "/blob");
+    assert.match(type(blob), /^text\/html/);
+    assert.equal(await blob.text(), "<p>hi</p>");
+
+    assert.equal(await (await send(app, "/stream")).text(), "chunk");
+
+    const form = await send(app, "/form");
+    assert.match(type(form), /^application\/x-www-form-urlencoded/);
+    assert.equal(await form.text(), "a=1&b=x+y");
+
+    // not a body the platform knows: JSON, like any other object
+    const date = await send(app, "/date");
+    assert.match(type(date), /application\/json/);
+    assert.equal(await date.json(), "1970-01-01T00:00:00.000Z");
+  });
+
   it("converts results: JSON, a Response as is, 204 for nothing", async () => {
     const app = await create(feature([
       controller("json", () => Promise.resolve({ ok: true })),
@@ -141,7 +179,7 @@ describe("routes", () => {
     legacy(Get(""), Users, "greet");
     Controller()(Users);
     const app = await create(feature([Users]));
-    assert.equal(await (await send(app, "/")).json(), "hello");
+    assert.equal(await (await send(app, "/")).text(), "hello");
   });
 });
 
@@ -338,7 +376,7 @@ describe("routes, middlewares", () => {
         headers: { authorization: "secret" },
       }),
     );
-    assert.equal(await response.json(), "in");
+    assert.equal(await response.text(), "in");
   });
 });
 
@@ -396,6 +434,33 @@ describe("routes, error handlers", () => {
     const response = await send(app, "/x");
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { error: "boom" });
+  });
+
+  it("leaves the error unhandled when the error handler returns nothing", async () => {
+    // a handler that only logs must not turn a failure into a 204
+    const seen: unknown[] = [];
+    const Logs = controller("logs", boom);
+    Catch((error) => {
+      seen.push(error);
+    })(Logs);
+    const Async = controller("async", boom);
+    Catch(async () => {
+      await Promise.resolve();
+    })(Async);
+    const Null = controller("null", boom);
+    Catch(() => null)(Null); // null is a value: it is sent, as JSON
+    const linker = new TestLinker();
+    const app = await ChoWeb.create(feature([Logs, Async, Null]), { linker });
+
+    assert.equal((await send(app, "/logs")).status, 500);
+    assert.equal((await send(app, "/async")).status, 500);
+    assert.equal(seen.length, 1);
+    assert.deepEqual(
+      linker.errors.map((error) => (error as Error).message),
+      ["boom", "boom"],
+    );
+    const sent = await send(app, "/null");
+    assert.deepEqual([sent.status, await sent.json()], [200, null]);
   });
 
   it("handles an error thrown by a middleware", async () => {
@@ -539,6 +604,16 @@ describe("routes, the application's error handler", () => {
 
     assert.equal(await (await send(app, "/x")).text(), "reported");
     assert.equal(app.graph.errorHandler?.name, "OnError.handle");
+  });
+
+  it("leaves the error unhandled when it returns nothing", async () => {
+    const linker = new TestLinker();
+    const app = await ChoWeb.create(feature([controller("x", boom)]), {
+      linker,
+      onError: () => {},
+    });
+    assert.equal((await send(app, "/x")).status, 500);
+    assert.equal((linker.errors[0] as Error).message, "boom");
   });
 
   it("is not called for a request that matches no route", async () => {

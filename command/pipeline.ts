@@ -18,8 +18,8 @@ import {
   compose,
   type Debuglog,
   describe,
-  isClass,
-  isClassImplement,
+  is_class,
+  is_class_implement,
 } from "@chojs/core/utils";
 import type { ChoCommandContext } from "./context.ts";
 import type { ControllerNode } from "./graph.ts";
@@ -68,15 +68,23 @@ type Declared = {
 
 /**
  * Assert that a middleware or an error handler can be used: a function, or a
- * class with a `handle` method. Nothing is created.
+ * class with a `handle` method that the injector can find in the scope it
+ * will be created in. Nothing is created.
  *
- * @param value The declared value.
+ * @param injector The injector of the application.
+ * @param declared The declared value, and the module whose scope creates a
+ *   class.
  * @param what `"Middleware"` or `"Error handler"`, for the message.
- * @throws {Error} When it is a class without a `handle` method, or not a
- *   function at all.
+ * @throws {Error} When it is a class without a `handle` method, not a
+ *   function at all, or a class that is not visible, or ambiguous, in the
+ *   module.
  */
-function assert_usable(value: unknown, what: string): void {
-  if (isClass(value) && !isClassImplement(value, "handle")) {
+function assert_usable(
+  injector: Injector,
+  { value, scope }: Declared,
+  what: string,
+): void {
+  if (is_class(value) && !is_class_implement(value, "handle")) {
     throw new Error(
       `${what} class ${describe(value)} must implement 'handle' method.`,
     );
@@ -87,6 +95,25 @@ function assert_usable(value: unknown, what: string): void {
         describe(value)
       }: must be a function or a class with a 'handle' method.`,
     );
+  }
+  // A class is created by the injector, later. Whether it can be found is a
+  // wiring question, answered by the graph, now.
+  if (is_class(value)) {
+    const module = injector.graph.modules.get(scope)!;
+    if (module.ambiguous.has(value)) {
+      throw new Error(
+        `${what} class ${describe(value)} is ambiguous in module ${
+          describe(scope)
+        }: several of its imports export it. Provide it there to choose one.`,
+      );
+    }
+    if (!module.visible.has(value)) {
+      throw new Error(
+        `${what} class ${describe(value)} is not visible in module ${
+          describe(scope)
+        }. Provide it there or import a module that exports it.`,
+      );
+    }
   }
 }
 
@@ -103,7 +130,7 @@ async function callable<F>(
   injector: Injector,
   { value, scope }: Declared,
 ): Promise<F> {
-  if (!isClassImplement<{ handle: F }>(value, "handle")) {
+  if (!is_class_implement<{ handle: F }>(value, "handle")) {
     return value as F;
   }
   const instance = await injector.resolve(value, scope);
@@ -132,9 +159,11 @@ export type CommandPipeline = {
 /**
  * Build the pipeline of a command.
  *
- * The middlewares and the error handlers of the command are checked now (a
- * function, or a class with a `handle` method); instances are created when
- * the command first runs.
+ * The middlewares and the error handler of the command are checked now: each
+ * is a function, or a class with a `handle` method that is visible in the
+ * module it will be created in. That is the wiring, and wiring mistakes are
+ * reported before anything runs. Instances are created when the command
+ * first runs.
  *
  * - The chain: the middlewares of the module that declares the controller, of
  *   the controller, then of the method, then the method itself, whose result
@@ -154,7 +183,8 @@ export type CommandPipeline = {
  * @param log The `cho:command` debug logger.
  * @returns The pipeline.
  * @throws {Error} When a middleware or an error handler is not a function or
- *   a class with a `handle` method.
+ *   a class with a `handle` method, or is a class the injector cannot find
+ *   in its module.
  */
 export function command_pipeline(
   injector: Injector,
@@ -171,7 +201,9 @@ export function command_pipeline(
     ...node.meta.middlewares,
     ...method.middlewares,
   ];
-  middlewares.forEach((mw) => assert_usable(mw, "Middleware"));
+  middlewares.forEach((value) =>
+    assert_usable(injector, { value, scope: owner }, "Middleware")
+  );
 
   // The nearest error handler: classes of the module tree are created in the
   // controller's module, the application's in the root module.
@@ -182,7 +214,7 @@ export function command_pipeline(
     { value: on_error, scope: injector.graph.root.ctr },
   ].find(({ value }) => value !== undefined);
   if (handler) {
-    assert_usable(handler.value, "Error handler");
+    assert_usable(injector, handler, "Error handler");
   }
 
   /** The chain, created with what it needs on the first run. */

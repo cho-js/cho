@@ -8,42 +8,42 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { debuglog, isEnabled } from "./debuglog.ts";
+import { debuglog, is_enabled } from "./debuglog.ts";
 import { capture, with_env } from "./test_utils.ts";
 import { set_env } from "./env.ts";
 
 /** Neither variable set. */
 const OFF = { CHO_DEBUG: undefined, CHO_DEBUGLOG: undefined };
 
-describe("isEnabled", () => {
+describe("is_enabled", () => {
   it("is off by default", () => {
-    with_env(OFF, () => assert.equal(isEnabled("cho"), false));
+    with_env(OFF, () => assert.equal(is_enabled("cho"), false));
   });
 
   it("enables every context with CHO_DEBUG", () => {
     with_env({ ...OFF, CHO_DEBUG: "1" }, () => {
-      assert.equal(isEnabled("cho"), true);
-      assert.equal(isEnabled("anything"), true);
+      assert.equal(is_enabled("cho"), true);
+      assert.equal(is_enabled("anything"), true);
     });
   });
 
   it("enables the listed contexts with CHO_DEBUGLOG", () => {
     with_env({ ...OFF, CHO_DEBUGLOG: "cho, web" }, () => {
-      assert.equal(isEnabled("cho"), true);
-      assert.equal(isEnabled("web"), true);
-      assert.equal(isEnabled("di"), false);
-      assert.equal(isEnabled("chos"), false);
+      assert.equal(is_enabled("cho"), true);
+      assert.equal(is_enabled("web"), true);
+      assert.equal(is_enabled("di"), false);
+      assert.equal(is_enabled("chos"), false);
     });
   });
 
   it("matches prefixes with a trailing *, and everything with *", () => {
     with_env({ ...OFF, CHO_DEBUGLOG: "di:*" }, () => {
-      assert.equal(isEnabled("di:graph"), true);
-      assert.equal(isEnabled("di:"), true);
-      assert.equal(isEnabled("cho"), false);
+      assert.equal(is_enabled("di:graph"), true);
+      assert.equal(is_enabled("di:"), true);
+      assert.equal(is_enabled("cho"), false);
     });
     with_env({ ...OFF, CHO_DEBUGLOG: "*" }, () => {
-      assert.equal(isEnabled("cho"), true);
+      assert.equal(is_enabled("cho"), true);
     });
   });
 
@@ -51,7 +51,7 @@ describe("isEnabled", () => {
     with_env(OFF, () => {
       set_env({ CHO_DEBUGLOG: "cho" });
       try {
-        assert.equal(isEnabled("cho"), true);
+        assert.equal(is_enabled("cho"), true);
       } finally {
         set_env(undefined);
       }
@@ -60,7 +60,7 @@ describe("isEnabled", () => {
 
   it("does not enable anything with CHO_DEBUG=0", () => {
     with_env({ ...OFF, CHO_DEBUG: "0" }, () => {
-      assert.equal(isEnabled("cho"), false);
+      assert.equal(is_enabled("cho"), false);
     });
   });
 });

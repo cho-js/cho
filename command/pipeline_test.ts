@@ -308,6 +308,31 @@ describe("middlewares", () => {
   });
 });
 
+describe("inherited commands", () => {
+  it("keep their action when an override only adds to them", async () => {
+    const seen: string[] = [];
+    const mw = recorder(seen);
+    class Base {
+      sync() {
+        return 1;
+      }
+    }
+    legacy(Action("sync"), Base, "sync");
+    legacy(Middlewares(mw("base")), Base, "sync");
+    class Files extends Base {
+      override sync() {
+        return 2;
+      }
+    }
+    legacy(Middlewares(mw("files")), Files, "sync"); // adds; the action stays
+    Controller()(Files);
+    const app = ChoCommand.create(module_of([Files]));
+
+    assert.equal((await run(app, "sync")).code, 2);
+    assert.deepEqual(seen, ["base sync", "files sync"]);
+  });
+});
+
 describe("error handlers", () => {
   const tag = (level: string, code: number) =>
   (
@@ -475,6 +500,114 @@ describe("validation, when the application is created", () => {
     });
     assert.throws(() => ChoCommand.create(App, { onError: loose(NoHandle) }), {
       message: "Error handler class NoHandle must implement 'handle' method.",
+    });
+  });
+
+  it("rejects a middleware class the injector cannot find", () => {
+    class Timing {
+      handle(_ctx: unknown, next: () => Promise<number>) {
+        return next();
+      }
+    }
+    Injectable()(Timing);
+    const Ctrl = controller("x");
+    Middlewares(Timing)(Ctrl);
+    // not a provider of the controller's module
+    assert.throws(() => ChoCommand.create(module_of([Ctrl])), {
+      message:
+        "Middleware class Timing is not visible in module Mod. Provide it there or import a module that exports it.",
+    });
+    // provided: fine
+    assert.doesNotThrow(() => ChoCommand.create(module_of([Ctrl], [Timing])));
+  });
+
+  it("accepts a middleware class exported by an imported module", async () => {
+    const seen: string[] = [];
+    class Timing {
+      handle(ctx: ChoCommandContext, next: () => Promise<number>) {
+        seen.push(ctx.command);
+        return next();
+      }
+    }
+    Injectable()(Timing);
+    class Shared {}
+    Module({ providers: [Timing], exports: [Timing] })(Shared);
+    const Ctrl = controller("x");
+    Middlewares(Timing)(Ctrl);
+    class App {}
+    Module({ imports: [Shared], controllers: [Ctrl] })(App);
+
+    assert.equal((await run(ChoCommand.create(App), "x")).code, 0);
+    assert.deepEqual(seen, ["x"]);
+  });
+
+  it("rejects an error handler class the injector cannot find, at every level", () => {
+    const make = () => {
+      class OnError {
+        handle() {
+          return 2;
+        }
+      }
+      Injectable()(OnError);
+      return OnError;
+    };
+    const message = (module: string) => ({
+      message:
+        `Error handler class OnError is not visible in module ${module}. Provide it there or import a module that exports it.`,
+    });
+
+    const A = make();
+    const on_method = controller("x");
+    legacy(Catch(A), on_method, "run");
+    assert.throws(
+      () => ChoCommand.create(module_of([on_method])),
+      message("Mod"),
+    );
+
+    const B = make();
+    const on_controller = controller("x");
+    Catch(B)(on_controller);
+    assert.throws(
+      () => ChoCommand.create(module_of([on_controller])),
+      message("Mod"),
+    );
+
+    const C = make();
+    const on_module = module_of([controller("x")]);
+    Catch(C)(on_module);
+    assert.throws(() => ChoCommand.create(on_module), message("Mod"));
+
+    // onError is created in the root module's scope, not the controller's
+    const D = make();
+    const Feature = module_of([controller("x")], [D]);
+    class Root {}
+    Module({ imports: [Feature] })(Root);
+    assert.throws(
+      () => ChoCommand.create(Root, { onError: D }),
+      message("Root"),
+    );
+  });
+
+  it("rejects a class that two imports export as different instances", () => {
+    class Timing {
+      handle(_ctx: unknown, next: () => Promise<number>) {
+        return next();
+      }
+    }
+    Injectable()(Timing);
+    const exporting = () => {
+      class Exporter {}
+      Module({ providers: [Timing], exports: [Timing] })(Exporter);
+      return Exporter;
+    };
+    const Ctrl = controller("x");
+    Middlewares(Timing)(Ctrl);
+    class App {}
+    Module({ imports: [exporting(), exporting()], controllers: [Ctrl] })(App);
+
+    assert.throws(() => ChoCommand.create(App), {
+      message:
+        "Middleware class Timing is ambiguous in module App: several of its imports export it. Provide it there to choose one.",
     });
   });
 

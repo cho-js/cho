@@ -19,10 +19,11 @@ There are two kinds of applications:
   (`./app <command> [options] [args]`).
 
 Everything an application needs comes from `@chojs/command`: the command
-decorators, `ChoCommand`, and the DI decorators (`@Module`, `@Controller`,
-`@Injectable`, `@Catch`). `@Module` and `@Controller` are the core's, and accept
-only the core's options: any other option is rejected, by the types and when the
-class is defined.
+decorators, `ChoCommand`, `@Middlewares` and `@Catch`, and what it needs from
+the core: the DI decorators (`@Module`, `@Controller`, `@Injectable`), and
+`token` and `provider` to declare values that are not classes. `@Module` and
+`@Controller` are the core's, and accept only the core's options: any other
+option is rejected, by the types and when the class is defined.
 
 A single command:
 
@@ -158,6 +159,10 @@ line fits (a group heading, the list of commands), the first line is used.
   anything that is not a method, throws when the class is defined.
 - A method has at most one `@Main` or `@Action`. `@Help` combines with either,
   in any order.
+- A controller also has the commands it **inherits** from a base class. An
+  override keeps the inherited command unless it declares one itself: `@Help` or
+  `@Middlewares` on it add to what the parent declared (the parent's middlewares
+  run first), and `@Action(…)` on it replaces the command.
 - The mode follows from the whole application, when `ChoCommand.create` runs:
   exactly one `@Main` and no `@Action` is a single command; one or more
   `@Action` and no `@Main` is multiple actions. No command at all, `@Main` mixed
@@ -278,7 +283,7 @@ creates no instance.
 | Option         | Default   | Use                                                       |
 | -------------- | --------- | --------------------------------------------------------- |
 | `name`         | `"chojs"` | the program name, in `--version` and the help usage lines |
-| `version`      | `"1.0.0"` | printed by `--version`                                    |
+| `version`      | none      | printed by `--version`                                    |
 | `parseOptions` | none      | flag declarations (section 3.3)                           |
 | `overrides`    | none      | providers that replace declared ones, for tests           |
 | `onError`      | none      | the application's error handler (section 4.4)             |
@@ -308,7 +313,9 @@ Runs one command line and resolves to the exit code. It never exits the process:
 pass the result to `Deno.exit` or `process.exit`.
 
 1. `--help` prints the help (section 5) and resolves to `0`.
-2. `--version` prints `<name> version <version>` and resolves to `0`.
+2. `--version` prints `<name> version <version>` and resolves to `0`. The
+   version has no default: when the application sets none, it prints
+   `<name> (no version)`.
 3. In multiple-action mode, a command line without an action prints the help and
    resolves to `0`.
 4. In multiple-action mode, an unknown action prints
@@ -389,8 +396,11 @@ controller or module, nor for `--help`, `--version` or an unknown action.
 **Nothing is created before a command runs.** A middleware class is created the
 first time a command it applies to runs, and kept: printing the help creates
 nothing. What can be checked without creating anything is checked by
-`ChoCommand.create`: a middleware is a function or a class with a `handle`
-method.
+`ChoCommand.create`: a middleware is a function, or a class with a `handle`
+method that is visible in the controller's module (one of its providers, or
+exported by a module it imports). A class the injector could not find is a
+wiring mistake, reported when the application is created, not when its command
+first runs. The same holds for error handler classes.
 
 A middleware that calls `next()` twice, returns something that is not an exit
 code, or returns nothing without calling `next()`, makes the run fail (section
@@ -548,18 +558,18 @@ Run 'fs <command> --help' for help on a command.
 
 ## 6. Public API
 
-| Export                                                                                  | Kind     | Section  |
-| --------------------------------------------------------------------------------------- | -------- | -------- |
-| `ChoCommand`, `ChoCommandOptions`                                                       | class    | 4        |
-| `Main`, `Action`, `Help`                                                                | function | 2        |
-| `Middlewares`, `Catch` (the core's, typed for `@chojs/command`)                         | function | 4.3, 4.4 |
-| `ChoCommandContext`                                                                     | type     | 3.1      |
-| `ChoArgs`, `CommandFlags`, `ParserOptions`                                              | type     | 3        |
-| `ChoCommandHandler`, `ChoCommandNext`, `ChoCommandMiddlewareFn`, `ChoCommandMiddleware` | type     | 4.3      |
-| `ChoCommandErrorHandlerFn`, `ChoCommandErrorHandler`                                    | type     | 4.4      |
-| `Controller`, `Module` (the core's, with no extra option)                               | function | 2.1      |
-| `Injectable` (re-exported from `@chojs/core`)                                           | function | 2.1      |
-| `ControllerOptions`, `ModuleOptions`, `InjectableOptions` (re-exported, see core)       | type     | 2.1      |
+| Export                                                                                                          | Kind     | Section  |
+| --------------------------------------------------------------------------------------------------------------- | -------- | -------- |
+| `ChoCommand`, `ChoCommandOptions`                                                                               | class    | 4        |
+| `Main`, `Action`, `Help`                                                                                        | function | 2        |
+| `Middlewares`, `Catch` (the core's, typed for `@chojs/command`)                                                 | function | 4.3, 4.4 |
+| `ChoCommandContext`                                                                                             | type     | 3.1      |
+| `ChoArgs`, `CommandFlags`, `ParserOptions`                                                                      | type     | 3        |
+| `ChoCommandHandler`, `ChoCommandNext`, `ChoCommandMiddlewareFn`, `ChoCommandMiddleware`                         | type     | 4.3      |
+| `ChoCommandErrorHandlerFn`, `ChoCommandErrorHandler`                                                            | type     | 4.4      |
+| `Controller`, `Module` (the core's, with no extra option)                                                       | function | 2.1      |
+| `Injectable`, `token`, `provider` (re-exported from `@chojs/core`)                                              | function | 2.1      |
+| `ControllerOptions`, `ModuleOptions`, `InjectableOptions`, `InjectionToken`, `Provider` (re-exported, see core) | type     | 2.1      |
 
 ## 7. Errors
 
@@ -599,6 +609,10 @@ commands (nothing is created to check them):
   the `onError` option)
 - `Invalid error handler <v>: must be a function or a class with a 'handle' method.`
   (the `onError` option)
+- `Middleware class <Name> is not visible in module <Module>. Provide it there or import a module that exports it.`
+  (and `Error handler class …`; for `onError`, the module is the root module)
+- `Middleware class <Name> is ambiguous in module <Module>: several of its imports export it. Provide it there to choose one.`
+  (and `Error handler class …`)
 
 **By `ChoCommand.create`:** any module graph error of the core (`core/specs.md`,
 section 2.8), and:

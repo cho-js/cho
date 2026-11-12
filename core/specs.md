@@ -14,9 +14,9 @@ consumed by **CHO modules**: packages such as `@chojs/command` (command-line
 applications) and `@chojs/web` (HTTP applications) that turn a module graph into
 a running application.
 
-- **Applications** import everything from the CHO module they use. The CHO
-  modules re-export the core decorators (`@Module`, `@Controller`,
-  `@Injectable`, `@Catch`, and `@Middlewares` where it applies), so an
+- **Applications** import everything from the CHO module they use. Each CHO
+  module exports the DI decorators (`@Module`, `@Controller`, `@Injectable`),
+  its own typed `@Middlewares` and `@Catch`, and `token` and `provider`, so an
   application never needs `@chojs/core` itself.
 - **CHO modules** use the core to:
   - create an `Injector` for the application's root module;
@@ -97,7 +97,7 @@ A token identifies something injectable:
   `InjectionToken(<description>)`.
 - Strings are not tokens: different packages could pick the same string. The
   decorators reject them.
-- `isToken(value)` tells whether a value is a token. It recognizes injection
+- `is_token(value)` tells whether a value is a token. It recognizes injection
   tokens created by another copy of the package too.
 
 ### 2.3 Providers
@@ -105,7 +105,9 @@ A token identifies something injectable:
 A provider says how to create the value of a token. There are two kinds:
 
 - **An `@Injectable` class.** Its token is the class; its value is an instance,
-  created with the listed dependencies as constructor arguments, in order.
+  created with the listed dependencies as constructor arguments, in order. A
+  `@Controller` or a `@Module` class is not a provider: it goes in `controllers`
+  or `imports`, and is rejected in `providers`.
 
   ```ts
   @Injectable([Logger, PORT])
@@ -295,9 +297,13 @@ class App {}
   that have any, and hands it to the CHO module as `methods`, with each method's
   middlewares and error handler.
 - Method metadata follows the method: a controller gets the metadata of the
-  methods it **inherits** (parents first; a subclass that decorates a method
-  again replaces its parent's metadata for it), and a decorator that replaces
-  the method function does not lose it.
+  methods it **inherits** (parents first), and a decorator that replaces the
+  method function does not lose it.
+- A subclass that decorates a method it inherits **adds to** its parent's
+  metadata: lists (the middlewares) are concatenated, the parent's first, and
+  any other value of the subclass replaces the parent's. An override that only
+  adds a middleware keeps the route or the command its parent declared; one that
+  declares it again replaces it; one without a decorator inherits everything.
 
 ### 2.6 Middlewares and error handlers
 
@@ -388,8 +394,10 @@ try {
   several tokens is disposed once.
 - One failure does not stop the others: `dispose()` then rejects with an
   `AggregateError` holding one `Failed to dispose X in module M` per failure.
-- Afterwards `resolve()` and `init()` reject with `The injector is disposed`.
-  Calling `dispose()` again returns the same disposal. `await using` works too.
+- Disposal is final. Afterwards `resolve()` and `init()` reject with
+  `The injector is disposed`, and an `init()` that was still running creates
+  nothing more: what it had not started is not started. Calling `dispose()`
+  again returns the same disposal. `await using` works too.
 
 **The injector never disposes on its own.** When an application ends is not its
 decision: whatever runs the application calls `dispose()`. The CHO modules do it
@@ -461,19 +469,20 @@ A malformed provider object gives one of these messages, checked in this order.
 
 **Thrown by `new Injector()`**, before anything is created:
 
-| Mistake                             | Message                                                                                                               |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| The root is not a class             | `TypeError: Expected a module class, got <typeof>`                                                                    |
-| Circular imports                    | `Circular dependency detected: A → B → A`                                                                             |
-| An import is not a `@Module`        | `Class X is not a module. Did you forget @Module?`                                                                    |
-| A provider is not `@Injectable`     | `Class X is not injectable. Did you forget @Injectable?`                                                              |
-| A controller is not a `@Controller` | `Class X is not a controller. Did you forget @Controller?`                                                            |
-| A token declared twice              | `X is declared more than once in module M (as <kind> and as <kind>). Declare each token once.`                        |
-| An ambiguous token is used          | `X is ambiguous in module M: A, B export different instances of it. Provide X in M to choose which one to use.`       |
-| A module re-exported                | `Module M exports the imported module X. Re-exporting a module is not supported; export the tokens you need instead.` |
-| An export not in scope              | `Module M exports X, which it neither provides nor imports.`                                                          |
-| A missing dependency                | `Cannot resolve X (argument #i) of Y in module M. Provide it there or import a module that exports it.`               |
-| Circular dependencies               | `Circular dependency detected in module M: A → B → A`                                                                 |
+| Mistake                                 | Message                                                                                                                                        |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| The root is not a class                 | `TypeError: Expected a module class, got <typeof>`                                                                                             |
+| Circular imports                        | `Circular dependency detected: A → B → A`                                                                                                      |
+| An import is not a `@Module`            | `Class X is not a module. Did you forget @Module?`                                                                                             |
+| A provider is not `@Injectable`         | `Class X is not injectable. Did you forget @Injectable?`                                                                                       |
+| A controller is not a `@Controller`     | `Class X is not a controller. Did you forget @Controller?`                                                                                     |
+| A controller or a module in `providers` | `Class X is a controller: declare it in "controllers", not in "providers".` / `Class X is a module: list it in "imports", not in "providers".` |
+| A token declared twice                  | `X is declared more than once in module M (as <kind> and as <kind>). Declare each token once.`                                                 |
+| An ambiguous token is used              | `X is ambiguous in module M: A, B export different instances of it. Provide X in M to choose which one to use.`                                |
+| A module re-exported                    | `Module M exports the imported module X. Re-exporting a module is not supported; export the tokens you need instead.`                          |
+| An export not in scope                  | `Module M exports X, which it neither provides nor imports.`                                                                                   |
+| A missing dependency                    | `Cannot resolve X (argument #i) of Y in module M. Provide it there or import a module that exports it.`                                        |
+| Circular dependencies                   | `Circular dependency detected in module M: A → B → A`                                                                                          |
 
 `<kind>` is `a provider`, `a controller` or `the module itself`; `#i` counts
 from zero.
@@ -525,6 +534,15 @@ when it is created, so `set_env` (section 3.3) must be called before.
 `@chojs/core` has four entry points. Applications use none of them directly
 (section 1).
 
+**Naming.** `@chojs/core` is internal, and its names say so: every function and
+method is `snake_case` (`is_token`, `set_env`,
+`DependencyNode.is_controller()`), which in CHO marks an API with no
+compatibility promise. The public API of the CHO modules is `camelCase` for
+functions and methods and `PascalCase` for classes. Decorators are `PascalCase`
+everywhere; a single-word name (`provider`, `token`, `compose`) fits both.
+Properties, option keys, types and constants are outside the rule
+(`errorHandler`, `InjectionToken`, `METADATA_FORMAT`).
+
 ### 3.1 `@chojs/core`
 
 The DI essentials:
@@ -547,7 +565,7 @@ own decorators and read them back:
 | `assert_known_options`, `ExtraOptions`, `NoExtraOptions`                                   | For a CHO module's own `@Module` / `@Controller`: its extra options, and rejecting unknown ones (section 2.4).                                        |
 | `decorated_method`, `decorated_target`                                                     | Find what a decorator was applied to, in both decorator call shapes (TC39 and legacy/Bun).                                                            |
 | `set_injectable`, `set_module`, `set_controller`, `set_middlewares`, `set_error_handler`   | What the core decorators do, for decorators that wrap them.                                                                                           |
-| `isToken`                                                                                  | Whether a value is a token.                                                                                                                           |
+| `is_token`                                                                                 | Whether a value is a token.                                                                                                                           |
 | `ChoClassDecorator`, `ChoMethodDecorator`, `ChoClassOrMethodDecorator`                     | Decorator types that accept both call shapes.                                                                                                         |
 | `ChoInjectableDecorator`, `InjectedArgs`, `WithDependencies`                               | The type of the DI decorators, which checks the dependencies against the constructor; for a CHO module's own `@Module` / `@Controller` (section 2.4). |
 | `Token`, `InjectionToken`, `Provider`, `Factory`, `Resolved`, `ResolvedAll`, `AbstractCtr` | Token and provider types.                                                                                                                             |
@@ -625,7 +643,7 @@ Runtime helpers that work on every runtime:
   `kind` says what a result is and how to name it in error messages.
   `@chojs/web` uses it with a `Response`, `@chojs/command` with an exit code.
 - `describe(value)`: a readable name for error messages.
-- `isClass(value)`, `isClassImplement(value, method)`: whether a value is a
+- `is_class(value)`, `is_class_implement(value, method)`: whether a value is a
   class, and whether its prototype has a given method.
 
 ### 3.4 `@chojs/core/utils/test_utils`
@@ -654,10 +672,12 @@ creates nothing.
   table next to the class's record (`Symbol.for("chojs.meta.methods")`), not on
   the method function. `decorated_method` gives a decorator where to write
   (`.meta`). Reading a class's methods (`method_records`) walks its prototype
-  chain, parents first, so inherited methods keep their records. Where a
-  decorator cannot reach the class (a static or private method, or TC39
-  decorators compiled for a runtime without `Symbol.metadata`), the record is
-  written on the function, and read from there too.
+  chain, parents first, so inherited methods keep their records; a subclass's
+  record is merged over its parent's by the rules of `add_to_metadata_object`
+  (arrays concatenated, other values replaced). Where a decorator cannot reach
+  the class (a static or private method, or TC39 decorators compiled for a
+  runtime without `Symbol.metadata`), the record is written on the function, and
+  read from there too.
 - **Records are versioned.** Every copy of the package in an application shares
   the records, so each record is stamped with the format it was written in
   (`METADATA_FORMAT`, under `Symbol.for("chojs.meta.format")`). Reading or

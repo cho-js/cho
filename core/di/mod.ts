@@ -78,7 +78,7 @@ export type {
   NoExtraOptions,
 } from "./decorations.ts";
 export { Injector, type InjectorOptions } from "./injector.ts";
-export { isToken, provider, token } from "./tokens.ts";
+export { is_token, provider, token } from "./tokens.ts";
 export * from "./types.ts";
 // The graph types are public because `Injector.meta` and `Injector.graph`
 // expose the graphs.

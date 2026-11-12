@@ -14,12 +14,15 @@ import {
   Catch,
   ChoWeb,
   type ChoWebContext,
+  type ChoWebMiddlewareFn,
   Controller,
   Get,
   Injectable,
   Middlewares,
   Module,
   Post,
+  provider,
+  token,
 } from "./mod.ts";
 import { TestLinker } from "./testing.ts";
 
@@ -149,7 +152,7 @@ describe("decorator syntax", () => {
       const response = await app.handler(
         new Request(`http://localhost/wrapped/${path}`),
       );
-      assert.equal(await response.json(), "hi");
+      assert.equal(await response.text(), "hi");
     }
     assert.deepEqual(calls, ["above", "below"]);
   });
@@ -191,11 +194,109 @@ describe("decorator syntax", () => {
         "/b/v B.version",
       ],
     );
-    const get = async (path: string) =>
-      (await app.handler(new Request(`http://localhost${path}`))).json();
-    assert.deepEqual(await get("/a/health"), { ok: true });
-    assert.equal(await get("/a/version"), "base");
-    assert.equal(await get("/b/v"), "b");
+    const get = (path: string) =>
+      app.handler(new Request(`http://localhost${path}`));
+    assert.deepEqual(await (await get("/a/health")).json(), { ok: true });
+    assert.equal(await (await get("/a/version")).text(), "base");
+    assert.equal(await (await get("/b/v")).text(), "b");
+  });
+
+  it("keeps an inherited route when an override only adds to it", async () => {
+    const seen: string[] = [];
+    const mw = (name: string): ChoWebMiddlewareFn => (_ctx, next) => {
+      seen.push(name);
+      return next();
+    };
+
+    class Base {
+      @Middlewares(mw("base"))
+      @Get("health")
+      health(): string {
+        return "base";
+      }
+    }
+
+    @Controller({ route: "plain" })
+    class Plain extends Base {
+      override health() {
+        return "plain"; // no decorator: inherits the record as it is
+      }
+    }
+
+    @Controller({ route: "guarded" })
+    class Guarded extends Base {
+      @Middlewares(mw("guarded")) // adds a middleware: the route stays
+      override health() {
+        return "guarded";
+      }
+    }
+
+    @Controller({ route: "moved" })
+    class Moved extends Base {
+      @Get("status") // declares the route again: replaces it
+      override health() {
+        return "moved";
+      }
+    }
+
+    @Module({ controllers: [Plain, Guarded, Moved] })
+    class OverrideApp {}
+
+    const app = await ChoWeb.create(OverrideApp, { linker: new TestLinker() });
+    assert.deepEqual(app.routes.map((r) => r.path), [
+      "/plain/health",
+      "/guarded/health",
+      "/moved/status",
+    ]);
+    const get = async (path: string) => {
+      seen.length = 0;
+      const body = await (await app.handler(
+        new Request(`http://localhost${path}`),
+      )).text();
+      return [body, ...seen];
+    };
+    assert.deepEqual(await get("/plain/health"), ["plain", "base"]);
+    // the parent's middlewares run first
+    assert.deepEqual(await get("/guarded/health"), [
+      "guarded",
+      "base",
+      "guarded",
+    ]);
+    assert.deepEqual(await get("/moved/status"), ["moved", "base"]);
+  });
+
+  it("has token and provider, so an application needs no other import", async () => {
+    const GREETING = token<string>("GREETING");
+
+    @Controller({ route: "hello", dependencies: [GREETING] })
+    class Hello {
+      constructor(readonly greeting: string) {}
+
+      @Get("")
+      hello() {
+        return this.greeting;
+      }
+    }
+
+    @Module({
+      providers: [provider({ provide: GREETING, factory: () => "hi" })],
+      controllers: [Hello],
+    })
+    class TokenApp {}
+
+    const send = async (app: ChoWeb<unknown>) =>
+      (await app.handler(new Request("http://localhost/hello"))).text();
+    const linker = () => new TestLinker();
+    assert.equal(
+      await send(await ChoWeb.create(TokenApp, { linker: linker() })),
+      "hi",
+    );
+    // and the same pair writes the overrides of a test
+    const overridden = await ChoWeb.create(TokenApp, {
+      linker: linker(),
+      overrides: [provider({ provide: GREETING, factory: () => "hello" })],
+    });
+    assert.equal(await send(overridden), "hello");
   });
 
   it("checks dependencies against the constructor, at compile time", () => {

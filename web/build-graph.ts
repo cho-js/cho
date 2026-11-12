@@ -13,7 +13,7 @@ import type {
   MethodMetadata,
   ModuleMetadata,
 } from "@chojs/core/di";
-import { describe, isClass, isClassImplement } from "@chojs/core/utils";
+import { describe, is_class, is_class_implement } from "@chojs/core/utils";
 import {
   AppRef,
   ControllerRef,
@@ -84,7 +84,7 @@ function error_handler_factory(
 ): (handler: unknown) => Promise<ErrorHandlerRef> {
   return async function (handler: unknown): Promise<ErrorHandlerRef> {
     if (
-      isClassImplement<{ handle: ChoWebErrorHandlerFn }>(handler, "handle")
+      is_class_implement<{ handle: ChoWebErrorHandlerFn }>(handler, "handle")
     ) {
       try {
         return bound_handle(await injector.resolve(handler, mdl), handler);
@@ -97,7 +97,7 @@ function error_handler_factory(
         );
       }
     }
-    if (isClass(handler)) {
+    if (is_class(handler)) {
       throw new Error(
         `Error handler class ${
           describe(handler)
@@ -125,7 +125,7 @@ function create_middleware_factory(
   return async function (mws: readonly unknown[]) {
     const fns: ChoWebMiddlewareFn[] = [];
     for (const mw of mws) {
-      if (isClassImplement<{ handle: ChoWebMiddlewareFn }>(mw, "handle")) {
+      if (is_class_implement<{ handle: ChoWebMiddlewareFn }>(mw, "handle")) {
         try {
           fns.push(bound_handle(await injector.resolve(mw, mdl), mw));
         } catch (error) {
@@ -136,7 +136,7 @@ function create_middleware_factory(
             { cause: error },
           );
         }
-      } else if (isClass(mw)) {
+      } else if (is_class(mw)) {
         throw new Error(
           `Middleware class ${describe(mw)} must implement 'handle' method.`,
         );

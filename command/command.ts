@@ -43,7 +43,11 @@ import type { ChoCommandErrorHandler } from "./types.ts";
  * ```
  */
 export type ChoCommandOptions = {
-  /** The application version, printed by `--version`. Default: `"1.0.0"`. */
+  /**
+   * The application version, printed by `--version`. There is no default:
+   * an application that sets none has no version to report, and `--version`
+   * prints `<name> (no version)`.
+   */
   version: string;
   /**
    * The application name, printed by `--version` and in the help usage lines.
@@ -173,7 +177,6 @@ export class ChoCommand {
     this.#options = {
       ...options,
       name: options.name ?? "chojs",
-      version: options.version ?? "1.0.0",
     };
     this.#parser = parser;
     this.#pipelines = new Map(
@@ -197,7 +200,8 @@ export class ChoCommand {
    *
    * - `--help`: prints the help (for the command, if one is named) and
    *   resolves to `0`;
-   * - `--version`: prints `<name> version <version>` and resolves to `0`;
+   * - `--version`: prints `<name> version <version>` (`<name> (no version)`
+   *   when the application sets none) and resolves to `0`;
    * - no command in multi-command mode: prints the global help and resolves to
    *   `0`;
    * - an unknown command in multi-command mode: prints an error and resolves
@@ -244,7 +248,12 @@ export class ChoCommand {
 
     if (version) {
       this.#log("version");
-      console.log(`${this.#options.name} version ${this.#options.version}`);
+      const { name, version } = this.#options;
+      console.log(
+        version === undefined
+          ? `${name} (no version)`
+          : `${name} version ${version}`,
+      );
       return 0;
     }
 

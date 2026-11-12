@@ -86,7 +86,7 @@ import type {
   Provider,
   Token,
 } from "./types.ts";
-import { isToken } from "./tokens.ts";
+import { is_token } from "./tokens.ts";
 import { describe } from "../utils/describe.ts";
 
 /** Options shared by every DI decorator. */
@@ -249,7 +249,7 @@ const MAX_DESCRIBED_KEYS = 5;
  * @returns The description.
  */
 function describe_value(value: unknown): string {
-  if (typeof value !== "object" || value === null || isToken(value)) {
+  if (typeof value !== "object" || value === null || is_token(value)) {
     return describe(value);
   }
   if (Array.isArray(value)) {
@@ -286,7 +286,7 @@ function assert_array(
 
 /**
  * Make an assertion that a value is a token: a class (or any function), a
- * symbol, or an injection token (see `isToken`).
+ * symbol, or an injection token (see `is_token`).
  *
  * The assertion is curried so it can be passed to `forEach` with a message
  * that names the option being checked.
@@ -303,7 +303,7 @@ function assert_array(
  */
 function assert_dependency(msg: string) {
   return function (token: unknown): asserts token is Token {
-    if (!isToken(token)) {
+    if (!is_token(token)) {
       throw new Error(`${msg}: ${describe_value(token)}`);
     }
   };
@@ -354,7 +354,7 @@ function assert_function(msg: string) {
 function describe_provider(provider: unknown): string {
   if (
     typeof provider === "object" && provider !== null &&
-    "provide" in provider && isToken(provider.provide)
+    "provide" in provider && is_token(provider.provide)
   ) {
     return `for ${describe(provider.provide)}`;
   }
@@ -392,7 +392,7 @@ function assert_provider(provider: unknown): asserts provider is Provider {
   if (!("provide" in provider)) {
     throw new Error(`${name} is missing the "provide" property`);
   }
-  if (!isToken(provider.provide)) {
+  if (!is_token(provider.provide)) {
     throw new Error(
       `${name}: "provide" must be a class, symbol or injection token, got ${
         describe_value(provider.provide)

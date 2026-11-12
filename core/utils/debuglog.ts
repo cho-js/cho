@@ -29,7 +29,7 @@ export type Debuglog = {
  *
  * @param context The context name.
  */
-export function isEnabled(context: string): boolean {
+export function is_enabled(context: string): boolean {
   if (env_bool("CHO_DEBUG")) {
     return true;
   }
@@ -61,7 +61,7 @@ const noop = () => {};
  * @param context name of the logging context, e.g. `di:injector`
  */
 export function debuglog(context: string): Debuglog {
-  if (!isEnabled(context)) {
+  if (!is_enabled(context)) {
     return Object.assign(noop, {
       error: noop,
       start: () => noop,

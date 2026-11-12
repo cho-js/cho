@@ -7,7 +7,8 @@
  * A command receives the context of the run (`ChoCommandContext`), and runs
  * through the middlewares declared with `@Middlewares`; `@Catch` declares
  * error handlers. `@Controller`, `@Module` and `@Injectable` come from
- * `@chojs/core`.
+ * `@chojs/core`, and so do `token` and `provider`, to declare values that
+ * are not classes: an application imports everything from `@chojs/command`.
  *
  * @example
  * ```ts
@@ -39,11 +40,18 @@ export {
   Middlewares,
   Module,
 } from "./decorators.ts";
+// What an application needs from the core, so that it only imports
+// `@chojs/command`: the `@Injectable` decorator, and `token` and `provider`
+// to declare values that are not classes (and the `overrides` of tests).
 export {
   type ControllerOptions,
   Injectable,
   type InjectableOptions,
+  type InjectionToken,
   type ModuleOptions,
+  type Provider,
+  provider,
+  token,
 } from "@chojs/core/di";
 export { ChoCommand, type ChoCommandOptions } from "./command.ts";
 export type { ChoArgs, CommandFlags, ParserOptions } from "./args.ts";

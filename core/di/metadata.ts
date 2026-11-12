@@ -357,12 +357,44 @@ export function method_metadata(
 }
 
 /**
+ * Merge a record over another, by the rules of
+ * {@link add_to_metadata_object}: arrays are concatenated, the base's values
+ * first; any other value replaces the base's.
+ *
+ * @param base The record to start from (a parent's, say).
+ * @param over The record merged over it (the subclass's).
+ * @returns A new frozen record; neither input is changed.
+ */
+function merge_records(
+  base: Readonly<Record<PropertyKey, unknown>>,
+  over: Readonly<Record<PropertyKey, unknown>>,
+): Readonly<Record<PropertyKey, unknown>> {
+  const merged: Record<PropertyKey, unknown> = { ...base };
+  for (const key of own_keys(over)) {
+    const prev = merged[key];
+    const value = over[key];
+    merged[key] = Array.isArray(prev) && Array.isArray(value)
+      ? Object.freeze([...prev, ...value])
+      : value;
+  }
+  return Object.freeze(merged);
+}
+
+/**
  * The records of the methods of a class, by method name: its own, and those
- * of the methods it inherits. A record of a subclass replaces the record its
- * parent has for the same method name.
+ * of the methods it inherits.
+ *
+ * A subclass that decorates a method it inherits **adds to** the record of
+ * its parent, by the merge rules of {@link add_to_metadata_object}: arrays
+ * are concatenated, the parent's values first, and any other value of the
+ * subclass replaces the parent's. So an override that only adds a middleware
+ * keeps what the parent declared (a route, say), and an override that
+ * declares it again replaces it. An override without any decorator inherits
+ * the record as it is.
  *
  * Two places are read for each class of the prototype chain, parents first,
- * and merged when a method has a record in both (the table's keys win):
+ * and merged the same way when a method has a record in both (the table over
+ * the function):
  *
  * - the class's method table (see {@link method_metadata}), where decorators
  *   write;
@@ -394,7 +426,7 @@ export function method_records(
   const read = (target: MetaTarget) =>
     read_metadata_object<Record<PropertyKey, unknown>>(target);
   for (const cls of chain) {
-    // The records of this class alone: it replaces its parents' by name.
+    // The records of this class alone, merged below over its parents'.
     const own = new Map<string | symbol, Record<PropertyKey, unknown>>();
     const proto: unknown = cls.prototype;
     if (typeof proto === "object" && proto !== null) {
@@ -416,13 +448,14 @@ export function method_records(
           const on_function = own.get(name);
           own.set(
             name,
-            on_function ? Object.freeze({ ...on_function, ...record }) : record,
+            on_function ? merge_records(on_function, record) : record,
           );
         }
       }
     }
     for (const [name, record] of own) {
-      records.set(name, record);
+      const inherited = records.get(name);
+      records.set(name, inherited ? merge_records(inherited, record) : record);
     }
   }
   return records;
