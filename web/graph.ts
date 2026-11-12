@@ -55,7 +55,7 @@ export class MethodRef extends NodeRef {
   readonly name: string;
   readonly method: string;
   readonly type: string;
-  readonly handler: () => Promise<unknown>;
+  readonly handler: (...args: unknown[]) => Promise<unknown>;
 
   constructor(
     name: string,
@@ -64,7 +64,7 @@ export class MethodRef extends NodeRef {
     type: string,
     middlewares: ChoMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
-    handler: () => Promise<unknown>,
+    handler: (...args: unknown[]) => Promise<unknown>,
   ) {
     super(route, middlewares, errorHandler);
     this.name = name;
@@ -234,7 +234,7 @@ function error_handler_factory(
     ) {
       try {
         const instance = await injector.resolve(ctr, mdl);
-        return instance.handle.bind(instance);
+        return instance.handle.bind(instance) as ChoErrorHandlerFn;
       } catch (error) {
         throw new Error(
           `Failed to create error handler ${describe(ctr)} in module ${
@@ -250,7 +250,7 @@ function error_handler_factory(
       );
     }
     if (typeof ctr === "function") {
-      return ctr;
+      return ctr as ChoErrorHandlerFn;
     }
     return null;
   };

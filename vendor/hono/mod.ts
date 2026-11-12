@@ -1,5 +1,5 @@
 import type { AppRef, ChoMiddlewareFn } from "@chojs/web";
-import type { Context } from "@hono/hono";
+import type { Context, MiddlewareHandler, ErrorHandler } from "@hono/hono";
 import { Hono } from "@hono/hono";
 import { MethodRef, NodeRef } from "@chojs/web/graph";
 import type { Target } from "@chojs/core";
@@ -7,7 +7,7 @@ import { Linked, Linker } from "@chojs/web/linker";
 
 export class HonoLinked extends Linked<Hono> {
   get handler(): (req: Request) => Promise<Response> {
-    return this.instance.fetch;
+    return (this.instance as Hono).fetch as any; // todo fix this type
   }
 }
 
@@ -26,6 +26,7 @@ export class HonoLinker implements Linker<Hono> {
           const endpoint = this.#createMethod(mr);
           const action = mr.method.toLowerCase();
           const middlewares = this.#createMiddlewares(mr.middlewares);
+          // @ts-ignore
           ctrl[action](`/${mr.route}`, ...middlewares, endpoint);
         }
         feature.route(cr.route, ctrl);
@@ -43,7 +44,7 @@ export class HonoLinker implements Linker<Hono> {
       ctrl.use(...middlewares);
     }
     if (ref.errorHandler) {
-      ctrl.onError(ref.errorHandler);
+      ctrl.onError(ref.errorHandler as ErrorHandler);
     }
     return ctrl;
   }
@@ -78,11 +79,11 @@ export class HonoLinker implements Linker<Hono> {
     };
   }
 
-  #createMiddlewares(middlewares: ChoMiddlewareFn[]): Target[] {
+  #createMiddlewares(middlewares: ChoMiddlewareFn[]): MiddlewareHandler[] {
     return middlewares.map(this.#createMiddleware.bind(this));
   }
 
-  #createMiddleware(middleware: unknown): Target {
-    return middleware as Target;
+  #createMiddleware(middleware: unknown): MiddlewareHandler {
+    return middleware as MiddlewareHandler;
   }
 }

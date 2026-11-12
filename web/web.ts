@@ -27,6 +27,6 @@ export class ChoWeb<T = Any> {
   }
 
   get handler() {
-    return this.linked.instance.fetch;
+    return this.linked.handler;
   }
 }

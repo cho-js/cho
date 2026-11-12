@@ -199,7 +199,7 @@ export type ChoMiddleware = ChoMiddlewareFn | Ctr;
  * the decorated class or method decides how it is invoked.
  */
 export type ChoErrorHandler = ((error: unknown) => unknown) | Ctr;
-export type ChoErrorHandlerFn = (error: unknown) => unknown;
+export type ChoErrorHandlerFn = (ctx: unknown, error: unknown) => unknown;
 
 /**
  * A method decorator that works with both decorator implementations:
