@@ -22,7 +22,7 @@ import type { Ctr } from "../di/types.ts";
 export const loose = (value: unknown): any => value;
 
 /** A method decorator, in either call shape. */
-type AnyMethodDecorator = (
+export type AnyMethodDecorator = (
   target: object,
   context: ClassMethodDecoratorContext | string | symbol,
   descriptor?: PropertyDescriptor,

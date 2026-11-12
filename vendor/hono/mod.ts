@@ -1,3 +1,23 @@
+/**
+ * @chojs/vendor-hono — runs CHO web applications on Hono.
+ *
+ * {@link HonoLinker} turns the HTTP graph of a `@chojs/web` application into
+ * the routes of a Hono application. `ChoWeb` uses it by default.
+ *
+ * @example
+ * ```ts
+ * import { ChoWeb } from "@chojs/web";
+ * import { HonoLinker } from "@chojs/vendor-hono";
+ *
+ * const app = await ChoWeb.create(AppModule, {
+ *   platform: () => Promise.resolve(new HonoLinker()),
+ * });
+ * Deno.serve(app.handler);
+ * ```
+ *
+ * @module
+ */
+
 import type { ChoMiddlewareFn } from "@chojs/web";
 import type { Context, ErrorHandler, MiddlewareHandler } from "@hono/hono";
 import { Hono } from "@hono/hono";
@@ -5,16 +25,52 @@ import { type AppRef, MethodRef, NodeRef } from "@chojs/web/graph";
 import type { Target } from "@chojs/core";
 import { Linked, Linker } from "@chojs/web/linker";
 
+/**
+ * A Hono application linked by {@link HonoLinker}.
+ *
+ * @example
+ * ```ts
+ * const linked = new HonoLinker().link(graph);
+ * linked.instance; // the Hono application
+ * Deno.serve(linked.handler);
+ * ```
+ */
 export class HonoLinked extends Linked<Hono> {
+  /** The Hono application's `fetch`, as a request handler. */
   get handler(): (req: Request) => Promise<Response> {
     return (this.instance as Hono).fetch as any; // todo fix this type
   }
 }
 
+/**
+ * Links the HTTP graph of a CHO web application to a new Hono application.
+ *
+ * Each feature module and each controller becomes a Hono sub-application,
+ * mounted at its route, with its middlewares and its error handler. Each
+ * handler method becomes a route; what it returns is sent with `ctx.json()`,
+ * unless it is a `Response`. Supported HTTP methods: GET, POST, PUT, DELETE
+ * and PATCH.
+ *
+ * It is the default linker of `ChoWeb`.
+ *
+ * @example
+ * ```ts
+ * import { ChoWeb } from "@chojs/web";
+ * import { HonoLinker } from "@chojs/vendor-hono";
+ *
+ * const app = await ChoWeb.create(AppModule, {
+ *   platform: () => Promise.resolve(new HonoLinker()),
+ * });
+ * Deno.serve(app.handler);
+ * ```
+ */
 export class HonoLinker implements Linker<Hono> {
   /**
-   * Link the given `graph` to a new Hono application, returning a `HonoLinked`
-   * @param graph
+   * Link an HTTP graph to a new Hono application.
+   *
+   * @param graph The HTTP graph of the application.
+   * @returns The linked Hono application.
+   * @throws {Error} When a handler uses an unsupported HTTP method.
    */
   link(graph: AppRef): HonoLinked {
     const app = new Hono();

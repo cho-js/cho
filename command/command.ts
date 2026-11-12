@@ -84,7 +84,19 @@ function find_error_handler(
     | undefined;
 }
 
-/** Options of {@link ChoCommand.create}. */
+/**
+ * Options of {@link ChoCommand.create}. Every option is optional.
+ *
+ * @example
+ * ```ts
+ * const app = ChoCommand.create(App, {
+ *   name: "fs",
+ *   version: "2.1.0", // ./fs --version -> fs version 2.1.0
+ *   initModule: true,
+ *   parseOptions: { boolean: ["force"], alias: { f: "force" } },
+ * });
+ * ```
+ */
 export type ChoCommandOptions = {
   /** The application version, printed by `--version`. Default: `"1.0.0"`. */
   version: string;
@@ -136,6 +148,11 @@ export class ChoCommand {
    * @throws {Error} When the module graph is invalid (see `Injector`), or when
    *   its command methods are: none, `@Main` mixed with `@Action`, more than
    *   one `@Main`, or a duplicate action name.
+   *
+   * @example
+   * ```ts
+   * const app = ChoCommand.create(AppModule, { name: "fs", version: "1.0.0" });
+   * ```
    */
   static create(
     app: Ctr,
@@ -208,6 +225,16 @@ export class ChoCommand {
    *
    * @param argv The command-line arguments, without the program name.
    * @returns The exit code.
+   *
+   * @example Deno
+   * ```ts
+   * Deno.exit(await app.run(Deno.args));
+   * ```
+   *
+   * @example Node.js and Bun
+   * ```ts
+   * process.exit(await app.run(process.argv.slice(2)));
+   * ```
    */
   async run(argv: string[]): Promise<number> {
     const { args, route, help, version } = this.#parser.parse(

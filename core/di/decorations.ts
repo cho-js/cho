@@ -76,6 +76,20 @@ export type InjectableOptions = {
  * Besides the fields below, any key is accepted and stored as is in the
  * module's record, for the application module (for example the route prefix
  * of a web feature). The DI system ignores those keys.
+ *
+ * @example
+ * ```ts
+ * const options: Partial<ModuleOptions> = {
+ *   imports: [DbModule],
+ *   providers: [UserService],
+ *   controllers: [UsersController],
+ *   exports: [UserService],
+ *   route: "users", // extra metadata, read by @chojs/web
+ * };
+ *
+ * @Module(options)
+ * class UsersModule {}
+ * ```
  */
 export type ModuleOptions = InjectableOptions & {
   /** Modules whose exported tokens this module can inject. */
@@ -103,6 +117,19 @@ export type ModuleOptions = InjectableOptions & {
  * controller's record, for the application module that invokes the controller
  * (for example the description of a CLI command). The DI system ignores those
  * keys.
+ *
+ * @example
+ * ```ts
+ * const options: Partial<ControllerOptions> = {
+ *   dependencies: [UserService],
+ *   route: "users", // extra metadata, read by @chojs/web
+ * };
+ *
+ * @Controller(options)
+ * class UsersController {
+ *   constructor(readonly users: UserService) {}
+ * }
+ * ```
  */
 export type ControllerOptions = InjectableOptions & {
   /** Extra metadata for the application module, stored as is. */

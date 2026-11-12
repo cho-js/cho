@@ -30,7 +30,7 @@ import {
 } from "./dependency-graph.ts";
 import { describe } from "../utils/describe.ts";
 
-export type { DependencyGraph, DependencyNode, ModuleScope };
+export type { DependencyGraph, DependencyNode, MetadataGraph, ModuleScope };
 /**
  * Creates and holds the instances of an application.
  *
@@ -51,6 +51,10 @@ export type { DependencyGraph, DependencyNode, ModuleScope };
  * ```
  */
 export class Injector {
+  /**
+   * The normalized metadata of the application: every module reachable from
+   * the root, read and validated by the constructor.
+   */
   readonly meta: MetadataGraph;
   /** The dependency graph of the application, built by the constructor. */
   readonly graph: DependencyGraph;

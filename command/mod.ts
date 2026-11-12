@@ -37,4 +37,4 @@ export {
   type ModuleOptions,
 } from "@chojs/core/di";
 export { ChoCommand, type ChoCommandOptions } from "./command.ts";
-export type { ChoArgs } from "./args.ts";
+export type { ChoArgs, ParserOptions } from "./args.ts";

@@ -77,10 +77,12 @@ export type {
 export { Injector } from "./injector.ts";
 export { isToken, provider, token } from "./tokens.ts";
 export * from "./types.ts";
-// The graph types are public because `Injector.graph` exposes the graph.
+// The graph types are public because `Injector.meta` and `Injector.graph`
+// expose the graphs.
 export type {
   ControllerMetadata,
   InjectableMetadata,
+  MetadataGraph,
   MethodMetadata,
   ModuleMetadata,
   ProviderMetadata,

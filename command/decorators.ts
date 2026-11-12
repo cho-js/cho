@@ -103,9 +103,33 @@ function assert_no_command(method: DecoratedMethod, adding: string) {
 /**
  * Mark a method as the single command of the application.
  *
+ * The application then runs this method for every command line
+ * (`./app [options] [args]`). The whole module graph can have only one `@Main`
+ * method, and cannot mix it with `@Action` methods.
+ *
  * @returns A method decorator.
  * @throws {TypeError} When the decorated method is not public, non-static and
  *   string-named.
+ *
+ * @example
+ * ```ts
+ * import { type ChoArgs, ChoCommand, Controller, Main, Module } from "@chojs/command";
+ *
+ * @Controller()
+ * class Greet {
+ *   @Main()
+ *   main(args: ChoArgs) {
+ *     console.log(`Hello, ${args._[0] ?? "world"}!`);
+ *   }
+ * }
+ *
+ * @Module({ controllers: [Greet] })
+ * class App {}
+ *
+ * // ./greet Alice -> Hello, Alice!
+ * const app = ChoCommand.create(App, { name: "greet" });
+ * Deno.exit(await app.run(Deno.args));
+ * ```
  */
 export function Main(): ChoMethodDecorator {
   return function (target, context, descriptor) {
@@ -128,6 +152,33 @@ export function Main(): ChoMethodDecorator {
  * @returns A method decorator.
  * @throws {TypeError} When the name breaks these rules, or when the decorated
  *   method is not public, non-static and string-named.
+ *
+ * @example
+ * ```ts
+ * import { type ChoArgs, ChoCommand, Controller, Action, Module } from "@chojs/command";
+ *
+ * @Controller()
+ * class Files {
+ *   // ./fs copy a.txt b.txt
+ *   @Action("copy")
+ *   copy(args: ChoArgs) {
+ *     const [from, to] = args._;
+ *     console.log(`copy ${from} to ${to}`);
+ *   }
+ *
+ *   // ./fs remove a.txt --force
+ *   @Action("remove")
+ *   remove(args: ChoArgs) {
+ *     return args.force ? 0 : 1; // the exit code
+ *   }
+ * }
+ *
+ * @Module({ controllers: [Files] })
+ * class App {}
+ *
+ * const app = ChoCommand.create(App, { name: "fs" });
+ * Deno.exit(await app.run(Deno.args));
+ * ```
  */
 export function Action(alias: string): ChoMethodDecorator {
   return function (target, context, descriptor) {
@@ -145,10 +196,31 @@ export function Action(alias: string): ChoMethodDecorator {
 }
 
 /**
- * Help text for a controller class or for a command method.
+ * Help text for a controller class or for a command method, printed by
+ * `--help`.
  *
- * @param help The help text.
+ * On a controller, the text describes the group of commands; on a method, it
+ * describes the command.
+ *
+ * @param help The help text: a non-empty string.
  * @returns A class or method decorator.
+ * @throws {TypeError} When `help` is not a non-empty string.
+ *
+ * @example
+ * ```ts
+ * import { Action, Controller, Help } from "@chojs/command";
+ *
+ * @Help("File operations")
+ * @Controller()
+ * class Files {
+ *   @Help("Copy a file: fs copy <from> <to>")
+ *   @Action("copy")
+ *   copy() {}
+ * }
+ *
+ * // ./fs --help       -> every command, with its help
+ * // ./fs copy --help  -> the help of `copy`
+ * ```
  */
 export function Help(help: string): ChoClassOrMethodDecorator {
   return function (target, context, descriptor) {

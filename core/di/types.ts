@@ -183,10 +183,30 @@ export type ChoClassDecorator = (
   context?: ClassDecoratorContext,
 ) => void;
 
+/**
+ * A middleware function: it receives the request context of the application
+ * module that runs it, and `next`, which runs the rest of the chain. What the
+ * context is depends on that module (for `@chojs/web`, the context of the
+ * HTTP runtime, such as Hono's `Context`).
+ *
+ * @example
+ * ```ts
+ * const timing: ChoMiddlewareFn = async (ctx, next) => {
+ *   const start = Date.now();
+ *   await next();
+ *   console.log(`took ${Date.now() - start}ms`);
+ * };
+ *
+ * @Middlewares(timing)
+ * @Controller()
+ * class Users {}
+ * ```
+ */
 export type ChoMiddlewareFn = (
   ctx: Any,
   next: () => Promise<unknown>,
 ) => Promise<unknown>;
+
 /**
  * A middleware, declared with `@Middlewares`. For now any function: what it
  * receives and returns is up to the application module that runs it.
@@ -199,6 +219,16 @@ export type ChoMiddleware = ChoMiddlewareFn | Ctr;
  * the decorated class or method decides how it is invoked.
  */
 export type ChoErrorHandler = ((error: unknown) => unknown) | Ctr;
+
+/**
+ * An error handler function that also receives the request context of the
+ * application module that runs it, such as an HTTP context. Used by
+ * application modules that call handlers with a context (`@chojs/web`).
+ *
+ * @param ctx The context of the request that failed.
+ * @param error The error.
+ * @returns What the application module expects, such as a response.
+ */
 export type ChoErrorHandlerFn = (ctx: unknown, error: unknown) => unknown;
 
 /**

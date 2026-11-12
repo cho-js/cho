@@ -1,3 +1,18 @@
+/**
+ * The HTTP graph: what a linker needs to register the routes of a web
+ * application, with every instance, middleware and error handler already
+ * created, so it can run without the DI system.
+ *
+ * {@link build_http_graph} builds it from an {@link Injector}:
+ *
+ * - {@link AppRef}: the application, with the global route prefix;
+ * - {@link FeatureRef}: a module that declares controllers;
+ * - {@link ControllerRef}: a controller, with its instance;
+ * - {@link MethodRef}: a route handler (`@Get`, `@Post`, ...).
+ *
+ * @module
+ */
+
 import type {
   ChoErrorHandler,
   ChoErrorHandlerFn,
@@ -11,7 +26,8 @@ import type {
 } from "@chojs/core/di";
 import { describe, isClass, isClassImplement } from "@chojs/core/utils";
 
-export { ChoMiddlewareFn };
+export type { ChoMiddlewareFn };
+
 /**
  * An error handler as stored in the graph: a function given to `@Catch`, an
  * instance of a handler class (one with a `handle` method), or `null` when
@@ -21,25 +37,48 @@ export type ErrorHandlerRef =
   | ChoErrorHandlerFn
   | null;
 
+/** A controller instance: its handler methods, by name. */
 export type ControllerInstance = {
   [key: string]: () => Promise<unknown>;
 };
 
+/**
+ * The record of a route handler method: what the HTTP method decorators
+ * (`@Get`, `@Post`, ...) write, plus what `@Middlewares` and `@Catch` add.
+ */
 export type MethodMetadata = {
+  /** Marks a route handler. */
   isHTTP: true;
+  /** The kind of handler. */
   type: "HTTP";
+  /** The HTTP method, such as `"GET"`. */
   method: string;
+  /** The name of the method on the controller. */
   name: string;
+  /** The route of the handler, relative to its controller. */
   route: string;
+  /** The middlewares of `@Middlewares`, in order. */
   middlewares?: ChoMiddleware[];
+  /** The error handler of `@Catch`. */
   errorHandler?: ChoErrorHandler;
 };
 
+/** A node of the HTTP graph that has a route, middlewares and an error handler. */
 export abstract class NodeRef {
+  /** The route of the node, relative to its parent; `""` when it has none. */
   readonly route: string;
+  /** The middlewares of the node, created and in order. */
   readonly middlewares: ChoMiddlewareFn[];
+  /** The error handler of the node, or `null` when it has none. */
   readonly errorHandler: ErrorHandlerRef;
 
+  /**
+   * Create a node.
+   *
+   * @param route The route of the node, relative to its parent.
+   * @param middlewares The middlewares of the node.
+   * @param errorHandler The error handler of the node, or `null`.
+   */
   constructor(
     route: string,
     middlewares: ChoMiddlewareFn[],
@@ -51,12 +90,28 @@ export abstract class NodeRef {
   }
 }
 
+/** A route handler: a controller method marked with `@Get`, `@Post`, ... */
 export class MethodRef extends NodeRef {
+  /** The name of the method on the controller. */
   readonly name: string;
+  /** The HTTP method, such as `"GET"`. */
   readonly method: string;
+  /** The kind of handler: `"HTTP"`. */
   readonly type: string;
+  /** The method, bound to its controller instance. */
   readonly handler: (...args: unknown[]) => Promise<unknown>;
 
+  /**
+   * Create a route handler node.
+   *
+   * @param name The name of the method on the controller.
+   * @param route The route of the handler, relative to its controller.
+   * @param method The HTTP method.
+   * @param type The kind of handler.
+   * @param middlewares The middlewares of the method.
+   * @param errorHandler The error handler of the method, or `null`.
+   * @param handler The method, bound to its controller instance.
+   */
   constructor(
     name: string,
     route: string,
@@ -74,10 +129,21 @@ export class MethodRef extends NodeRef {
   }
 }
 
+/** A controller, with its instance and its route handlers. */
 export class ControllerRef extends NodeRef {
+  /** The controller instance, created by the injector. */
   readonly instance: ControllerInstance;
+  /** The route handlers of the controller, in declaration order. */
   readonly methods: MethodRef[];
 
+  /**
+   * Create a controller node, with no route handlers yet.
+   *
+   * @param route The route of the controller, relative to its feature.
+   * @param middlewares The middlewares of the controller.
+   * @param errorHandler The error handler of the controller, or `null`.
+   * @param instance The controller instance.
+   */
   constructor(
     route: string,
     middlewares: ChoMiddlewareFn[],
@@ -90,9 +156,18 @@ export class ControllerRef extends NodeRef {
   }
 }
 
+/** A feature: a module that declares controllers. */
 export class FeatureRef extends NodeRef {
+  /** The controllers of the feature that have route handlers. */
   readonly controllers: ControllerRef[];
 
+  /**
+   * Create a feature node, with no controllers yet.
+   *
+   * @param route The route of the feature, relative to the global prefix.
+   * @param middlewares The middlewares of the feature module.
+   * @param errorHandler The error handler of the feature module, or `null`.
+   */
   constructor(
     route: string,
     middlewares: ChoMiddlewareFn[],
@@ -103,10 +178,18 @@ export class FeatureRef extends NodeRef {
   }
 }
 
+/** The root of the HTTP graph: the application. */
 export class AppRef {
+  /** The global route prefix; `""` when there is none. */
   readonly route: string;
+  /** The features of the application. */
   readonly features: FeatureRef[];
 
+  /**
+   * Create the application node, with no features yet.
+   *
+   * @param route The global route prefix.
+   */
   constructor(route: string) {
     this.route = route;
     this.features = [];
@@ -319,10 +402,20 @@ function assert_no_duplicate_routes(ref: AppRef): void {
 }
 
 /**
- * The graph should expose all routes ready to invoke without the DI system, so that a web server can register them.
+ * Build the HTTP graph of an application: every feature module, controller
+ * and route handler, with their routes, middlewares and error handlers,
+ * ready to invoke without the DI system, so that a linker can register them.
  *
- * @param injector
- * @param prefix
+ * Controller instances, middleware classes and error handler classes are
+ * created by the injector, in the scope of the module that declares the
+ * controller.
+ *
+ * @param injector The injector of the application.
+ * @param prefix The global route prefix (`""` for none).
+ * @returns The HTTP graph.
+ * @throws {Error} When a route is invalid, when two handlers have the same
+ *   HTTP method and full route, or when a middleware or an error handler is
+ *   invalid or cannot be created.
  */
 export async function build_http_graph(
   injector: Injector,

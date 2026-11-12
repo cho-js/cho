@@ -16,6 +16,20 @@ import { type Args, parseArgs, type ParseOptions } from "./lib/parse-args.ts";
  * Positionals in `_` that look like numbers are numbers (`"42"` -> `42`).
  * In multi-command mode, `_` does not include the command name. The reserved
  * `--help` and `--version` flags are not included either.
+ *
+ * @example
+ * ```ts
+ * @Controller()
+ * class Files {
+ *   // ./fs copy a.txt b.txt --force --mode=644
+ *   @Action("copy")
+ *   copy(args: ChoArgs) {
+ *     args._;     // ["a.txt", "b.txt"]
+ *     args.force; // true
+ *     args.mode;  // 644
+ *   }
+ * }
+ * ```
  */
 export type ChoArgs = Args;
 
@@ -27,6 +41,16 @@ export type ChoArgs = Args;
  * The reserved flags (`--help`, `--version`) always stay negatable booleans:
  * they are added to `boolean` and `negatable`, and removed from `string`,
  * `collect` and `default`.
+ *
+ * @example
+ * ```ts
+ * const options: ParserOptions = {
+ *   boolean: ["force"],
+ *   string: ["out"],
+ *   alias: { f: "force", o: "out" },
+ * };
+ * const app = ChoCommand.create(App, { parseOptions: options });
+ * ```
  */
 export type ParserOptions = ParseOptions;
 
