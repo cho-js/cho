@@ -1,3 +1,6 @@
+// copied with love from:
+// @see https://jsr.io/@std/cli
+//
 // Copyright 2018-2026 the Deno authors. MIT license.
 // This module is browser compatible.
 

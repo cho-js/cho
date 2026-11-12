@@ -1,4 +1,5 @@
 # used to run tests in all runtimes
+set -e
 
 echo "Deno run tests"
 deno test --allow-env
