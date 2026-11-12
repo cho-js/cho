@@ -33,15 +33,17 @@ app.linked.instance; // the Hono app itself
 ## Behavior
 
 - Each feature module and each controller becomes a Hono sub-application,
-  mounted at its route, with its middlewares (`use`) and error handler
-  (`onError`).
+  mounted at its route (features under the global `prefix`), with its error
+  handler (`onError`).
 - Handlers receive Hono's `Context`. A `Response` they return is sent as is;
   anything else is sent with `ctx.json()`.
-- Middlewares are Hono middlewares, `(ctx, next) => Promise`. They run in order:
-  the feature's, the controller's, then the handler's.
+- Middlewares are Hono middlewares, `(ctx, next) => Promise`. They are attached
+  to each route and run in order: the feature's, the controller's, then the
+  handler's. They only run for requests that match a route.
 - An error goes to the nearest `@Catch` handler (the handler's, the
   controller's, then the feature's), called as `(error, ctx)`; without one, Hono
-  logs it and answers `500`.
+  logs it and answers `500`. A `@Catch` result, at any level, is sent like a
+  handler's (JSON unless it is a `Response`).
 - Routes are matched in declaration order: declare static routes before
   parameter routes (`@Get("me")` before `@Get(":id")`).
 - Supported HTTP methods: GET, POST, PUT, DELETE and PATCH.
@@ -51,7 +53,6 @@ app.linked.instance; // the Hono app itself
 
 ## Known issues
 
-- The global `prefix` of `ChoWeb.create` is not applied yet.
-
-See [`web/issues.md`](../../web/issues.md) for details, and the
-[`@chojs/web` specification](../../web/specs.md) for the full behavior.
+None open for the adapter itself. See [`web/issues.md`](../../web/issues.md) for
+details, and the [`@chojs/web` specification](../../web/specs.md) for the full
+behavior.

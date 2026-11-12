@@ -157,6 +157,28 @@ describe("HonoLinker", () => {
     assert.equal(is_context(seen[1]), true);
   });
 
+  it("sends a handler-level error handler's result as JSON, unless it is a Response", async () => {
+    class Users {
+      list() {
+        throw new Error("boom");
+      }
+    }
+    legacy(Get(""), Users, "list");
+    legacy(
+      Catch((error) => ({ error: (error as Error).message })),
+      Users,
+      "list",
+    );
+    Controller()(Users);
+    class App {}
+    Module({ controllers: [Users] })(App);
+    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
+
+    const response = await send(app, "/");
+    assert.ok(response instanceof Response);
+    assert.deepEqual(await response.json(), { error: "boom" });
+  });
+
   it("falls back to the controller's error handler, then the feature's", async () => {
     // The controller's and feature's handlers go to Hono's onError, which
     // calls them with (error, ctx), as the handler-level ones are.
@@ -195,6 +217,54 @@ describe("HonoLinker", () => {
     assert.equal(await uncaught.text(), "feature: uncaught");
   });
 
+  it("sends a controller- or feature-level error handler's result as JSON too", async () => {
+    const failing = (route: string) => {
+      class Failing {
+        run() {
+          throw new Error(route);
+        }
+      }
+      legacy(Get(""), Failing, "run");
+      Controller({ route })(Failing);
+      return Failing;
+    };
+    const Caught = failing("caught");
+    Catch((error) => ({ controller: (error as Error).message }))(Caught);
+    const Uncaught = failing("uncaught");
+    class App {}
+    Module({ controllers: [Caught, Uncaught] })(App);
+    Catch((error) => ({ feature: (error as Error).message }))(App);
+    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
+
+    const caught = await send(app, "/caught");
+    assert.ok(caught instanceof Response);
+    assert.deepEqual(await caught.json(), { controller: "caught" });
+    const uncaught = await send(app, "/uncaught");
+    assert.ok(uncaught instanceof Response);
+    assert.deepEqual(await uncaught.json(), { feature: "uncaught" });
+  });
+
+  it("awaits an async error handler", async () => {
+    class Users {
+      list() {
+        throw new Error("boom");
+      }
+    }
+    legacy(Get(""), Users, "list");
+    Controller()(Users);
+    Catch(async () => {
+      await Promise.resolve();
+      return new Response("later", { status: 503 });
+    })(Users);
+    class App {}
+    Module({ controllers: [Users] })(App);
+    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
+
+    const response = await send(app, "/");
+    assert.equal(response.status, 503);
+    assert.equal(await response.text(), "later");
+  });
+
   it("answers 500 without an error handler, and logs the error", async () => {
     class Users {
       list() {
@@ -214,18 +284,29 @@ describe("HonoLinker", () => {
     assert.equal((output.error[0] as Error).message, "boom");
   });
 
-  it("does not apply the global prefix yet", async () => {
-    // A known bug (web/issues.md #1). Update this test when it is fixed:
-    // "/api/users" should answer, and "/users" should be 404.
+  it("applies the global prefix to every route", async () => {
+    class App {}
+    Module({ route: "v1", controllers: [users_controller()] })(App);
+    const app = await ChoWeb.create(App, {
+      linker: new HonoLinker(),
+      prefix: "api",
+    });
+
+    assert.deepEqual(await (await send(app, "/api/v1/users")).json(), [1, 2]);
+    assert.deepEqual(await (await send(app, "/api/v1/users/42")).json(), {
+      id: "user-42",
+    });
+    assert.equal((await send(app, "/v1/users")).status, 404);
+  });
+
+  it("keeps a real Hono app with a global prefix", async () => {
     class App {}
     Module({ controllers: [users_controller()] })(App);
     const app = await ChoWeb.create(App, {
       linker: new HonoLinker(),
       prefix: "api",
     });
-
-    assert.equal((await send(app, "/api/users")).status, 404);
-    assert.equal((await send(app, "/users")).status, 200);
+    assert.ok(app.linked.instance instanceof Hono);
   });
 
   describe("link", () => {

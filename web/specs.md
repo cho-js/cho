@@ -73,12 +73,10 @@ A handler's path joins up to four levels, each optional:
 
 | Level         | Declared by                                           |
 | ------------- | ----------------------------------------------------- |
-| global prefix | the `prefix` option of `ChoWeb.create` (\*)           |
+| global prefix | the `prefix` option of `ChoWeb.create`                |
 | feature       | the `route` option of the feature's `@Module`         |
 | controller    | the `route` option of `@Controller`                   |
 | handler       | the argument of `@Get` / `@Post` / `@Put` / `@Delete` |
-
-(\*) The Hono adapter does not apply the global prefix yet (`web/issues.md`).
 
 A level that is missing or `""` adds nothing: `@Get("")` on a controller with
 `route: "users"` in a feature without a route is `GET /users`.
@@ -147,7 +145,9 @@ handler's, each in declaration order.
 
 `@Catch(handler)` applies to a feature module, a controller or a handler. A
 handler is a function, or a class with a `handle` method created by the injector
-like a middleware class. It should return a `Response`.
+like a middleware class. Its result is the response, at every level: a
+`Response` is sent as is, anything else as JSON, like a handler's result. It can
+be `async`.
 
 The nearest one handles the error: the handler's, else the controller's, else
 the feature's. Without any, the Hono adapter logs the error and answers `500`.
@@ -282,5 +282,7 @@ throws when linking.
   the core's metadata (`middlewares` and `errorHandler` of modules, controllers
   and methods).
 - **The Hono adapter** builds one Hono sub-application per feature and per
-  controller, with its middlewares (`use`) and error handler (`onError`), and
-  registers each handler with its own middlewares.
+  controller, with its error handler (`onError`), and mounts each feature at the
+  global prefix plus its route. Middlewares are attached to each route: the
+  feature's, the controller's, then the handler's, so they only run for requests
+  that match a route.

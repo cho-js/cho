@@ -14,7 +14,7 @@
  */
 
 import type { ChoErrorHandlerFn, ChoMiddlewareFn } from "@chojs/core/di";
-import type {ChoWebContext} from "./context.ts";
+import type { ChoWebContext } from "./context.ts";
 
 export type { ChoMiddlewareFn };
 

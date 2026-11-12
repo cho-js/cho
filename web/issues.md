@@ -5,11 +5,16 @@ writing `web/specs.md`. Each was reproduced against the current code.
 
 ## Bugs
 
-1. **The Hono adapter ignores the global prefix.** `HonoLinker.link` mounts
-   every feature with `app.route(feature.route, …)` and never uses
+1. **[FIXED] The Hono adapter ignores the global prefix.** `HonoLinker.link`
+   mounts every feature with `app.route(feature.route, …)` and never uses
    `graph.route`. With `ChoWeb.create(App, { linker, prefix: "api" })`,
    `GET /api/v1/users/42` is `404` and `GET /v1/users/42` answers. The JSDoc
    examples of `ChoWeb` and `@chojs/web` show the prefix working.
+
+   **Fix:** each feature is mounted at the global prefix plus its route.
+   (`basePath()` was tried first, but it returns a copy built from Hono's base
+   class, so `linked.instance` was no longer `instanceof Hono`.) Tests in
+   `vendor/hono/mod_test.ts`.
 
 2. **[FIXED] Error handlers receive their arguments in a different order by
    level.** A handler-level `@Catch` is called as `(ctx, error)` (the adapter
@@ -21,11 +26,17 @@ writing `web/specs.md`. Each was reproduced against the current code.
    now `(error, ctx?)`, and the adapter calls handler-level ones as
    `(error, ctx)`, like Hono's `onError` (see `core/issues.md` #7).
 
-3. **A handler-level error handler that does not return a `Response` breaks the
+3. **[FIXED] An error handler that does not return a `Response` breaks the
    response.** Its result is returned to Hono as is: returning
    `{ handled: true }` makes `app.handler` resolve to that object, not to a
    `Response`. A handler's own result is sent as JSON; the error handler's
    should be too, or be required to be a `Response`.
+
+   **Fix:** every `@Catch` result is now sent like a handler's, with
+   `ctx.json()` unless it is a `Response`: handler-level ones in the route's
+   handler, controller- and feature-level ones in their Hono `onError`
+   (`to_response` in `vendor/hono/mod.ts`). Async handlers are awaited. Tests in
+   `vendor/hono/mod_test.ts`.
 
 4. **[FIXED] `@Catch` is typed for one argument.** Core's `@Catch` takes
    `ChoErrorHandler`, `(error) => unknown`, so `@Catch((ctx, error) => …)` does

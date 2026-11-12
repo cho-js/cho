@@ -9,7 +9,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  add_to_metadata_object, type Any,
+  add_to_metadata_object,
+  type Any,
   Catch,
   type ChoMiddlewareFn,
   Controller,

@@ -74,5 +74,4 @@ See also [`examples/hello-world-http.ts`](../examples/hello-world-http.ts).
 
 - [Specification](./specs.md): routes, handlers, middlewares, error handlers,
   writing a runtime adapter, and error messages.
-- [Known issues](./issues.md). Notably, the Hono adapter does not apply the
-  global `prefix` yet.
+- [Known issues](./issues.md).

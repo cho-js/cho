@@ -18,12 +18,27 @@
 
 import type { ChoMiddlewareFn } from "@chojs/core/di";
 import { type Debuglog, debuglog } from "@chojs/core/utils";
-import type { ErrorHandler, MiddlewareHandler } from "hono";
+import type { MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { AppRef, MethodRef, NodeRef } from "@chojs/web/graph";
 import type { Linked, Linker } from "@chojs/web/linker";
-import type {ChoWebContext} from "@chojs/web";
+import type { ChoWebContext } from "@chojs/web";
+
+/**
+ * The response for what a handler or an error handler returned: a `Response`
+ * as is, anything else as JSON.
+ *
+ * @param ctx The request context.
+ * @param result The value returned (already awaited).
+ * @returns The response.
+ */
+function to_response(
+  ctx: { json(content: unknown): Response },
+  result: unknown,
+): Response {
+  return result instanceof Response ? result : ctx.json(result);
+}
 
 /**
  * A Hono application linked by {@link HonoLinker}.
@@ -93,7 +108,10 @@ export class HonoLinker implements Linker<Hono> {
   link(graph: AppRef): HonoLinked {
     const done = this.#log.start();
     let count = 0;
-    const app = new Hono().basePath(graph.route);
+    // The global prefix is applied when mounting each feature, not with
+    // `basePath()`: that returns a copy built from Hono's base class, which is
+    // not `instanceof Hono`.
+    const app = new Hono();
     for (const fr of graph.features) {
       const feature = this.#createController(fr);
       const featureMiddlewares = this.#createMiddlewares(fr.middlewares);
@@ -104,19 +122,24 @@ export class HonoLinker implements Linker<Hono> {
           const endpoint = this.#createMethod(mr);
           const action = mr.method.toLowerCase() as keyof typeof Hono;
           const methodMiddlewares = this.#createMiddlewares(mr.middlewares);
-          const middlewares = [...featureMiddlewares, ...controllerMiddlewares, ...methodMiddlewares];
+          const middlewares = [
+            ...featureMiddlewares,
+            ...controllerMiddlewares,
+            ...methodMiddlewares,
+          ];
           // @ts-ignore: ts unable to infer that action is a key of ctrl
           ctrl[action](`/${mr.route}`, ...middlewares, endpoint);
           count++;
           this.#log(
             `registered ${mr.method} /${
-              [fr.route, cr.route, mr.route].filter(Boolean).join("/")
+              [graph.route, fr.route, cr.route, mr.route].filter(Boolean)
+                .join("/")
             }`,
           );
         }
         feature.route(cr.route, ctrl);
       }
-      app.route(fr.route, feature);
+      app.route([graph.route, fr.route].filter(Boolean).join("/"), feature);
     }
     done(`linked ${count} routes`);
     return new HonoLinked(app);
@@ -126,9 +149,9 @@ export class HonoLinker implements Linker<Hono> {
     const ctrl = new Hono();
     const handler = ref.errorHandler;
     if (handler) {
-      ctrl.onError((error, ctx) => {
+      ctrl.onError(async (error, ctx) => {
         this.#log.error(`${ctx.req.method} ${ctx.req.path} failed:`, error);
-        return handler(error, ctx) as ReturnType<ErrorHandler>;
+        return to_response(ctx, await handler(error, ctx));
       });
     }
     return ctrl;
@@ -150,19 +173,11 @@ export class HonoLinker implements Linker<Hono> {
   #createHttpMethod(ref: MethodRef) {
     return async (ctx: ChoWebContext) => {
       try {
-        const result = await ref.handler(ctx);
-        if (result instanceof Response) {
-          return result;
-        }
-        return ctx.json(result);
+        return to_response(ctx, await ref.handler(ctx));
       } catch (error) {
         if (ref.errorHandler) {
           this.#log.error(`${ctx.req.method} ${ctx.req.path} failed:`, error);
-          const result = await ref.errorHandler(error, ctx);
-          if (result instanceof Response) {
-            return result;
-          }
-          return ctx.json(result);
+          return to_response(ctx, await ref.errorHandler(error, ctx));
         }
         throw error;
       }
