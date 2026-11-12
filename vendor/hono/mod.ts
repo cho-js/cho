@@ -18,7 +18,7 @@
 
 import type { ChoMiddlewareFn } from "@chojs/core/di";
 import { type Debuglog, debuglog } from "@chojs/core/utils";
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { AppRef, MethodRef, NodeRef } from "@chojs/web/graph";
@@ -171,9 +171,13 @@ export class HonoLinker implements Linker<Hono> {
   }
 
   #createHttpMethod(ref: MethodRef) {
-    return async (ctx: ChoWebContext) => {
+    return async (ctx: Context) => {
+      const c: ChoWebContext = {
+        req: ctx.req.raw,
+        res: ctx.res,
+      };
       try {
-        return to_response(ctx, await ref.handler(ctx));
+        return to_response(ctx, await ref.handler(c));
       } catch (error) {
         if (ref.errorHandler) {
           this.#log.error(`${ctx.req.method} ${ctx.req.path} failed:`, error);

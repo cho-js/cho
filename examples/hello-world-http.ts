@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --allow-all
-import { ChoWeb, Controller, Get, Module } from "@chojs/web";
+import {ChoWeb, type ChoWebContext, Controller, Get, Module} from "@chojs/web";
 import { HonoLinker } from "@chojs/vendor-hono";
 
 @Controller({
@@ -7,7 +7,8 @@ import { HonoLinker } from "@chojs/vendor-hono";
 })
 export class BarController {
   @Get("")
-  hello() {
+  hello(_ctx: ChoWebContext) {
+    // console.log(_ctx);
     return { message: "Hello from BarController" };
   }
 }

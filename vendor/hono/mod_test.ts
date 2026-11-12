@@ -13,6 +13,7 @@ import {
   Catch,
   type ChoMiddlewareFn,
   ChoWeb,
+  type ChoWebContext,
   Controller,
   Get,
   Middlewares,
@@ -40,9 +41,9 @@ function users_controller() {
     list() {
       return [1, 2];
     }
-    // deno-lint-ignore no-explicit-any
-    get(ctx: any) {
-      return { id: this.prefix + ctx.req.param("id") };
+    get(ctx: ChoWebContext) {
+      // the context holds the raw Request; route params are not parsed
+      return { by: this.prefix + "get", path: new URL(ctx.req.url).pathname };
     }
     async create() {
       await Promise.resolve();
@@ -64,7 +65,8 @@ describe("HonoLinker", () => {
 
     assert.deepEqual(await (await send(app, "/v1/users")).json(), [1, 2]);
     assert.deepEqual(await (await send(app, "/v1/users/42")).json(), {
-      id: "user-42",
+      by: "user-get",
+      path: "/v1/users/42",
     });
     assert.equal((await send(app, "/users")).status, 404);
   });
@@ -294,7 +296,8 @@ describe("HonoLinker", () => {
 
     assert.deepEqual(await (await send(app, "/api/v1/users")).json(), [1, 2]);
     assert.deepEqual(await (await send(app, "/api/v1/users/42")).json(), {
-      id: "user-42",
+      by: "user-get",
+      path: "/api/v1/users/42",
     });
     assert.equal((await send(app, "/v1/users")).status, 404);
   });
