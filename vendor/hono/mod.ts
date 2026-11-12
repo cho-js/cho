@@ -1,5 +1,5 @@
 import type { AppRef, ChoMiddlewareFn } from "@chojs/web";
-import type { Context, MiddlewareHandler, ErrorHandler } from "@hono/hono";
+import type { Context, ErrorHandler, MiddlewareHandler } from "@hono/hono";
 import { Hono } from "@hono/hono";
 import { MethodRef, NodeRef } from "@chojs/web/graph";
 import type { Target } from "@chojs/core";

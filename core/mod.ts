@@ -17,4 +17,4 @@
 export * from "./di/decorators.ts";
 export * from "./di/injector.ts";
 export { provider, token } from "./di/tokens.ts";
-export type { Any, Ctr, Target, ChoMiddlewareFn } from "./di/types.ts";
+export type { Any, ChoMiddlewareFn, Ctr, Target } from "./di/types.ts";

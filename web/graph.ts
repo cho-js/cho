@@ -1,17 +1,17 @@
 import type {
-  Ctr,
   ChoErrorHandler,
   ChoErrorHandlerFn,
   ChoMiddleware,
   ChoMiddlewareFn,
   ControllerMetadata,
+  Ctr,
   Injector,
   ModuleMetadata,
   ModuleScope,
 } from "@chojs/core/di";
-import {describe, isClass, isClassImplement} from "@chojs/core/utils";
+import { describe, isClass, isClassImplement } from "@chojs/core/utils";
 
-export {ChoMiddlewareFn};
+export { ChoMiddlewareFn };
 /**
  * An error handler as stored in the graph: a function given to `@Catch`, an
  * instance of a handler class (one with a `handle` method), or `null` when

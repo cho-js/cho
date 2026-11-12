@@ -7,16 +7,16 @@
  * Type representing different JavaScript runtime engines.
  */
 export type EngineTpe =
-    | "node"
-    | "deno"
-    | "bun"
-    | "worked" // cloudflare workers
-    | "edge" // Vercel Edge Functions
-    | "unknown";
+  | "node"
+  | "deno"
+  | "bun"
+  | "worked" // cloudflare workers
+  | "edge" // Vercel Edge Functions
+  | "unknown";
 
 function checkUserAgent(platform: string): boolean {
-    const userAgent = globalThis?.navigator?.userAgent;
-    return typeof userAgent === "string" && userAgent.includes(platform);
+  const userAgent = globalThis?.navigator?.userAgent;
+  return typeof userAgent === "string" && userAgent.includes(platform);
 }
 
 /**
@@ -24,14 +24,14 @@ function checkUserAgent(platform: string): boolean {
  * @see https://developers.cloudflare.com/workers/runtime-apis/web-standards/#navigatoruseragent
  */
 export function isCloudflareRt(): boolean {
-    return checkUserAgent("Cloudflare-Workers");
+  return checkUserAgent("Cloudflare-Workers");
 }
 
 /**
  * Detect if the current runtime is an Edge Runtime (like Vercel Edge Functions or Netlify Edge Functions).
  */
 export function isEdgeRt(): boolean {
-    return "EdgeRuntime" in globalThis;
+  return "EdgeRuntime" in globalThis;
 }
 
 /**
@@ -39,7 +39,7 @@ export function isEdgeRt(): boolean {
  * @see https://docs.deno.com/api/web/~/Navigator.userAgent
  */
 export function isDenoRt(): boolean {
-    return checkUserAgent("Deno");
+  return checkUserAgent("Deno");
 }
 
 /**
@@ -47,7 +47,7 @@ export function isDenoRt(): boolean {
  * @see https://bun.com/reference/globals/Navigator/userAgent
  */
 export function isBunRt(): boolean {
-    return checkUserAgent("Bun");
+  return checkUserAgent("Bun");
 }
 
 /**
@@ -55,8 +55,8 @@ export function isBunRt(): boolean {
  * @see https://nodejs.org/api/process.html#processrelease
  */
 export function isNodeRt(): boolean {
-    return checkUserAgent("Node.js") ||
-        globalThis.process?.release?.name === "node";
+  return checkUserAgent("Node.js") ||
+    globalThis.process?.release?.name === "node";
 }
 
 /**
@@ -64,25 +64,25 @@ export function isNodeRt(): boolean {
  * @returns {EngineTpe} The detected engine type.
  */
 export function engine(): EngineTpe {
-    if (isCloudflareRt()) {
-        return "worked";
-    }
+  if (isCloudflareRt()) {
+    return "worked";
+  }
 
-    if (isEdgeRt()) {
-        return "edge";
-    }
+  if (isEdgeRt()) {
+    return "edge";
+  }
 
-    if (isDenoRt()) {
-        return "deno";
-    }
+  if (isDenoRt()) {
+    return "deno";
+  }
 
-    if (isBunRt()) {
-        return "bun";
-    }
+  if (isBunRt()) {
+    return "bun";
+  }
 
-    if (isNodeRt()) {
-        return "node";
-    }
+  if (isNodeRt()) {
+    return "node";
+  }
 
-    return "unknown";
+  return "unknown";
 }

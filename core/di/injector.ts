@@ -17,7 +17,11 @@
  */
 
 import type { Ctr, Token } from "./types.ts";
-import {build_meta_graph, type ControllerMetadata, type MetadataGraph} from "./metadata-graph.ts";
+import {
+  build_meta_graph,
+  type ControllerMetadata,
+  type MetadataGraph,
+} from "./metadata-graph.ts";
 import {
   build_dependency_graph,
   type DependencyGraph,
