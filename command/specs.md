@@ -79,25 +79,31 @@ $ ./fs --version
 fs version 1.0.0
 ```
 
-The example apps `scripts/cmd.ts` and `scripts/actions.ts` run the two modes.
+The example apps `examples/hello-world-cli.ts` and
+`examples/multi-actions-cli.ts` run the two modes.
 
 ---
 
 ## 1. Package and public API (`mod.ts`)
 
-| Export       | Kind     | Section |
-| ------------ | -------- | ------- |
-| `ChoCommand` | class    | 6       |
-| `Main`       | function | 3.2     |
-| `Action`     | function | 3.3     |
-| `Help`       | function | 3.4     |
-| `ChoArgs`    | type     | 5.1     |
+| Export              | Kind     | Section |
+| ------------------- | -------- | ------- |
+| `ChoCommand`        | class    | 6       |
+| `ChoCommandOptions` | type     | 6.1     |
+| `Main`              | function | 3.2     |
+| `Action`            | function | 3.3     |
+| `Help`              | function | 3.4     |
+| `ChoArgs`           | type     | 5.1     |
+| `ParserOptions`     | type     | 5.4     |
 
-Everything else comes from `@chojs/core`: `@Controller`, `@Module`,
-`@Injectable`, `@Catch` and `@Middlewares` are not re-exported.
-`ChoCommandOptions` is exported by `command.ts` but not by `mod.ts`.
+`mod.ts` also re-exports, unchanged, from `@chojs/core/di`: `Controller`,
+`Module`, `Injectable`, `Catch`, and the types `ControllerOptions` and
+`ModuleOptions`. An application can import everything it needs from
+`@chojs/command`. `@Middlewares` is not re-exported (section 6.5).
 
-Dependencies: `@chojs/core` (`/di` and `/utils`) and `@std/cli` (`parseArgs`).
+Dependencies: `@chojs/core` (`/di` and `/utils`). `parseArgs` is a vendored copy
+of `@std/cli/parse-args` in `lib/parse-args.ts`, so the package has no
+`@std/cli` dependency.
 
 ---
 
@@ -251,8 +257,8 @@ its method records (`meta.methods`) and every other key of its class record
 
 ### 5.1 `ChoArgs`
 
-`ChoArgs` is `Args` from `@std/cli/parse-args`: the result of `parseArgs`
-(minimist API), with every key typed `any`.
+`ChoArgs` is `Args` of the vendored `@std/cli/parse-args` (`lib/parse-args.ts`):
+the result of `parseArgs` (minimist API), with every key typed `any`.
 
 - `_` holds the positionals. Positionals that look like numbers are numbers
   (`"42"` → `42`); handlers that need strings convert them.
@@ -361,13 +367,25 @@ The error handler of a command is found in this order:
    the controller node's metadata;
 3. none: the default.
 
-With a handler, it is called as a plain function with the error, as thrown (an
-`Error` or any other value). Its return value is not awaited. A non-negative
-integer is the exit code; anything else gives `1`.
+How the handler runs depends on what it is (a class is a function whose
+`prototype` is not writable, see core's `isClass`):
 
-The default logs `Error: <message>` with the `cho` debug logger and returns `1`.
-The logger writes to stderr only when `CHO_DEBUG` or `CHO_DEBUGLOG` enables the
-`cho` context when the module is loaded; otherwise nothing is printed.
+- **A function** (not a class): it is called with the error, as thrown (an
+  `Error` or any other value), and its result is awaited, so an `async` handler
+  works. A non-negative integer is the exit code; anything else gives `1`. If
+  the handler throws or rejects, `run()` rejects with that error.
+- **A class**: it is resolved with the injector in the scope of the controller's
+  module (`node.owner`), then the instance is called as a function with the
+  parsed `args` (not the error), and its result is awaited. A non-negative
+  integer is the exit code; anything else gives `1`. If resolving or calling
+  fails, `run()` prints `Error: <message>` of the **original** error with
+  `console.error` and returns `2`. Since an instance is normally not callable, a
+  class handler in practice always prints the error and returns `2` (see section
+  9).
+
+The default prints `Error: <message>` with `console.error` (stderr) and returns
+`1`. `<message>` is the error's `message` for an `Error`, `String(error)` for
+any other value. It always prints, whatever the debug logging settings.
 
 An unknown command (step 5) has no action yet, so it always gets the default.
 
@@ -379,6 +397,7 @@ An unknown command (step 5) has no action yet, so it always gets the default.
 | the method returns anything else                   | `0`                                 |
 | `--help`, `--version`, or no command (multi mode)  | `0`                                 |
 | the method fails, and an error handler returns `n` | `n` (a non-negative integer) or `1` |
+| the method fails, and a class error handler fails  | `2`                                 |
 | the method fails, without an error handler         | `1`                                 |
 | unknown command                                    | `1`                                 |
 
@@ -497,8 +516,9 @@ declared, so no other flag is listed.
 
 ### 8.3 Handled by `run()` (section 6.3)
 
-`run()` resolves to an exit code for every error in steps 5 to 8. The messages
-of its own errors, logged by the default handler:
+`run()` resolves to an exit code for every error in steps 5 to 8, unless a
+function error handler throws. The messages of its own errors, printed by the
+default handler:
 
 - `Action '<name>' not found. Use --help for usage information.`
 - `Method '<name>' is not a function on controller '<Controller>'.`
@@ -514,14 +534,17 @@ They are listed so the specification stays truthful; they are not guarantees.
   the value of `-v`, so there is no command name: it shows the help and exits
   `0` without running `ls`. `./app ls -v` works (section 5.3), and so does
   declaring the flag a boolean in `parseOptions` (section 5.4).
-- **Errors are silent by default.** Without debug logging, an unknown command or
-  a failing method exits `1` with no message.
-- **Error handlers are synchronous plain functions.** An `async` handler's
-  promise is not awaited, so it exits `1`. A class given to `@Catch` is called
-  without `new` and throws. A handler that throws makes `run()` reject instead
-  of resolving to an exit code.
+- **Class error handlers do not work.** A class given to `@Catch` is resolved
+  with the injector (so it must be a provider visible in the controller's
+  module), then the instance is called as a function with `args` instead of the
+  error. An instance is not callable, so the call throws: the original error is
+  printed and the exit code is `2`, whatever the class does. A class that is not
+  provided fails the same way.
+- **A function error handler that throws** makes `run()` reject instead of
+  resolving to an exit code.
+- **The `cho` debug logger is unused.** Errors are printed with `console.error`,
+  not with `debuglog("cho")`, so `CHO_DEBUG` does not change what `run()`
+  prints.
 - **Middlewares are not run** (section 6.5).
 - **Unknown command with `--help`.** `./app nope --help` shows the global help
   and exits `0`, without saying that `nope` is not a command.
-- **Package surface.** `mod.ts` does not re-export `Controller` and `Module`,
-  nor export `ChoCommandOptions`.

@@ -3,22 +3,13 @@
  * routes of an HTTP runtime, such as Hono. Each runtime adapter, such as
  * `@chojs/vendor-hono`, implements {@link Linker} and {@link Linked}.
  *
+ * `@chojs/web` does not depend on any adapter: the application passes the
+ * linker to `ChoWeb.create`, and the adapters depend on `@chojs/web`.
+ *
  * @module
  */
 
 import type { AppRef } from "./graph.ts";
-
-/**
- * Create the default linker: the Hono linker of `@chojs/vendor-hono`, loaded
- * on demand so the package is imported only when it is used.
- *
- * @returns The linker.
- */
-export function default_linker(): Promise<Linker<unknown>> {
-  return import("@chojs/vendor-hono").then((mod) => mod.HonoLinker).then(
-    (Linker) => new Linker(),
-  );
-}
 
 /**
  * An HTTP application linked by a {@link Linker}: the runtime's own
@@ -26,33 +17,26 @@ export function default_linker(): Promise<Linker<unknown>> {
  *
  * @typeParam T The application object of the HTTP runtime, such as `Hono`.
  *
+ * Adapters can return a plain object, or an instance of their own class.
+ *
  * @example
  * ```ts
- * class HonoLinked extends Linked<Hono> {
- *   get handler(): (req: Request) => Promise<Response> {
- *     return (req) => Promise.resolve(this.instance.fetch(req));
- *   }
- * }
+ * const app = new Hono();
+ * const linked: Linked<Hono> = {
+ *   instance: app,
+ *   handler: (req) => Promise.resolve(app.fetch(req)),
+ * };
  * ```
  */
-export abstract class Linked<T> {
+export interface Linked<T> {
   /** The application object of the HTTP runtime. */
   readonly instance: T;
-
-  /**
-   * Wrap the application object of an HTTP runtime.
-   *
-   * @param instance The application object of the HTTP runtime.
-   */
-  constructor(instance: T) {
-    this.instance = instance;
-  }
 
   /**
    * The request handler: a `fetch`-style function that takes a `Request` and
    * resolves to a `Response`.
    */
-  abstract get handler(): (req: Request) => Promise<Response>;
+  readonly handler: (req: Request) => Promise<Response>;
 }
 
 /**
@@ -76,13 +60,11 @@ export abstract class Linked<T> {
  *         }
  *       }
  *     }
- *     return new MyLinked(server);
+ *     return { instance: server, handler: (req) => server.fetch(req) };
  *   }
  * }
  *
- * const app = await ChoWeb.create(AppModule, {
- *   platform: () => Promise.resolve(new MyLinker()),
- * });
+ * const app = await ChoWeb.create(AppModule, { linker: new MyLinker() });
  * ```
  */
 export interface Linker<T> {

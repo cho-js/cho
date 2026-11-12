@@ -48,7 +48,7 @@ function create_http_decorator(
  * Mark a method as the handler of `GET route`.
  *
  * The method receives the request context of the HTTP runtime (Hono's
- * `Context` by default). What it returns is sent as JSON, unless it is a
+ * `Context` with `HonoLinker`). What it returns is sent as JSON, unless it is a
  * `Response`.
  *
  * @param route The route of the handler, relative to its controller, without
@@ -82,7 +82,7 @@ export function Get(route: string): ChoMethodDecorator {
  * Mark a method as the handler of `POST route`.
  *
  * The method receives the request context of the HTTP runtime (Hono's
- * `Context` by default). What it returns is sent as JSON, unless it is a
+ * `Context` with `HonoLinker`). What it returns is sent as JSON, unless it is a
  * `Response`.
  *
  * @param route The route of the handler, relative to its controller, without
@@ -111,7 +111,7 @@ export function Post(route: string): ChoMethodDecorator {
  * Mark a method as the handler of `PUT route`.
  *
  * The method receives the request context of the HTTP runtime (Hono's
- * `Context` by default). What it returns is sent as JSON, unless it is a
+ * `Context` with `HonoLinker`). What it returns is sent as JSON, unless it is a
  * `Response`.
  *
  * @param route The route of the handler, relative to its controller, without
@@ -140,7 +140,7 @@ export function Put(route: string): ChoMethodDecorator {
  * Mark a method as the handler of `DELETE route`.
  *
  * The method receives the request context of the HTTP runtime (Hono's
- * `Context` by default). What it returns is sent as JSON, unless it is a
+ * `Context` with `HonoLinker`). What it returns is sent as JSON, unless it is a
  * `Response`.
  *
  * @param route The route of the handler, relative to its controller, without

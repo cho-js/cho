@@ -2,27 +2,25 @@
  * @chojs/vendor-hono — runs CHO web applications on Hono.
  *
  * {@link HonoLinker} turns the HTTP graph of a `@chojs/web` application into
- * the routes of a Hono application. `ChoWeb` uses it by default.
+ * the routes of a Hono application. Pass it to `ChoWeb.create` as `linker`.
  *
  * @example
  * ```ts
  * import { ChoWeb } from "@chojs/web";
  * import { HonoLinker } from "@chojs/vendor-hono";
  *
- * const app = await ChoWeb.create(AppModule, {
- *   platform: () => Promise.resolve(new HonoLinker()),
- * });
+ * const app = await ChoWeb.create(AppModule, { linker: new HonoLinker() });
  * Deno.serve(app.handler);
  * ```
  *
  * @module
  */
 
-import type { ChoMiddlewareFn } from "@chojs/web";
+import type { ChoMiddlewareFn } from "@chojs/core/di";
 import type { Context, ErrorHandler, MiddlewareHandler } from "@hono/hono";
 import { Hono } from "@hono/hono";
 import type { AppRef, MethodRef, NodeRef } from "@chojs/web/graph";
-import { Linked, type Linker } from "@chojs/web/linker";
+import type { Linked, Linker } from "@chojs/web/linker";
 
 /**
  * A Hono application linked by {@link HonoLinker}.
@@ -34,10 +32,22 @@ import { Linked, type Linker } from "@chojs/web/linker";
  * Deno.serve(linked.handler);
  * ```
  */
-export class HonoLinked extends Linked<Hono> {
+export class HonoLinked implements Linked<Hono> {
+  /** The Hono application. */
+  readonly instance: Hono;
+
+  /**
+   * Wrap a Hono application.
+   *
+   * @param instance The Hono application.
+   */
+  constructor(instance: Hono) {
+    this.instance = instance;
+  }
+
   /** The Hono application's `fetch`, as a request handler. */
   get handler(): (req: Request) => Promise<Response> {
-    return (this.instance as Hono).fetch as (req: Request) => Promise<Response>;
+    return this.instance.fetch as (req: Request) => Promise<Response>;
   }
 }
 
@@ -50,16 +60,12 @@ export class HonoLinked extends Linked<Hono> {
  * unless it is a `Response`. Supported HTTP methods: GET, POST, PUT, DELETE
  * and PATCH.
  *
- * It is the default linker of `ChoWeb`.
- *
  * @example
  * ```ts
  * import { ChoWeb } from "@chojs/web";
  * import { HonoLinker } from "@chojs/vendor-hono";
  *
- * const app = await ChoWeb.create(AppModule, {
- *   platform: () => Promise.resolve(new HonoLinker()),
- * });
+ * const app = await ChoWeb.create(AppModule, { linker: new HonoLinker() });
  * Deno.serve(app.handler);
  * ```
  */

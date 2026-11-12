@@ -2,8 +2,9 @@
  * @chojs/web — HTTP applications on top of `@chojs/core`.
  *
  * Controllers declare route handlers with `@Get`, `@Post`, `@Put` and
- * `@Delete`, and {@link ChoWeb} links them to an HTTP runtime (Hono by
- * default), which gives a `fetch`-style request handler. `@Controller`,
+ * `@Delete`, and {@link ChoWeb} links them to an HTTP runtime with a linker
+ * from a runtime adapter (such as `HonoLinker` from `@chojs/vendor-hono`),
+ * which gives a `fetch`-style request handler. `@Controller`,
  * `@Module`, `@Middlewares` and `@Catch` come from `@chojs/core`.
  *
  * Routes have up to four levels: the global `prefix` of
@@ -16,6 +17,7 @@
  * @example
  * ```ts
  * import { ChoWeb, Controller, Get, Middlewares, Module } from "@chojs/web";
+ * import { HonoLinker } from "@chojs/vendor-hono";
  * import type { Context } from "@hono/hono";
  *
  * @Controller({ route: "users" })
@@ -34,7 +36,10 @@
  * class App {}
  *
  * // GET /api/v1/users/42 -> {"id":"42"}
- * const app = await ChoWeb.create(App, { prefix: "api" });
+ * const app = await ChoWeb.create(App, {
+ *   linker: new HonoLinker(),
+ *   prefix: "api",
+ * });
  * Deno.serve(app.handler);
  * ```
  *
@@ -46,6 +51,7 @@ export {
   Controller,
   type ControllerOptions,
   Injectable,
+  type InjectableOptions,
   Middlewares,
   Module,
   type ModuleOptions,
