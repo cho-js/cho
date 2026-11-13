@@ -2,7 +2,7 @@
  * The web application: {@link ChoWeb} compiles the routes of a root module and
  * registers them on an HTTP runtime with the given {@link Linker} (such as
  * `HonoLinker` from `@chojs/vendor-hono`), which gives a `fetch`-style request
- * handler.
+ * handler. Without a linker it uses the plain adapter, `@chojs/vendor-cho`.
  *
  * It logs to the `cho:web` debug context (`CHO_DEBUGLOG=cho:web` or
  * `CHO_DEBUG=1`): every route with its handler, any error that stops the
@@ -15,14 +15,14 @@ import type { Ctr, Provider } from "@chojs/core/di";
 import { Injector } from "@chojs/core/di";
 import { debuglog, describe } from "@chojs/core/utils";
 import { build_http_graph } from "./build-graph.ts";
+import { load_default_handler } from "./default-linker.ts";
 import type { AppRef } from "./graph.ts";
 import type { Linked, Linker, Route } from "./linker.ts";
 import { compile_routes } from "./routes.ts";
 import type { ChoWebErrorHandler } from "./types.ts";
 
 /**
- * Options of {@link ChoWeb.create}. `linker` is required; the other options
- * are optional.
+ * Options of {@link ChoWeb.create}. Every option is optional.
  *
  * @typeParam T The application object of the HTTP runtime, such as `Hono`.
  *
@@ -40,8 +40,14 @@ export type ChoWebOptions<T = unknown> = {
   /**
    * The linker that registers the routes on an HTTP runtime,
    * such as `HonoLinker` from `@chojs/vendor-hono`.
+   *
+   * Default: the plain adapter, `new ChoLinker()` of `@chojs/vendor-cho`. It
+   * is loaded when the application is created, and only then: `@chojs/web`
+   * does not depend on it, so install it in the application
+   * (`deno add jsr:@chojs/vendor-cho`). `ChoWeb.create` rejects with an error
+   * that says so when it is missing.
    */
-  linker: Linker<T>;
+  linker?: Linker<T>;
   /**
    * The global route prefix, added before every feature route, without
    * leading or trailing `/` (for example `"api"`). Default: `""`, no prefix.
@@ -153,15 +159,16 @@ export class ChoWeb<T = unknown> {
    *
    * Creates the injector and every instance of the application, builds the
    * HTTP graph, compiles its routes, and registers them with
-   * `options.linker`.
+   * `options.linker`, or with the plain adapter when there is none.
    *
    * @param app The root module.
-   * @param options The application options: the linker, and optionally the
-   *   global prefix.
+   * @param options The application options, such as the linker and the
+   *   global prefix. Default: none.
    * @returns The application.
-   * @throws {Error} When the module graph is invalid (see `Injector`), when a
-   *   route is invalid or declared twice, or when a middleware or an error
-   *   handler is invalid.
+   * @throws {Error} When no linker is given and the default one,
+   *   `@chojs/vendor-cho`, cannot be loaded; when the module graph is invalid
+   *   (see `Injector`); when a route is invalid or declared twice; or when a
+   *   middleware or an error handler is invalid.
    *
    * @example
    * ```ts
@@ -171,16 +178,26 @@ export class ChoWeb<T = unknown> {
    * });
    * Deno.serve({ port: 8080 }, app.handler);
    * ```
+   *
+   * @example With the default linker (`@chojs/vendor-cho` must be installed)
+   * ```ts
+   * const app = await ChoWeb.create(AppModule);
+   * Deno.serve(app.handler);
+   * ```
    */
-  static async create<T>(
+  static async create<T = unknown>(
     app: Ctr,
-    options: ChoWebOptions<T>,
+    options: ChoWebOptions<T> = {},
   ): Promise<ChoWeb<T>> {
     // Created here, not when the module is loaded, so it follows `set_env`.
     const log = debuglog("cho:web");
     const done = log.start();
     let inj: Injector | undefined;
     try {
+      // First, so that a missing default linker fails before anything is
+      // created.
+      const linker = options.linker ??
+        await load_default_handler() as Linker<T>;
       inj = new Injector(
         app,
         options.overrides ? { overrides: options.overrides } : {},
@@ -197,7 +214,7 @@ export class ChoWeb<T = unknown> {
           log(`${route.method} ${route.path} -> ${route.name}`);
         }
       }
-      const web = new ChoWeb(options.linker.link(routes), graph, routes, inj);
+      const web = new ChoWeb(linker.link(routes), graph, routes, inj);
       done(`application ${describe(app)} created`);
       return web;
     } catch (error) {

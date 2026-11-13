@@ -234,12 +234,18 @@ assert.equal(response.status, 200);
 
 `ChoWeb.create(App, options)`:
 
-| Option      | Default  | Use                                             |
-| ----------- | -------- | ----------------------------------------------- |
-| `linker`    | required | The runtime adapter, such as `new HonoLinker()` |
-| `prefix`    | `""`     | A route prefix for every route, such as `"api"` |
-| `onError`   | none     | The error handler for what no `@Catch` covers   |
-| `overrides` | none     | Providers that replace declared ones, for tests |
+| Option      | Default                                  | Use                                             |
+| ----------- | ---------------------------------------- | ----------------------------------------------- |
+| `linker`    | `new ChoLinker()` of `@chojs/vendor-cho` | The runtime adapter, such as `new HonoLinker()` |
+| `prefix`    | `""`                                     | A route prefix for every route, such as `"api"` |
+| `onError`   | none                                     | The error handler for what no `@Catch` covers   |
+| `overrides` | none                                     | Providers that replace declared ones, for tests |
+
+Without a `linker`, `ChoWeb.create(App)` uses the plain adapter,
+[`@chojs/vendor-cho`](../vendor/cho/README.md). It is loaded when the
+application is created, and it is not a dependency of `@chojs/web`: install it
+in the application (`deno add jsr:@chojs/vendor-cho`). When it is missing,
+`ChoWeb.create` rejects with an error that says what to install.
 
 The application exposes `handler`, `close()`, `routes` (every route with its
 method, path and name), `graph` (the same routes as a tree) and `linked` (the
@@ -254,9 +260,10 @@ adapter's own application object).
 | [`@chojs/vendor-fastify`](../vendor/fastify/README.md) | [Fastify](https://fastify.dev)                     | Node.js only                                            |
 
 Pass the adapter's linker to `ChoWeb.create`: `new ChoLinker()`,
-`new HonoLinker()` or `new FastifyLinker()`. Routes, middlewares and error
-handlers are the same on each. What differs is listed in the "Behavior" table of
-each adapter, such as which route wins when two match.
+`new HonoLinker()` or `new FastifyLinker()`. With no linker, the first one is
+used. Routes, middlewares and error handlers are the same on each. What differs
+is listed in the "Behavior" table of each adapter, such as which route wins when
+two match.
 
 To write one, implement `Linker`: it receives the application's routes, each
 ready to call, and registers them on its router. It does no plumbing, so an

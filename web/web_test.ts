@@ -130,6 +130,39 @@ describe("ChoWeb.create", () => {
   });
 });
 
+describe("ChoWeb.create, without a linker", () => {
+  // The plain adapter needs the URL Pattern API to link an application.
+  const supported = typeof URLPattern === "function";
+  const on_supported = supported ? it : it.skip;
+
+  on_supported("links the application with the plain adapter", async () => {
+    const app = await ChoWeb.create(users_app());
+    assert.equal(
+      (app.linked.instance as object).constructor.name,
+      "ChoRouter",
+    );
+    const get = (path: string) =>
+      app.handler(new Request(`http://localhost${path}`));
+    assert.equal((await get("/users")).status, 204);
+    assert.equal((await get("/nope")).status, 404);
+  });
+
+  on_supported("takes the other options", async () => {
+    const app = await ChoWeb.create(users_app(), { prefix: "api" });
+    assert.deepEqual(app.routes.map((r) => r.path), ["/api/users"]);
+    const response = await app.handler(
+      new Request("http://localhost/api/users"),
+    );
+    assert.equal(response.status, 204);
+  });
+
+  it("does not load the default linker when one is given", async () => {
+    const linker = new FakeLinker();
+    const app = await ChoWeb.create(users_app(), { linker });
+    assert.equal(app.linked.instance.routes, linker.calls[0]);
+  });
+});
+
 describe("ChoWeb.create, debug logging", () => {
   const OFF = { CHO_DEBUG: undefined, CHO_DEBUGLOG: undefined };
 

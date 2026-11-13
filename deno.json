@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "test": "deno test --allow-env",
+    "test": "deno test --allow-env --allow-read",
     "test-node": "tsx --test",
     "test-bun": "bun test"
   },

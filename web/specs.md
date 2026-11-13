@@ -291,7 +291,7 @@ or when it throws too, the error goes to the adapter, which answers `500`
 
 ```ts
 const app = await ChoWeb.create(App, {
-  linker: new HonoLinker(), // required: the runtime adapter
+  linker: new HonoLinker(), // optional: the runtime adapter (default below)
   prefix: "api", // optional: the global prefix (section 2.2)
   onError: (error, ctx) => new Response("oops", { status: 500 }), // optional: section 5
 });
@@ -307,6 +307,16 @@ application up front (`injector.init()`), builds and checks the routes, and
 registers them with the adapter. Every wiring, route, middleware or error
 handler mistake makes it reject, before the server starts; what was created
 until then is disposed.
+
+**The default linker.** Without a `linker` (`ChoWeb.create(App)`, or options
+that have none), the application is linked with the plain adapter: a
+`new ChoLinker()` of `@chojs/vendor-cho`. The package is imported when the
+application is created, by a name the publishing tools cannot see, so it is
+**not** a dependency of `@chojs/web`: an application that relies on the default
+installs it. It is loaded before anything is created; when it cannot be loaded,
+`ChoWeb.create` rejects, with the runtime's own error as `cause`. On Deno the
+import needs the usual permission to load a module at run time (import access to
+`jsr.io`, which is allowed by default).
 
 **Closing.** `app.close()` disposes the application's instances, in reverse
 creation order: every provider, controller or module with a
@@ -444,19 +454,20 @@ not match on their text.
 **Rejected by `ChoWeb.create`**: any module graph error of the core
 (`core/specs.md`, section 2.8), and:
 
-| Mistake                                       | Message                                                                                                                 |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| A route is not a string                       | `TypeError: Invalid route of <where>: expected a string, got <v>`                                                       |
-| A route breaks a rule (section 2.3)           | `Invalid route "<route>" of <where>: <reason>`                                                                          |
-| Two handlers with the same method and path    | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>`                            |
-| The same controller declared by two modules   | the message above, followed by `Its controller is declared in more than one module: declare it in one.`                 |
-| A wildcard in a route                         | `Invalid route "<route>" of <where>: "<segment>" has a "*": wildcards are not part of the route syntax`                 |
-| A malformed parameter (`:`, `:1id`, `:a:b`)   | `Invalid route "<route>" of <where>: "<segment>" is not a valid parameter: write ":name", with letters, digits and "_"` |
-| `onError` is not a function or a class        | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                      |
-| A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                                               |
-| A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                             |
-| An error handler class has no `handle` method | `Error handler class <Name> must implement 'handle' method.`                                                            |
-| An error handler class cannot be created      | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                |
+| Mistake                                       | Message                                                                                                                                                                                                                                                 |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No linker, and `@chojs/vendor-cho` is missing | `ChoWeb.create() was given no linker, and the default one, @chojs/vendor-cho, could not be loaded. Install it ("deno add jsr:@chojs/vendor-cho", "npx jsr add @chojs/vendor-cho" or "bunx jsr add @chojs/vendor-cho"), or pass a linker in the options` |
+| A route is not a string                       | `TypeError: Invalid route of <where>: expected a string, got <v>`                                                                                                                                                                                       |
+| A route breaks a rule (section 2.3)           | `Invalid route "<route>" of <where>: <reason>`                                                                                                                                                                                                          |
+| Two handlers with the same method and path    | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>`                                                                                                                                                            |
+| The same controller declared by two modules   | the message above, followed by `Its controller is declared in more than one module: declare it in one.`                                                                                                                                                 |
+| A wildcard in a route                         | `Invalid route "<route>" of <where>: "<segment>" has a "*": wildcards are not part of the route syntax`                                                                                                                                                 |
+| A malformed parameter (`:`, `:1id`, `:a:b`)   | `Invalid route "<route>" of <where>: "<segment>" is not a valid parameter: write ":name", with letters, digits and "_"`                                                                                                                                 |
+| `onError` is not a function or a class        | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                                                                                                                                                      |
+| A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                                                                                                                                                                               |
+| A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                                                                                                                                                             |
+| An error handler class has no `handle` method | `Error handler class <Name> must implement 'handle' method.`                                                                                                                                                                                            |
+| An error handler class cannot be created      | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                                                                                                                                                |
 
 `<where>` names the declaration: `the global prefix`, `feature <Module>`,
 `controller <Controller>` or `method <name> of controller <Controller>`.

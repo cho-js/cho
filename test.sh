@@ -2,7 +2,7 @@
 set -e
 
 echo "Deno run tests"
-deno test --allow-env
+deno test --allow-env --allow-read
 
 echo "Bun run tests"
 bun test

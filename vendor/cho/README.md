@@ -59,6 +59,13 @@ Deno.serve(app.handler); // Bun: Bun.serve({ fetch: app.handler })
 `app.handler` takes a standard `Request` and resolves to a standard `Response`,
 so it runs wherever a `fetch`-style handler does.
 
+It is also the default adapter of `@chojs/web`: with the package installed, an
+application that gives no linker gets a `new ChoLinker()`.
+
+```ts
+const app = await ChoWeb.create(App);
+```
+
 ## Unmatched requests
 
 A request no route matches is answered with `404` and the text `Not Found`. Give
