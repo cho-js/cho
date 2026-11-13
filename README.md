@@ -77,7 +77,6 @@ import {
   Injectable,
   Module,
 } from "@chojs/web";
-import { HonoLinker } from "@chojs/vendor-hono";
 
 @Injectable()
 class UserStore {
@@ -99,7 +98,7 @@ class UsersController {
 @Module({ providers: [UserStore], controllers: [UsersController] })
 class App {}
 
-const app = await ChoWeb.create(App, { linker: new HonoLinker() });
+const app = await ChoWeb.create(App);
 Deno.serve(app.handler); // Bun: Bun.serve({ fetch: app.handler })
 ```
 
