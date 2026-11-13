@@ -15,8 +15,7 @@
           "path": "deno.json",
           "jsonpath": "$.version"
         }
-      ],
-      "release-as": "3.0.0"
+      ]
     },
     "command": {
       "component": "command",
@@ -28,8 +27,7 @@
           "path": "deno.json",
           "jsonpath": "$.version"
         }
-      ],
-      "release-as": "3.0.0"
+      ]
     },
     "web": {
       "component": "web",
@@ -41,8 +39,7 @@
           "path": "deno.json",
           "jsonpath": "$.version"
         }
-      ],
-      "release-as": "3.0.0"
+      ]
     },
     "vendor/hono": {
       "component": "vendor-hono",
@@ -54,8 +51,7 @@
           "path": "deno.json",
           "jsonpath": "$.version"
         }
-      ],
-      "release-as": "3.0.0"
+      ]
     },
     "vendor/cho": {
       "component": "vendor-cho",
@@ -67,8 +63,7 @@
           "path": "deno.json",
           "jsonpath": "$.version"
         }
-      ],
-      "release-as": "3.0.0"
+      ]
     },
     "vendor/fastify": {
       "component": "vendor-fastify",
@@ -80,8 +75,7 @@
           "path": "deno.json",
           "jsonpath": "$.version"
         }
-      ],
-      "release-as": "3.0.0"
+      ]
     }
   }
 }
