@@ -88,7 +88,7 @@ tests.
 | `core/`           | `@chojs/core`           | The dependency injection engine, and shared utilities |
 | `command/`        | `@chojs/command`        | Command-line applications                             |
 | `web/`            | `@chojs/web`            | HTTP applications                                     |
-| `vendor/cho/`     | `@chojs/vendor-cho`     | Web adapter on the URL Pattern API                    |
+| `vendor/cho/`     | `@chojs/vendor-cho`     | The built-in router of `@chojs/web`, re-exported      |
 | `vendor/hono/`    | `@chojs/vendor-hono`    | Web adapter on Hono                                   |
 | `vendor/fastify/` | `@chojs/vendor-fastify` | Web adapter on Fastify (Node.js only)                 |
 | `examples/`       |                         | Runnable examples                                     |

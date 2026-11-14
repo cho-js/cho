@@ -84,5 +84,12 @@ export type {
 } from "./graph.ts";
 export * from "./decorators.ts";
 export * from "./web.ts";
+// The built-in router, and default linker.
+export {
+  ChoLinker,
+  type ChoLinkerOptions,
+  type ChoMatch,
+  ChoRouter,
+} from "./router.ts";
 export type { ChoWebContext } from "./context.ts";
 export type * from "./types.ts";

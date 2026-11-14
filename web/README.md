@@ -25,6 +25,7 @@ call.
   - [Testing](#testing)
 - [Options](#options)
 - [Runtime adapters](#runtime-adapters)
+- [The built-in router](#the-built-in-router)
 - [Runtime support](#runtime-support)
 - [Documentation](#documentation)
 
@@ -35,9 +36,11 @@ call.
   library underneath.
 - **Portable.** `app.handler` is a plain `(req: Request) => Promise<Response>`
   that Deno, Bun, Node.js and edge runtimes can serve.
-- **Bring your own router.** `@chojs/web` depends on no HTTP library. A small
-  adapter matches requests to routes: pick one of the
-  [available adapters](#runtime-adapters), or write your own.
+- **No HTTP library needed.** A router on the standard URL Pattern API is built
+  in, so an application depends on `@chojs/web` alone.
+- **Or bring your own router.** A small adapter matches requests to routes on
+  another library: pick one of the [available adapters](#runtime-adapters), or
+  write your own.
 - **Same behavior on every adapter.** Middlewares, error handling and the
   conversion of results are done by `@chojs/web` itself.
 - **Dependency injection.** Controllers, middlewares and error handlers receive
@@ -49,9 +52,9 @@ call.
 ## Installation
 
 ```sh
-deno add jsr:@chojs/web jsr:@chojs/vendor-hono    # Deno
-npx jsr add @chojs/web @chojs/vendor-hono         # Node.js
-bunx jsr add @chojs/web @chojs/vendor-hono        # Bun
+deno add jsr:@chojs/web    # Deno
+npx jsr add @chojs/web     # Node.js
+bunx jsr add @chojs/web    # Bun
 ```
 
 ## Quick start
@@ -66,7 +69,7 @@ import {
   Module,
   Post,
 } from "@chojs/web";
-import { HonoLinker } from "@chojs/vendor-hono";
+import { serve } from "@chojs/web/serve";
 
 @Injectable()
 class UserStore {
@@ -94,8 +97,8 @@ class UsersController {
 @Module({ route: "v1", providers: [UserStore], controllers: [UsersController] })
 class App {}
 
-const app = await ChoWeb.create(App, { linker: new HonoLinker() });
-Deno.serve(app.handler); // Bun: Bun.serve({ fetch: app.handler })
+const app = await ChoWeb.create(App);
+await serve(app.handler, { port: 3000 }); // on Deno, Node.js or Bun
 ```
 
 ## Guide
@@ -207,7 +210,7 @@ and the `node:http` server on Node.js, so the same file runs on the three.
 import { ChoWeb } from "@chojs/web";
 import { serve } from "@chojs/web/serve";
 
-const app = await ChoWeb.create(App, { linker: new HonoLinker() });
+const app = await ChoWeb.create(App);
 const server = await serve(app.handler, { port: 3000 });
 
 console.log(`listening on http://localhost:${server.port}`);
@@ -263,7 +266,6 @@ option replaces providers with fakes, anywhere in the module graph:
 
 ```ts
 const app = await ChoWeb.create(App, {
-  linker: new HonoLinker(),
   overrides: [provider({ provide: UserStore, factory: () => new FakeStore() })],
 });
 
@@ -275,18 +277,15 @@ assert.equal(response.status, 200);
 
 `ChoWeb.create(App, options)`:
 
-| Option      | Default                                  | Use                                             |
-| ----------- | ---------------------------------------- | ----------------------------------------------- |
-| `linker`    | `new ChoLinker()` of `@chojs/vendor-cho` | The runtime adapter, such as `new HonoLinker()` |
-| `prefix`    | `""`                                     | A route prefix for every route, such as `"api"` |
-| `onError`   | none                                     | The error handler for what no `@Catch` covers   |
-| `overrides` | none                                     | Providers that replace declared ones, for tests |
+| Option      | Default                                | Use                                             |
+| ----------- | -------------------------------------- | ----------------------------------------------- |
+| `linker`    | `new ChoLinker()`, the built-in router | The runtime adapter, such as `new HonoLinker()` |
+| `prefix`    | `""`                                   | A route prefix for every route, such as `"api"` |
+| `onError`   | none                                   | The error handler for what no `@Catch` covers   |
+| `overrides` | none                                   | Providers that replace declared ones, for tests |
 
-Without a `linker`, `ChoWeb.create(App)` uses the plain adapter,
-[`@chojs/vendor-cho`](../vendor/cho/README.md). It is loaded when the
-application is created, and it is not a dependency of `@chojs/web`: install it
-in the application (`deno add jsr:@chojs/vendor-cho`). When it is missing,
-`ChoWeb.create` rejects with an error that says what to install.
+Without a `linker`, `ChoWeb.create(App)` uses the
+[built-in router](#the-built-in-router).
 
 The application exposes `handler`, `close()`, `routes` (every route with its
 method, path and name), `graph` (the same routes as a tree) and `linked` (the
@@ -294,17 +293,16 @@ adapter's own application object).
 
 ## Runtime adapters
 
-| Adapter                                                | Router                                             | Runs on                                                 |
-| ------------------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------- |
-| [`@chojs/vendor-cho`](../vendor/cho/README.md)         | The standard URL Pattern API, with no HTTP library | Runtimes with `URLPattern`: Deno, Node.js 24, Bun 1.3.4 |
-| [`@chojs/vendor-hono`](../vendor/hono/README.md)       | [Hono](https://hono.dev)                           | Deno, Node.js, Bun and edge runtimes                    |
-| [`@chojs/vendor-fastify`](../vendor/fastify/README.md) | [Fastify](https://fastify.dev)                     | Node.js only                                            |
+| Adapter                                                | Router                                             | Runs on                                                                     |
+| ------------------------------------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------- |
+| `ChoLinker`, [built in](#the-built-in-router)          | The standard URL Pattern API, with no HTTP library | Runtimes with `URLPattern`: Deno, Node.js 24, Bun 1.3.4, Cloudflare Workers |
+| [`@chojs/vendor-hono`](../vendor/hono/README.md)       | [Hono](https://hono.dev)                           | Deno, Node.js, Bun and edge runtimes                                        |
+| [`@chojs/vendor-fastify`](../vendor/fastify/README.md) | [Fastify](https://fastify.dev)                     | Node.js only                                                                |
 
-Pass the adapter's linker to `ChoWeb.create`: `new ChoLinker()`,
-`new HonoLinker()` or `new FastifyLinker()`. With no linker, the first one is
-used. Routes, middlewares and error handlers are the same on each. What differs
-is listed in the "Behavior" table of each adapter, such as which route wins when
-two match.
+Pass the adapter's linker to `ChoWeb.create`: `new HonoLinker()` or
+`new FastifyLinker()`. With no linker, the built-in router is used. Routes,
+middlewares and error handlers are the same on each. What differs is listed in
+the "Behavior" table of each adapter, such as which route wins when two match.
 
 To write one, implement `Linker`: it receives the application's routes, each
 ready to call, and registers them on its router. It does no plumbing, so an
@@ -328,11 +326,55 @@ class MyLinker implements Linker<MyServer> {
 }
 ```
 
+## The built-in router
+
+`ChoLinker` matches requests with one `URLPattern` for each route. It is what
+`ChoWeb.create` uses when it is given no linker, and `app.linked.instance` is
+then its `ChoRouter`:
+
+```ts
+const app = await ChoWeb.create(App);
+const router = app.linked.instance;
+
+router.routes; // the routes, in declaration order
+router.match("GET", "/users/42"); // { route, params: { id: "42" } }, or undefined
+router.fetch; // the request handler, the same function as app.handler
+```
+
+Create it yourself to answer the requests no route matches:
+
+```ts
+import { ChoLinker, ChoWeb } from "@chojs/web";
+
+const linker = new ChoLinker({
+  notFound: (req) =>
+    Response.json({ error: "not found", path: new URL(req.url).pathname }, {
+      status: 404,
+    }),
+});
+const app = await ChoWeb.create(App, { linker });
+```
+
+There is no runtime context on this router: `ctx.native` is `undefined`.
+
+| Topic              | Behavior                                                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Matching order     | Routes are matched in declaration order: declare static routes before parameter routes (`@Get("me")` before `@Get(":id")`) |
+| Paths              | Matched as written: case and a trailing slash count. A parameter matches one segment, never an empty one                   |
+| Path parameters    | Percent-decoded. One that cannot be decoded is passed as it was sent                                                       |
+| `HEAD` requests    | Run the `@Head` handler of the route. Without one, the `@Get` handler answers, without the body                            |
+| Unhandled errors   | A route that fails with no `@Catch` and no `onError` is logged with `console.error`, and answered with `500`               |
+| Unmatched requests | Answered by the `notFound` option; `404` by default, also when the path exists under another method                        |
+| HTTP methods       | Any method is matched as given                                                                                             |
+| Several apps       | A linker can be used for several applications: each `link()` makes a new router                                            |
+
 ## Runtime support
 
-Deno, Node.js and Bun, and any runtime that serves a `fetch`-style handler. Deno
-and Bun run TypeScript decorators directly; on Node.js, compile the application
-with TypeScript 5 or run it with a tool such as `tsx`. Both standard (TC39) and
+Deno, Node.js and Bun, and any runtime that serves a `fetch`-style handler. The
+built-in router needs the global `URLPattern` (Deno, Node.js 24, Bun 1.3.4,
+Cloudflare Workers); on a runtime without it, use the Hono adapter. Deno and Bun
+run TypeScript decorators directly; on Node.js, compile the application with
+TypeScript 5 or run it with a tool such as `tsx`. Both standard (TC39) and
 legacy (`experimentalDecorators`) decorators are supported.
 
 Debug logging is enabled with `CHO_DEBUG=1`, or with `CHO_DEBUGLOG=cho:web`.
@@ -341,8 +383,6 @@ Debug logging is enabled with `CHO_DEBUG=1`, or with `CHO_DEBUGLOG=cho:web`.
 
 - [Specification](./specs.md): routes, the context, responses, middlewares,
   error handlers, writing a runtime adapter, and error messages.
-- [`@chojs/vendor-cho`](../vendor/cho/README.md): the plain adapter, on the URL
-  Pattern API.
 - [`@chojs/vendor-hono`](../vendor/hono/README.md): the Hono adapter.
 - [`@chojs/vendor-fastify`](../vendor/fastify/README.md): the Fastify adapter,
   for Node.js.

@@ -23,8 +23,8 @@ application on a Fastify application.
 ## Runtime support
 
 **Node.js only.** Fastify is built on the HTTP server of Node.js, and this
-adapter is tested on Node.js alone. For Deno, Bun and edge runtimes use
-[`@chojs/vendor-cho`](../cho/README.md) or
+adapter is tested on Node.js alone. For Deno, Bun and edge runtimes use the
+[built-in router](../../web/README.md#the-built-in-router) of `@chojs/web`, or
 [`@chojs/vendor-hono`](../hono/README.md).
 
 ## Installation

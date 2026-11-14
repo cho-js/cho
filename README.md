@@ -20,7 +20,7 @@ TypeScript.
 |-------------------------------------------------------|---------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
 | [`@chojs/web`](./web/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/web)](https://jsr.io/@chojs/web)                       | HTTP applications                                                          |
 | [`@chojs/command`](./command/README.md)               | [![JSR](https://jsr.io/badges/@chojs/command)](https://jsr.io/@chojs/command)               | Command-line applications                                                  |
-| [`@chojs/vendor-cho`](./vendor/cho/README.md)         | [![JSR](https://jsr.io/badges/@chojs/vendor-cho)](https://jsr.io/@chojs/vendor-cho)         | Running `@chojs/web` on the standard URL Pattern API, with no HTTP library |
+| [`@chojs/vendor-cho`](./vendor/cho/README.md)         | [![JSR](https://jsr.io/badges/@chojs/vendor-cho)](https://jsr.io/@chojs/vendor-cho)         | The built-in router of `@chojs/web`, under its former package name |
 | [`@chojs/vendor-hono`](./vendor/hono/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-hono)](https://jsr.io/@chojs/vendor-hono)       | Running `@chojs/web` on [Hono](https://hono.dev)                           |
 | [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | [![JSR](https://jsr.io/badges/@chojs/vendor-fastify)](https://jsr.io/@chojs/vendor-fastify) | Running `@chojs/web` on [Fastify](https://fastify.dev) (Node.js only)      |
 | [`@chojs/core`](./core/README.md)                     | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)                     | The dependency injection engine underneath                                 |
@@ -152,9 +152,9 @@ needs.
 
 ```sh
 # an HTTP application
-deno add jsr:@chojs/web jsr:@chojs/vendor-hono
-npx jsr add @chojs/web @chojs/vendor-hono
-bunx jsr add @chojs/web @chojs/vendor-hono
+deno add jsr:@chojs/web
+npx jsr add @chojs/web
+bunx jsr add @chojs/web
 
 # a command-line application
 deno add jsr:@chojs/command
@@ -162,14 +162,15 @@ npx jsr add @chojs/command
 bunx jsr add @chojs/command
 ```
 
-An HTTP application needs one adapter, the package that matches requests to
-routes. Any of them can replace `@chojs/vendor-hono` above:
+`@chojs/web` has a router built in, on the standard URL Pattern API, so an HTTP
+application needs nothing else. To match requests with another HTTP library,
+give `ChoWeb.create` the linker of an adapter:
 
-| Adapter                                               | Runs on                                                 |
-|-------------------------------------------------------|---------------------------------------------------------|
-| [`@chojs/vendor-cho`](./vendor/cho/README.md)         | Runtimes with `URLPattern`: Deno, Node.js 24, Bun 1.3.4 |
-| [`@chojs/vendor-hono`](./vendor/hono/README.md)       | Deno, Node.js, Bun and edge runtimes                    |
-| [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | Node.js only                                            |
+| Router                                                | Runs on                                                                     |
+| ----------------------------------------------------- | --------------------------------------------------------------------------- |
+| [Built in](./web/README.md#the-built-in-router)       | Runtimes with `URLPattern`: Deno, Node.js 24, Bun 1.3.4, Cloudflare Workers |
+| [`@chojs/vendor-hono`](./vendor/hono/README.md)       | Deno, Node.js, Bun and edge runtimes                                        |
+| [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | Node.js only                                                                |
 
 Deno and Bun run TypeScript decorators directly. On Node.js, compile the
 application with TypeScript 5 or run it with a tool such as `tsx`.

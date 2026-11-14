@@ -13,6 +13,7 @@ import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
 import { Controller, Get, Module } from "./decorators.ts";
 import type { Ctr } from "@chojs/core/di";
 import type { Linked, Linker, Route } from "./linker.ts";
+import { ChoRouter } from "./router.ts";
 import { ChoWeb } from "./web.ts";
 
 /** What the fake linker links: the routes, kept for the assertions. */
@@ -131,16 +132,16 @@ describe("ChoWeb.create", () => {
 });
 
 describe("ChoWeb.create, without a linker", () => {
-  // The plain adapter needs the URL Pattern API to link an application.
+  // The built-in router needs the URL Pattern API to link an application.
   const supported = typeof URLPattern === "function";
   const on_supported = supported ? it : it.skip;
 
-  on_supported("links the application with the plain adapter", async () => {
+  on_supported("links the application with the built-in router", async () => {
     const app = await ChoWeb.create(users_app());
-    assert.equal(
-      (app.linked.instance as object).constructor.name,
-      "ChoRouter",
-    );
+    // typed as the router: no cast is needed to use it
+    const router: ChoRouter = app.linked.instance;
+    assert.ok(router instanceof ChoRouter);
+    assert.equal(router.match("GET", "/users")?.route, app.routes[0]);
     const get = (path: string) =>
       app.handler(new Request(`http://localhost${path}`));
     assert.equal((await get("/users")).status, 204);
@@ -156,7 +157,7 @@ describe("ChoWeb.create, without a linker", () => {
     assert.equal(response.status, 204);
   });
 
-  it("does not load the default linker when one is given", async () => {
+  it("uses the given linker, when there is one", async () => {
     const linker = new FakeLinker();
     const app = await ChoWeb.create(users_app(), { linker });
     assert.equal(app.linked.instance.routes, linker.calls[0]);

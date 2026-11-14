@@ -11,10 +11,10 @@ reference: when this document and the code disagree, the code wins.
 ## 1. Overview
 
 An application imports everything from `@chojs/web` (the core's `@Injectable`,
-`token` and `provider` included, so it never imports `@chojs/core`), plus a
-**runtime adapter** that matches requests to routes. There are three:
-`@chojs/vendor-cho` (the standard URL Pattern API, with no HTTP library),
-`@chojs/vendor-hono` (Hono) and `@chojs/vendor-fastify` (Fastify, on Node.js
+`token` and `provider` included, so it never imports `@chojs/core`). Requests
+are matched to routes by a **linker**: the built-in router, `ChoLinker` (the
+standard URL Pattern API, with no HTTP library), or a **runtime adapter**,
+`@chojs/vendor-hono` (Hono) or `@chojs/vendor-fastify` (Fastify, on Node.js
 only). Section 7 compares them.
 
 `@chojs/web` does the rest itself, the same way on every adapter: it creates the
@@ -309,14 +309,12 @@ handler mistake makes it reject, before the server starts; what was created
 until then is disposed.
 
 **The default linker.** Without a `linker` (`ChoWeb.create(App)`, or options
-that have none), the application is linked with the plain adapter: a
-`new ChoLinker()` of `@chojs/vendor-cho`. The package is imported when the
-application is created, by a name the publishing tools cannot see, so it is
-**not** a dependency of `@chojs/web`: an application that relies on the default
-installs it. It is loaded before anything is created; when it cannot be loaded,
-`ChoWeb.create` rejects, with the runtime's own error as `cause`. On Deno the
-import needs the usual permission to load a module at run time (import access to
-`jsr.io`, which is allowed by default).
+that have none), the application is linked with the built-in router, a
+`new ChoLinker()`, and `app.linked.instance` is typed as its `ChoRouter`. The
+router is part of `@chojs/web` and is imported statically, so the default works
+wherever the application is bundled. It needs the global `URLPattern`; on a
+runtime without it `ChoWeb.create` rejects with
+`ChoLinker needs the URL Pattern API (URLPattern), which this runtime does not have: give ChoWeb.create another linker, such as HonoLinker`.
 
 **Serving.** `serve(handler, options?)`, imported from `@chojs/web/serve`, runs
 a `fetch`-style handler, such as `app.handler`, on the server of the current
@@ -391,7 +389,7 @@ method and path.
 
 ## 7. Runtime adapters
 
-|                        | `@chojs/vendor-cho`                                      | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                    |
+|                        | `ChoLinker` (built in)                                   | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                    |
 | ---------------------- | -------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------- |
 | Linker                 | `new ChoLinker(options?)`                                | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                              |
 | Runs on                | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                               |
@@ -455,12 +453,13 @@ instance, middleware and error handler already created:
 
 ## 8. Public API
 
-| Entry point          | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Middlewares`, `Catch`, the types `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                |
-| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Entry point          | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Middlewares`, `Catch`, the types `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `@chojs/web/serve`   | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 
@@ -482,20 +481,19 @@ not match on their text.
 **Rejected by `ChoWeb.create`**: any module graph error of the core
 (`core/specs.md`, section 2.8), and:
 
-| Mistake                                       | Message                                                                                                                                                                                                                                                 |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No linker, and `@chojs/vendor-cho` is missing | `ChoWeb.create() was given no linker, and the default one, @chojs/vendor-cho, could not be loaded. Install it ("deno add jsr:@chojs/vendor-cho", "npx jsr add @chojs/vendor-cho" or "bunx jsr add @chojs/vendor-cho"), or pass a linker in the options` |
-| A route is not a string                       | `TypeError: Invalid route of <where>: expected a string, got <v>`                                                                                                                                                                                       |
-| A route breaks a rule (section 2.3)           | `Invalid route "<route>" of <where>: <reason>`                                                                                                                                                                                                          |
-| Two handlers with the same method and path    | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>`                                                                                                                                                            |
-| The same controller declared by two modules   | the message above, followed by `Its controller is declared in more than one module: declare it in one.`                                                                                                                                                 |
-| A wildcard in a route                         | `Invalid route "<route>" of <where>: "<segment>" has a "*": wildcards are not part of the route syntax`                                                                                                                                                 |
-| A malformed parameter (`:`, `:1id`, `:a:b`)   | `Invalid route "<route>" of <where>: "<segment>" is not a valid parameter: write ":name", with letters, digits and "_"`                                                                                                                                 |
-| `onError` is not a function or a class        | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                                                                                                                                                      |
-| A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                                                                                                                                                                               |
-| A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                                                                                                                                                             |
-| An error handler class has no `handle` method | `Error handler class <Name> must implement 'handle' method.`                                                                                                                                                                                            |
-| An error handler class cannot be created      | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                                                                                                                                                |
+| Mistake                                       | Message                                                                                                                 |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| A route is not a string                       | `TypeError: Invalid route of <where>: expected a string, got <v>`                                                       |
+| A route breaks a rule (section 2.3)           | `Invalid route "<route>" of <where>: <reason>`                                                                          |
+| Two handlers with the same method and path    | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>`                            |
+| The same controller declared by two modules   | the message above, followed by `Its controller is declared in more than one module: declare it in one.`                 |
+| A wildcard in a route                         | `Invalid route "<route>" of <where>: "<segment>" has a "*": wildcards are not part of the route syntax`                 |
+| A malformed parameter (`:`, `:1id`, `:a:b`)   | `Invalid route "<route>" of <where>: "<segment>" is not a valid parameter: write ":name", with letters, digits and "_"` |
+| `onError` is not a function or a class        | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                      |
+| A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                                               |
+| A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                             |
+| An error handler class has no `handle` method | `Error handler class <Name> must implement 'handle' method.`                                                            |
+| An error handler class cannot be created      | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                |
 
 `<where>` names the declaration: `the global prefix`, `feature <Module>`,
 `controller <Controller>` or `method <name> of controller <Controller>`.
@@ -529,7 +527,7 @@ A middleware class is named `<Class>.handle`.
 - **The Hono adapter** registers each route on one Hono application with
   `app.on(method, path, …)`, and calls `route.handle` with the raw `Request`,
   Hono's decoded parameters and Hono's context.
-- **The plain adapter** (`@chojs/vendor-cho`) makes one `URLPattern` for each
+- **The built-in router** (`web/router.ts`) makes one `URLPattern` for each
   route, and calls the `route.handle` of the first route whose method and
   pattern match, with the `Request` and the decoded parameters.
 - **The Fastify adapter** registers the routes as one Fastify plugin, in which
