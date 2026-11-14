@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/cho-js/cho/compare/core-v3.0.0...core-v3.1.0) (2026-11-14)
+
+
+### Miscellaneous Chores
+
+* **core:** Synchronize cho versions
+
 ## [3.0.0](https://github.com/cho-js/cho/compare/core-v2.5.5...core-v3.0.0) (2026-11-12)
 
 
