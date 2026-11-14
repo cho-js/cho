@@ -5,7 +5,8 @@
   "exports": {
     ".": "./mod.ts",
     "./linker": "./linker.ts",
-    "./graph": "./graph.ts"
+    "./graph": "./graph.ts",
+    "./serve": "./serve.ts"
   },
   "publish": {
     "exclude": [

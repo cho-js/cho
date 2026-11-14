@@ -20,6 +20,7 @@ call.
   - [Responses](#responses)
   - [Middlewares](#middlewares)
   - [Error handling](#error-handling)
+  - [Serving](#serving)
   - [Dependency injection and shutdown](#dependency-injection-and-shutdown)
   - [Testing](#testing)
 - [Options](#options)
@@ -196,6 +197,46 @@ class UsersController {}
 An error handler that returns nothing has not handled the error: the adapter
 answers `500`. A handler that only logs therefore never hides a failure.
 
+### Serving
+
+`app.handler` is a `fetch`-style function, and every runtime has its own way to
+serve one. `serve` picks it for you: `Deno.serve` on Deno, `Bun.serve` on Bun,
+and the `node:http` server on Node.js, so the same file runs on the three.
+
+```ts
+import { ChoWeb } from "@chojs/web";
+import { serve } from "@chojs/web/serve";
+
+const app = await ChoWeb.create(App, { linker: new HonoLinker() });
+const server = await serve(app.handler, { port: 3000 });
+
+console.log(`listening on http://localhost:${server.port}`);
+```
+
+| Option     | Default               | Use                                     |
+| ---------- | --------------------- | --------------------------------------- |
+| `port`     | `3000`                | The port; `0` picks a free one          |
+| `hostname` | the runtime's default | The host name or address to listen on   |
+| `signal`   | none                  | An `AbortSignal` that closes the server |
+
+It resolves, once the server is listening, to
+`{ runtime, port, hostname,
+close() }`. `serve` has no dependency: the bridge
+between `node:http` and `Request` / `Response` is part of this package, and the
+Node.js modules are loaded on Node.js only. On another runtime, such as
+Cloudflare Workers, give `app.handler` to the runtime's own entry point.
+
+`serve` is imported from `@chojs/web/serve`, not from `@chojs/web`, so an
+application that does not use it loads nothing of it. That is the case on
+Cloudflare Workers and the other runtimes that serve an exported handler:
+
+```ts
+export default { fetch: app.handler };
+```
+
+You can still call the runtime's server yourself: `Deno.serve(app.handler)` or
+`Bun.serve({ fetch: app.handler })`.
+
 ### Dependency injection and shutdown
 
 `@Module`, `@Controller`, `@Injectable`, `token` and `provider` come from the
@@ -208,9 +249,9 @@ releases them in reverse creation order: every instance with a
 `app.handler` answers `503`.
 
 ```ts
-const server = Deno.serve(app.handler);
-Deno.addSignalListener("SIGTERM", async () => {
-  await server.shutdown(); // stop accepting, finish the requests in flight
+const server = await serve(app.handler);
+process.once("SIGTERM", async () => {
+  await server.close(); // stop accepting, finish the requests in flight
   await app.close();
 });
 ```

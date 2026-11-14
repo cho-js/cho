@@ -318,6 +318,34 @@ installs it. It is loaded before anything is created; when it cannot be loaded,
 import needs the usual permission to load a module at run time (import access to
 `jsr.io`, which is allowed by default).
 
+**Serving.** `serve(handler, options?)`, imported from `@chojs/web/serve`, runs
+a `fetch`-style handler, such as `app.handler`, on the server of the current
+runtime: `Deno.serve` on Deno, `Bun.serve` on Bun, and the `node:http` server on
+Node.js, through a bridge to `Request` and `Response` that is part of this
+package. It resolves, once the server is listening, to
+`{ runtime, port, hostname, close() }`.
+
+| Option     | Default               | Use                                     |
+| ---------- | --------------------- | --------------------------------------- |
+| `port`     | `3000`                | the port; `0` picks a free one          |
+| `hostname` | the runtime's default | the host name or address to listen on   |
+| `signal`   | none                  | an `AbortSignal` that closes the server |
+
+- `serve` is asynchronous because the Node.js modules are imported when they are
+  needed, on Node.js only: `@chojs/web` has no dependency, and loads nothing of
+  Node.js on another runtime.
+- On Node.js the body of the request is the stream of the connection, the body
+  of the response is streamed, `req.signal` is aborted when the client goes
+  away, and a handler that rejects is logged and answered with `500`.
+- `close()` stops accepting requests and waits for the ones in flight.
+- It is a separate entry point, so that an application that does not call it
+  loads nothing of it. On Cloudflare Workers and the other runtimes that serve
+  an exported handler, the entry module is
+  `export default { fetch: app.handler }`.
+- On a runtime that is not Deno, Bun or Node.js it rejects:
+  `serve() has no server for this runtime (<runtime>): give app.handler to the runtime's own entry point`.
+- On Deno it needs `--allow-net`.
+
 **Closing.** `app.close()` disposes the application's instances, in reverse
 creation order: every provider, controller or module with a
 `[Symbol.asyncDispose]()` or `[Symbol.dispose]()` method (`core/specs.md`,
@@ -327,9 +355,9 @@ own: stop the server first, then close. A request that still reaches
 route.
 
 ```ts
-const server = Deno.serve(app.handler);
-Deno.addSignalListener("SIGTERM", async () => {
-  await server.shutdown(); // stop accepting, finish the requests in flight
+const server = await serve(app.handler);
+process.once("SIGTERM", async () => {
+  await server.close(); // stop accepting, finish the requests in flight
   await app.close();
 });
 ```
