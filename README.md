@@ -1,11 +1,23 @@
-# CHO
+
+
+<p align="center">
+  <a href="https://nestjs.com/" target="_blank"><img src="./assets/cho.svg" width="120" alt="Nest Logo" /></a>
+</p>
+
+<p align="center">
+The only cross-platform, cross-runtime, decorator-based framework for building modular applications in JavaScript and
+TypeScript.
+</p>
+
 
 [![Release](https://github.com/cho-js/cho/actions/workflows/release.yml/badge.svg)](https://github.com/cho-js/cho/actions/workflows/release.yml)
 [![CI](https://github.com/cho-js/cho/actions/workflows/ci.yml/badge.svg)](https://github.com/cho-js/cho/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
+# CHO
+
 | Package                                               | Version                                                                                     | For                                                                        |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+|-------------------------------------------------------|---------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
 | [`@chojs/web`](./web/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/web)](https://jsr.io/@chojs/web)                       | HTTP applications                                                          |
 | [`@chojs/command`](./command/README.md)               | [![JSR](https://jsr.io/badges/@chojs/command)](https://jsr.io/@chojs/command)               | Command-line applications                                                  |
 | [`@chojs/vendor-cho`](./vendor/cho/README.md)         | [![JSR](https://jsr.io/badges/@chojs/vendor-cho)](https://jsr.io/@chojs/vendor-cho)         | Running `@chojs/web` on the standard URL Pattern API, with no HTTP library |
@@ -70,33 +82,35 @@ An HTTP application:
 
 ```ts
 import {
-  ChoWeb,
-  type ChoWebContext,
-  Controller,
-  Get,
-  Injectable,
-  Module,
+    ChoWeb,
+    type ChoWebContext,
+    Controller,
+    Get,
+    Injectable,
+    Module,
 } from "@chojs/web";
 
 @Injectable()
 class UserStore {
-  find(id: string) {
-    return { id, name: "Ada" };
-  }
+    find(id: string) {
+        return {id, name: "Ada"};
+    }
 }
 
-@Controller({ route: "users", dependencies: [UserStore] })
+@Controller({route: "users", dependencies: [UserStore]})
 class UsersController {
-  constructor(readonly store: UserStore) {}
+    constructor(readonly store: UserStore) {
+    }
 
-  @Get(":id") // GET /users/42
-  get(ctx: ChoWebContext) {
-    return this.store.find(ctx.params.id!); // sent as JSON
-  }
+    @Get(":id") // GET /users/42
+    get(ctx: ChoWebContext) {
+        return this.store.find(ctx.params.id!); // sent as JSON
+    }
 }
 
-@Module({ providers: [UserStore], controllers: [UsersController] })
-class App {}
+@Module({providers: [UserStore], controllers: [UsersController]})
+class App {
+}
 
 const app = await ChoWeb.create(App);
 Deno.serve(app.handler); // Bun: Bun.serve({ fetch: app.handler })
@@ -106,27 +120,28 @@ A command-line application, with the same modules, controllers and providers:
 
 ```ts
 import {
-  Action,
-  ChoCommand,
-  type ChoCommandContext,
-  Controller,
-  Help,
-  Module,
+    Action,
+    ChoCommand,
+    type ChoCommandContext,
+    Controller,
+    Help,
+    Module,
 } from "@chojs/command";
 
 @Controller()
 class Greeter {
-  @Help("Say hello")
-  @Action("hello", { string: ["name"] })
-  hello(ctx: ChoCommandContext) {
-    console.log(`Hello, ${ctx.args.name ?? "world"}!`);
-  }
+    @Help("Say hello")
+    @Action("hello", {string: ["name"]})
+    hello(ctx: ChoCommandContext) {
+        console.log(`Hello, ${ctx.args.name ?? "world"}!`);
+    }
 }
 
-@Module({ controllers: [Greeter] })
-class App {}
+@Module({controllers: [Greeter]})
+class App {
+}
 
-const app = ChoCommand.create(App, { name: "greet" });
+const app = ChoCommand.create(App, {name: "greet"});
 Deno.exit(await app.run(Deno.args)); // greet hello --name you
 ```
 
@@ -151,7 +166,7 @@ An HTTP application needs one adapter, the package that matches requests to
 routes. Any of them can replace `@chojs/vendor-hono` above:
 
 | Adapter                                               | Runs on                                                 |
-| ----------------------------------------------------- | ------------------------------------------------------- |
+|-------------------------------------------------------|---------------------------------------------------------|
 | [`@chojs/vendor-cho`](./vendor/cho/README.md)         | Runtimes with `URLPattern`: Deno, Node.js 24, Bun 1.3.4 |
 | [`@chojs/vendor-hono`](./vendor/hono/README.md)       | Deno, Node.js, Bun and edge runtimes                    |
 | [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | Node.js only                                            |
@@ -162,7 +177,7 @@ application with TypeScript 5 or run it with a tool such as `tsx`.
 ## Documentation
 
 | Package                 | Guide                                | Specification               |
-| ----------------------- | ------------------------------------ | --------------------------- |
+|-------------------------|--------------------------------------|-----------------------------|
 | `@chojs/web`            | [README](./web/README.md)            | [specs](./web/specs.md)     |
 | `@chojs/command`        | [README](./command/README.md)        | [specs](./command/specs.md) |
 | `@chojs/vendor-cho`     | [README](./vendor/cho/README.md)     |                             |
