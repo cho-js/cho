@@ -15,6 +15,8 @@ import assert from "node:assert/strict";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
+  Args,
+  Body,
   Catch,
   ChoWeb,
   type ChoWebContext,
@@ -25,10 +27,12 @@ import {
   Middlewares,
   Module,
   Options,
+  Param,
   Post,
+  Query,
 } from "@chojs/web";
 import type { Route } from "@chojs/web/linker";
-import { capture, legacy } from "@chojs/core/utils/test_utils";
+import { capture, legacy, loose } from "@chojs/core/utils/test_utils";
 import { HonoLinked, HonoLinker } from "./mod.ts";
 
 /** Send a request to a `fetch`-style handler, by path and method. */
@@ -261,5 +265,44 @@ describe("HonoLinker, with ChoWeb", () => {
       "https://example.com",
     );
     assert.equal(await (await send(app, "/nope")).text(), "nothing here");
+  });
+});
+
+describe("HonoLinker, handler arguments", () => {
+  it("gives a handler its path parameters, its query and its body", async () => {
+    class Users {
+      update(
+        id: string,
+        notify: string | undefined,
+        body: unknown,
+        ctx: ChoWebContext,
+      ) {
+        return {
+          id,
+          notify,
+          body,
+          hono: typeof (ctx.native as { req: { path: string } }).req.path,
+        };
+      }
+    }
+    legacy(Post(":id"), Users, "update");
+    legacy(loose(Args(Param("id"), Query("notify"), Body())), Users, "update");
+    Controller({ route: "users" })(Users);
+    class App {}
+    Module({ controllers: [Users] })(App);
+    const app = await ChoWeb.create(App, { linker: new HonoLinker() });
+
+    const response = await app.handler(
+      new Request("http://localhost/users/a%20b?notify=1", {
+        method: "POST",
+        body: '{"name":"Ada"}',
+      }),
+    );
+    assert.deepEqual(await response.json(), {
+      id: "a b",
+      notify: "1",
+      body: { name: "Ada" },
+      hono: "string",
+    });
   });
 });

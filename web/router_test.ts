@@ -13,9 +13,10 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { capture, legacy } from "@chojs/core/utils/test_utils";
+import { capture, legacy, loose } from "@chojs/core/utils/test_utils";
 import type { ChoWebContext } from "./context.ts";
 import {
+  Args,
   Catch,
   Controller,
   Get,
@@ -26,6 +27,7 @@ import {
   Post,
 } from "./decorators.ts";
 import type { Route } from "./linker.ts";
+import { Body, Param, Query } from "./args.ts";
 import { ChoLinker, ChoRouter } from "./router.ts";
 import type { ChoWebMiddlewareFn } from "./types.ts";
 import { ChoWeb } from "./web.ts";
@@ -348,5 +350,33 @@ suite("ChoLinker, with ChoWeb", () => {
     });
     assert.equal(await (await send(app, "/nope")).text(), "nothing here");
     assert.deepEqual(await (await send(app, "/v1/users")).json(), [1, 2]);
+  });
+});
+
+suite("ChoLinker, handler arguments", () => {
+  it("gives a handler its path parameters, its query and its body", async () => {
+    class Users {
+      update(id: string, notify: string | undefined, body: unknown) {
+        return { id, notify, body };
+      }
+    }
+    legacy(Post(":id"), Users, "update");
+    legacy(loose(Args(Param("id"), Query("notify"), Body())), Users, "update");
+    Controller({ route: "users" })(Users);
+    class App {}
+    Module({ controllers: [Users] })(App);
+    const app = await ChoWeb.create(App, { linker: new ChoLinker() });
+
+    const response = await app.handler(
+      new Request("http://localhost/users/a%20b?notify=1", {
+        method: "POST",
+        body: '{"name":"Ada"}',
+      }),
+    );
+    assert.deepEqual(await response.json(), {
+      id: "a b",
+      notify: "1",
+      body: { name: "Ada" },
+    });
   });
 });

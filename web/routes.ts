@@ -109,6 +109,14 @@ export function compile_routes(
           : (response: Response) => response;
         const on_error = method.errorHandler ?? controller.errorHandler ??
           feature.errorHandler ?? graph.errorHandler;
+        if (
+          log.enabled && !method.validated &&
+          method.args.some((arg) => arg.info?.validator)
+        ) {
+          log(
+            `${name} has an argument with a validator and no validate() middleware: it is not validated`,
+          );
+        }
 
         routes.push({
           method: method.method,

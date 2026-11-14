@@ -15,6 +15,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
 import {
+  Args,
+  Body,
   Catch,
   ChoWeb,
   type ChoWebContext,
@@ -25,11 +27,13 @@ import {
   Middlewares,
   Module,
   Options,
+  Param,
   Post,
+  Query,
 } from "@chojs/web";
 import type { Route } from "@chojs/web/linker";
 import { engine } from "@chojs/core/utils";
-import { legacy } from "@chojs/core/utils/test_utils";
+import { legacy, loose } from "@chojs/core/utils/test_utils";
 import { FastifyLinked, FastifyLinker, type FastifyNative } from "./mod.ts";
 
 /** `describe`, skipped on a runtime the adapter does not support. */
@@ -512,6 +516,50 @@ suite("FastifyLinker, with ChoWeb", () => {
         [response.status, await response.text()],
         [201, "Grace"],
       );
+    } finally {
+      await fastify.close();
+      await app.close();
+    }
+  });
+});
+
+suite("FastifyLinker, handler arguments", () => {
+  /** An application with `POST users/:id`, which answers with its arguments. */
+  function users_app() {
+    class Users {
+      update(id: string, notify: string | undefined, body: unknown) {
+        return { id, notify, body };
+      }
+    }
+    legacy(Post(":id"), Users, "update");
+    legacy(loose(Args(Param("id"), Query("notify"), Body())), Users, "update");
+    Controller({ route: "users" })(Users);
+    class App {}
+    Module({ controllers: [Users] })(App);
+    return ChoWeb.create(App, { linker: new FastifyLinker() });
+  }
+  const expected = { id: "a b", notify: "1", body: { name: "Ada" } };
+
+  it("gives a handler its path parameters, its query and its body", async () => {
+    const app = await users_app();
+    const response = await send(app, "/users/a%20b?notify=1", "POST", {
+      body: '{"name":"Ada"}',
+      headers: { "content-type": "application/json" },
+    });
+    assert.deepEqual(await response.json(), expected);
+  });
+
+  it("reads the body from the stream of a real connection", async () => {
+    const app = await users_app();
+    const fastify = app.linked.instance;
+    const address = await fastify.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const response = await fetch(`${address}/users/a%20b?notify=1`, {
+        method: "POST",
+        body: '{"name":"Ada"}',
+        headers: { "content-type": "application/json" },
+      });
+      assert.deepEqual(await response.json(), expected);
     } finally {
       await fastify.close();
       await app.close();

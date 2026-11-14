@@ -83,6 +83,9 @@ export type {
   NodeRef,
 } from "./graph.ts";
 export * from "./decorators.ts";
+// The arguments of a handler (`@Args`), and the validation middleware.
+export { Body, Form, Header, Param, Query } from "./args.ts";
+export { validate } from "./validate.ts";
 export * from "./web.ts";
 // The built-in router, and default linker.
 export {

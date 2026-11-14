@@ -85,3 +85,145 @@ export type ChoWebErrorHandlerFn = (
 export type ChoWebErrorHandler =
   | ChoWebErrorHandlerFn
   | Ctr<{ handle: ChoWebErrorHandlerFn }>;
+
+/** Where an argument made by `Param`, `Query`, `Header`, `Body` or `Form` reads from. */
+export type ChoWebArgSource = "param" | "query" | "header" | "body" | "form";
+
+/**
+ * A validator: any object with a `parse` method that returns the value, or
+ * throws. It is the shape of a zod schema, so a zod schema is one.
+ *
+ * What `parse` returns is what the handler receives, so a validator can also
+ * convert a value. It can return a promise.
+ *
+ * @typeParam T What the validator gives.
+ *
+ * @example
+ * ```ts
+ * const positive: ChoWebValidator<number> = {
+ *   parse(value) {
+ *     const n = Number(value);
+ *     if (!(n > 0)) throw new Error("expected a positive number");
+ *     return n;
+ *   },
+ * };
+ * ```
+ */
+export type ChoWebValidator<T = unknown> = {
+  parse(value: unknown): T | Promise<T>;
+};
+
+/**
+ * What is known about an argument made by `Param`, `Query`, `Header`, `Body`
+ * or `Form`: enough to describe it in an OpenAPI document.
+ */
+export type ChoWebArgInfo = {
+  /** Where the value is read from. */
+  readonly source: ChoWebArgSource;
+  /** The key of the source, when the argument is one key of it. */
+  readonly key?: string;
+  /** The validator of the argument, when it has one: its schema. */
+  readonly validator?: ChoWebValidator;
+};
+
+/**
+ * An argument of a handler, as given to `@Args`: a function that takes the
+ * context of the request and gives the value, now or as a promise.
+ *
+ * `Param`, `Query`, `Header`, `Body` and `Form` make one, with its `info`. Any
+ * other function of that shape is an argument too.
+ *
+ * @typeParam T The value the handler receives.
+ *
+ * @example
+ * ```ts
+ * const CurrentUser: ChoWebArg<User> = (ctx) => ctx.state.get("user") as User;
+ * ```
+ */
+export type ChoWebArg<T = unknown> =
+  & ((ctx: ChoWebContext) => T | Promise<T>)
+  & {
+    /** What the argument reads, when one of the five functions made it. */
+    readonly info?: ChoWebArgInfo;
+  };
+
+/**
+ * The values of a list of arguments: what a handler receives for them, in
+ * order.
+ *
+ * @typeParam A The arguments, as given to `@Args`.
+ */
+export type ChoWebArgValues<A extends readonly ChoWebArg[]> = {
+  -readonly [K in keyof A]: Awaited<ReturnType<A[K]>>;
+};
+
+/**
+ * The decorator `@Args` returns. It only accepts a method whose parameters
+ * take the values of the arguments, in order, and then the context: a handler
+ * that expects something else does not compile.
+ *
+ * It has both decorator call shapes: standard (TC39) `(method, context)`, and
+ * legacy / Bun `(prototype, name, descriptor)`.
+ *
+ * @typeParam P The values of the arguments.
+ */
+export type ChoWebArgsDecorator<P extends unknown[]> = {
+  // deno-lint-ignore no-explicit-any
+  <M extends (this: any, ...args: [...P, ChoWebContext]) => unknown>(
+    method: M,
+    context: ClassMethodDecoratorContext,
+  ): void;
+  // deno-lint-ignore no-explicit-any
+  <M extends (this: any, ...args: [...P, ChoWebContext]) => unknown>(
+    target: object,
+    name: string | symbol,
+    descriptor: TypedPropertyDescriptor<M>,
+  ): void;
+};
+
+/** What failed the validation of a request: given to `onInvalid`. */
+export type ChoWebInvalid = {
+  /** The source of the argument that is not valid. */
+  readonly source: ChoWebArgSource;
+  /** Its key, when the argument is one key of the source. */
+  readonly key?: string;
+  /** What the validator threw, or the error of a body that cannot be parsed. */
+  readonly error: unknown;
+};
+
+/** The options of `validate()`. */
+export type ChoWebValidateOptions = {
+  /**
+   * Answer a request that is not valid. What it returns is the response,
+   * converted like the result of a handler. Default: `400`, with a JSON body
+   * of `error`, `source`, `key` and `issues`.
+   */
+  onInvalid?: (invalid: ChoWebInvalid, ctx: ChoWebContext) => unknown;
+};
+
+/** A response of a handler, as documented with `@Doc`. */
+export type ChoWebDocResponse = {
+  /** What the response means. */
+  readonly description?: string;
+  /** The schema of its body: a validator. */
+  readonly schema?: ChoWebValidator;
+};
+
+/**
+ * The options of `@Doc`: what the code cannot tell about a handler, a
+ * controller or a feature module, for the documentation of the application.
+ */
+export type ChoWebDoc = {
+  /** One line about the operation. On a handler only. */
+  readonly summary?: string;
+  /** A longer text. */
+  readonly description?: string;
+  /** The tags of the handlers under it. */
+  readonly tags?: readonly string[];
+  /** Whether it should no longer be used. */
+  readonly deprecated?: boolean;
+  /** The responses, by status. On a handler only. */
+  readonly responses?: Readonly<Record<number, ChoWebDocResponse>>;
+  /** Whether it is left out of the documentation. */
+  readonly hidden?: boolean;
+};

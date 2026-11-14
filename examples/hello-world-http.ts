@@ -1,11 +1,5 @@
 #!/usr/bin/env -S deno run --allow-all
-import {
-  ChoWeb,
-  type ChoWebContext,
-  Controller,
-  Get,
-  Module,
-} from "@chojs/web";
+import { Args, ChoWeb, Controller, Get, Module, Query } from "@chojs/web";
 import { HonoLinker } from "@chojs/vendor-hono";
 
 @Controller({
@@ -13,9 +7,9 @@ import { HonoLinker } from "@chojs/vendor-hono";
 })
 export class BarController {
   @Get("")
-  hello(ctx: ChoWebContext) {
-    const name = ctx.url.searchParams.get("name") ?? "BarController";
-    return { message: `Hello from ${name}` };
+  @Args(Query("name"))
+  hello(name: string | undefined) {
+    return { message: `Hello from ${name ?? "BarController"}` };
   }
 }
 

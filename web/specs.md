@@ -133,7 +133,8 @@ declared. Declare static routes first, and a route means the same on all three.
 
 ## 3. Handlers and the context
 
-A handler receives the request's `ChoWebContext`:
+A handler receives the request's `ChoWebContext`. A handler that declares
+arguments with `@Args` receives them first, and the context last (section 3.1).
 
 | Property | Holds                                                                         |
 | -------- | ----------------------------------------------------------------------------- |
@@ -173,6 +174,296 @@ context. Code that uses `native` only runs on that adapter.
   without the body).
 - A handler runs on its controller instance, so `this` works. Controllers are
   created once, with their dependencies, when the application is created.
+
+### 3.1 Handler arguments: `@Args`
+
+Standard decorators cannot decorate a parameter, so a handler declares what it
+receives with one decorator on the method: `@Args`, with the list of its
+arguments, in the order of the parameters. It is the same idea as the
+`dependencies` of a constructor.
+
+```ts
+@Controller({ route: "users" })
+class UsersController {
+  @Put(":id")
+  @Args(Param("id"), Query("notify"), Body(UpdateUser))
+  update(
+    id: string,
+    notify: string | undefined,
+    user: UpdateUser,
+    ctx: ChoWebContext,
+  ) {
+    // …
+  }
+}
+```
+
+**The call.** With `@Args`, the handler is called with the value of each
+argument, in order, and then with the context: `handler(...values, ctx)`. The
+context is always the last argument, so a handler that declares arguments can
+still reach it; a handler can also leave it out of its parameters. Without
+`@Args`, a handler is called with the context alone, as before.
+
+**The arguments.** Five functions make an argument. Each reads one source of the
+request:
+
+| Function | Source                                              | Without a key                                  | With a key                          |
+| -------- | --------------------------------------------------- | ---------------------------------------------- | ----------------------------------- |
+| `Param`  | the path parameters of the route, decoded           | all of them, as an object of strings           | that parameter: a string            |
+| `Query`  | the query string                                    | all of it, as an object of strings             | that key: a string or `undefined`   |
+| `Header` | the headers of the request                          | all of them, as an object, names in lower case | that header, or `undefined`         |
+| `Body`   | the body of the request, read and parsed as JSON    | the parsed body                                | that property of the parsed body    |
+| `Form`   | the body of the request, read as a URL-encoded form | all the fields, as an object of strings        | that field: a string or `undefined` |
+
+Every one of them has the same four signatures:
+
+| Call                      | Gives                                   |
+| ------------------------- | --------------------------------------- |
+| `Body()`                  | the whole source                        |
+| `Body(validator)`         | the whole source, with a validator      |
+| `Body("name")`            | one key of the source                   |
+| `Body("name", validator)` | one key of the source, with a validator |
+
+A string is a key, and an object with a `parse` method is a validator (section
+3.2); anything else throws when the function is called. A validator is the last
+argument.
+
+- **`Query()` and `Form()`** give the first value of a key that is repeated, as
+  `Query("key")` does. For every value of a repeated query key, use
+  `ctx.url.searchParams.getAll(key)`.
+- **`Header()`** gives a header that is sent several times as one value, joined
+  with `", "`, as the platform's `Headers` does.
+- **`Param("id")`** must name a parameter of the handler's full path. A name
+  that is not in the path is a mistake in the wiring: `ChoWeb.create` rejects
+  it, so the value is always a string.
+- **`Body("name")`** is `undefined` when the body has no such property, or is
+  not an object.
+
+**The body.** `Body` and `Form` read the body of the request, so the handler has
+nothing to await:
+
+- `Body` parses the text of the body as JSON (`application/json`). An empty body
+  is `undefined`.
+- `Form` parses it as a URL-encoded form (`application/x-www-form-urlencoded`):
+  an object of strings. An empty body is an empty object. Multipart forms and
+  files are not covered: read them from `ctx.req.formData()`.
+- Neither looks at the `content-type` of the request: the function chosen says
+  how the body is read.
+- The body of a request can be read once. It is read the first time an argument
+  needs it, and every `Body` and `Form` argument of the handler shares it. A
+  handler that declares one must not read `ctx.req` itself.
+- A body that cannot be parsed (invalid JSON) fails the request (section 3.2
+  says how it is answered).
+
+**Your own arguments.** An argument is also any function `(ctx) => value`, which
+can be `async`: it is what the five functions return. It is the way to declare
+an argument of your own, such as the user a middleware put in `ctx.state`:
+
+```ts
+const CurrentUser = (ctx: ChoWebContext) => ctx.state.get("user") as User;
+
+@Get("me")
+@Args(CurrentUser)
+me(user: User) {
+  return user;
+}
+```
+
+**Types.** The parameters of the handler are checked against the arguments at
+compile time, as the parameters of a constructor are against its `dependencies`:
+each parameter must accept the value of its argument, and the parameter after
+them the context. Without a validator the types are what the source gives:
+strings for `Param`, `Query`, `Header` and `Form`, and `unknown` for `Body`. A
+type can be given by hand, `Body<UpdateUser>()`; it is a promise of the caller,
+and nothing checks it. With a validator, the type is what the validator gives.
+
+**Rules.**
+
+- `@Args` goes on a handler, above or below its HTTP method decorator. On a
+  method that is not a handler it has no effect.
+- A method has one `@Args`: a second one throws when the class is defined.
+- A handler inherited from a base class keeps its arguments. An override that
+  declares `@Args` replaces them; one that does not keeps them.
+- The arguments are evaluated in order, after the middlewares of the route and
+  just before the handler: a middleware that answers by itself (a failed
+  authentication) never reads the body. An argument that throws stops the
+  request there; the ones after it are not evaluated.
+- Middlewares and error handlers are not handlers: they always receive the
+  context.
+
+### 3.2 Validation
+
+**Validators.** A validator is any object with a `parse(value)` method that
+returns the value, or throws: the shape of a [zod](https://zod.dev) schema, so a
+zod schema is a validator, and so is any other object of that shape.
+`@chojs/web` does not depend on zod.
+
+```ts
+type ChoWebValidator<T> = { parse(value: unknown): T | Promise<T> };
+```
+
+A validator given to an argument does two things: it describes the argument
+(section 3.3), and it validates it **when the validation middleware is on the
+route**.
+
+**The validation middleware.** Validation is the work of one middleware,
+`validate()`. It is declared like any middleware, with `@Middlewares`, on a
+handler, on a controller or on a feature module, and covers the handlers under
+it. There is no application-wide setting for now.
+
+```ts
+const UpdateUser = z.object({ name: z.string(), age: z.number().optional() });
+
+@Middlewares(validate()) // every handler of the controller is validated
+@Controller({ route: "users" })
+class UsersController {
+  @Put(":id")
+  @Args(Param("id", z.coerce.number()), Body(UpdateUser))
+  update(id: number, user: z.infer<typeof UpdateUser>) {
+    // …
+  }
+}
+```
+
+With the middleware on the route:
+
+- Every argument that has a validator goes through its `parse` before the
+  handler is called. What `parse` returns is what the handler receives, so a
+  validator can also convert: `Param("id", z.coerce.number())` gives a number.
+- `parse` can return a promise. For a zod schema with asynchronous checks, give
+  `{ parse: (value) => schema.parseAsync(value) }`.
+- When an argument is not valid, the handler is not called, and the middleware
+  answers. The same goes for a body that cannot be parsed.
+- Wherever the middleware is declared, validation happens at the same moment:
+  after every middleware of the route, just before the handler.
+
+The answer to an invalid request is `400`, with a JSON body:
+
+```json
+{
+  "error": "Invalid request",
+  "source": "body",
+  "key": "name",
+  "issues": [{ "path": ["name"], "message": "Required" }]
+}
+```
+
+`source` is `param`, `query`, `header`, `body` or `form`; `key` is there when
+the argument has one; `issues` are the `issues` of the error the validator threw
+when it has them, as a zod error does, and otherwise one issue with the error's
+message. To answer differently, give the middleware an `onInvalid` function. It
+receives what failed and the context, and what it returns is the response,
+converted like the result of a handler. When it returns nothing (it only logs,
+say), the default answer is sent:
+
+```ts
+validate({
+  onInvalid: ({ source, key, error }, ctx) =>
+    Response.json({ message: `bad ${source}` }, { status: 422 }),
+});
+```
+
+**Without the middleware** on the route, there is no validation:
+
+- validators are not run: the handler receives each value as its source gives
+  it, not converted;
+- a body that cannot be parsed is an error like any other, given to the nearest
+  error handler (section 5).
+
+The type of a parameter still comes from the validator, so it is only true for a
+handler the middleware covers. When the application is created, each handler
+that has a validator and no validation middleware is logged to the `cho:web`
+debug context:
+`<Controller.method> has an argument with a validator and no validate() middleware: it is not validated`.
+
+### 3.3 What is known about a handler
+
+Everything declared about a handler is kept, and exposed, so that tools can use
+it. The first one it is meant for is an OpenAPI document of the application, for
+Swagger UI and the like. Generating that document is not specified yet; this
+section says what it will be built from.
+
+**Collected from what is already declared:**
+
+| Known                       | From                                                 | In an OpenAPI document         |
+| --------------------------- | ---------------------------------------------------- | ------------------------------ |
+| The HTTP method             | `@Get`, `@Post`, …                                   | the operation                  |
+| The full path               | the four route levels (section 2.2)                  | the path, `:id` written `{id}` |
+| The name                    | the controller and the method: `UsersController.get` | `operationId`                  |
+| The controller, the feature | the classes                                          | default `tags`                 |
+| Each argument               | `@Args`                                              | `parameters` and `requestBody` |
+
+An argument made by one of the five functions carries its description:
+
+| Property    | Holds                                                        |
+| ----------- | ------------------------------------------------------------ |
+| `source`    | `"param"`, `"query"`, `"header"`, `"body"` or `"form"`       |
+| `key`       | the key, when there is one                                   |
+| `validator` | the validator, when there is one: the schema of the argument |
+
+A function of your own has none, and is not part of the document.
+
+| Argument           | In an OpenAPI document                                           |
+| ------------------ | ---------------------------------------------------------------- |
+| `Param("id", v)`   | a parameter `in: path`, required, with the schema of `v`         |
+| `Query("page", v)` | a parameter `in: query`, with the schema of `v`                  |
+| `Query(v)`         | one `in: query` parameter for each property of the schema of `v` |
+| `Header("x", v)`   | a parameter `in: header`                                         |
+| `Body(v)`          | the `requestBody`, `application/json`, with the schema of `v`    |
+| `Body("name", v)`  | a property `name` of an `application/json` request body          |
+| `Form(v)`          | the `requestBody`, `application/x-www-form-urlencoded`           |
+
+A validator is kept as it was given. `@chojs/web` does not know how to turn one
+into a JSON Schema: the generator will take that function from the application
+(for zod, `z.toJSONSchema`).
+
+**Declared for documentation only:** what the code cannot tell is given with
+`@Doc`, on a handler, a controller or a feature module. It changes nothing in
+how a request is handled.
+
+```ts
+@Doc({ tags: ["users"], description: "The users of the application" })
+@Controller({ route: "users" })
+class UsersController {
+  @Doc({
+    summary: "Update a user",
+    responses: {
+      200: { description: "The updated user", schema: User },
+      404: { description: "No such user" },
+    },
+  })
+  @Put(":id")
+  @Args(Param("id"), Body(UpdateUser))
+  update(id: string, user: UpdateUser) {}
+}
+```
+
+| Option        | On                                 | Holds                                                                |
+| ------------- | ---------------------------------- | -------------------------------------------------------------------- |
+| `summary`     | a handler                          | one line about the operation                                         |
+| `description` | a handler, a controller, a feature | a longer text                                                        |
+| `tags`        | a handler, a controller, a feature | the tags of the handlers under it; they add up, feature first        |
+| `deprecated`  | a handler, a controller, a feature | `true` when it should no longer be used                              |
+| `responses`   | a handler                          | by status: a `description`, and a `schema` (a validator) of the body |
+| `hidden`      | a handler, a controller, a feature | `true` to leave it out of the document                               |
+
+An unknown option throws when the decorator is called, like the options of
+`@Module` and `@Controller`. A class or a method has one `@Doc`.
+
+**Where it is exposed.** On the graph of the application (`app.graph`,
+`@chojs/web/graph`), with every instance already created:
+
+| Node            | Gains                                                             |
+| --------------- | ----------------------------------------------------------------- |
+| `MethodRef`     | `args`: the arguments of the handler, in order; `doc`: its `@Doc` |
+| `ControllerRef` | `doc`: its `@Doc`                                                 |
+| `FeatureRef`    | `doc`: its `@Doc`                                                 |
+
+`doc` is an empty object when there is no `@Doc`, and `args` an empty list when
+there is no `@Args`. `validated` on a `MethodRef` says whether the validation
+middleware covers the handler: whether it is among the middlewares of the
+feature, of the controller or of the handler. `handler` on a `MethodRef` is
+still called with the context alone: it evaluates the arguments itself.
 
 ## 4. Middlewares
 
@@ -444,22 +735,22 @@ it.
 The tree behind the routes is on `app.graph` (`@chojs/web/graph`), with every
 instance, middleware and error handler already created:
 
-| Node            | Holds                                                                            |
-| --------------- | -------------------------------------------------------------------------------- |
-| `AppRef`        | `route` (the global prefix), `errorHandler` (the application's), `features`      |
-| `FeatureRef`    | `route`, `middlewares`, `errorHandler`, `controllers`                            |
-| `ControllerRef` | `route`, `middlewares`, `errorHandler`, `instance`, `methods`                    |
-| `MethodRef`     | `route`, `middlewares`, `errorHandler`, `name`, `method` (`"GET"`, …), `handler` |
+| Node            | Holds                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------ |
+| `AppRef`        | `route` (the global prefix), `errorHandler` (the application's), `features`                                  |
+| `FeatureRef`    | `route`, `middlewares`, `errorHandler`, `doc`, `controllers`                                                 |
+| `ControllerRef` | `route`, `middlewares`, `errorHandler`, `doc`, `instance`, `methods`                                         |
+| `MethodRef`     | `route`, `middlewares`, `errorHandler`, `doc`, `name`, `method` (`"GET"`, …), `handler`, `args`, `validated` |
 
 ## 8. Public API
 
-| Entry point          | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Middlewares`, `Catch`, the types `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `@chojs/web/serve`   | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Entry point          | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@chojs/web`         | `ChoWeb`, `ChoWebOptions`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, the types `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidator`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/web/linker`  | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `@chojs/web/graph`   | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `@chojs/web/serve`   | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `@chojs/vendor-hono` | `HonoLinker`, `HonoLinked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 
@@ -471,12 +762,19 @@ not match on their text.
 
 **Thrown by the decorators**, when the class is defined:
 
-| Mistake                                        | Message                                                                                                                     |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| A handler's route is invalid                   | `Invalid route "<route>" of @Get() on method <name>: <reason>`                                                              |
-| A second HTTP method decorator on a method     | `Cannot add @Get() to method <name>: it already handles POST "<route>". A method can have one HTTP method decorator.`       |
-| An unknown option of `@Module` / `@Controller` | `@Controller(): unknown option "deps". Known options: dependencies, route`                                                  |
-| A static, private or symbol-named handler      | `TypeError: @Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`) |
+| Mistake                                        | Message                                                                                                                             |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| A handler's route is invalid                   | `Invalid route "<route>" of @Get() on method <name>: <reason>`                                                                      |
+| A second HTTP method decorator on a method     | `Cannot add @Get() to method <name>: it already handles POST "<route>". A method can have one HTTP method decorator.`               |
+| An unknown option of `@Module` / `@Controller` | `@Controller(): unknown option "deps". Known options: dependencies, route`                                                          |
+| An unknown option of `@Doc`                    | `@Doc(): unknown option "tag". Known options: deprecated, description, hidden, responses, summary, tags`                            |
+| A static, private or symbol-named handler      | `TypeError: @Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`)         |
+| A second `@Args` on a method                   | `Cannot add @Args() to method <name>: it already has one.`                                                                          |
+| An argument of `@Args` is not a function       | `TypeError: @Args() on method <name>: argument <n> must be made with Param, Query, Header, Body or Form, or be a function, got <v>` |
+| A key or a validator of the wrong type         | `TypeError: Body(): expected a key (a string) or a validator (an object with a parse method), got <v>`                              |
+| Something after a validator                    | `TypeError: Body(): a validator is the last argument, got <v> after it`                                                             |
+| A second `@Doc` on a class or a method         | `Cannot add @Doc() to class <Name>: it already has one.` (and `… to method <name> …`)                                               |
+| A handler option of `@Doc` on a class          | `@Doc(): option "summary" is for a handler, not for a class (class <Name>)`                                                         |
 
 **Rejected by `ChoWeb.create`**: any module graph error of the core
 (`core/specs.md`, section 2.8), and:
@@ -489,6 +787,7 @@ not match on their text.
 | The same controller declared by two modules   | the message above, followed by `Its controller is declared in more than one module: declare it in one.`                 |
 | A wildcard in a route                         | `Invalid route "<route>" of <where>: "<segment>" has a "*": wildcards are not part of the route syntax`                 |
 | A malformed parameter (`:`, `:1id`, `:a:b`)   | `Invalid route "<route>" of <where>: "<segment>" is not a valid parameter: write ":name", with letters, digits and "_"` |
+| `Param("x")` names no parameter of the path   | `@Args() of <Controller.method>: Param("x") is not a parameter of the route "<path>"`                                   |
 | `onError` is not a function or a class        | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                      |
 | A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                                               |
 | A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                             |
@@ -508,12 +807,27 @@ not match on their text.
 
 A middleware class is named `<Class>.handle`.
 
+An argument of `@Args` that throws fails the request with its own error,
+unchanged. An argument that is not valid is answered by the validation
+middleware, when it is on the route (section 3.2).
+
 ## 10. Internals
 
 - **Records.** `@Get` and its siblings write `{ method, route }` on the method
   under a private symbol key (`web/keys.ts`, `Symbol.for("chojs.web.http")`).
   The `route` option of `@Module` / `@Controller` is a plain user option of the
   core. `@Middlewares` and `@Catch` write the core's records.
+- **Arguments.** `@Args` writes the list of arguments in the method's record,
+  and `@Doc` its options. `Param`, `Query`, `Header`, `Body` and `Form` return
+  functions `(ctx) => value` that carry their source, key and validator; the
+  text of the body of a request is kept with its context, so that it is read
+  once (`web/args.ts`). When the graph is built, a handler with arguments is
+  wrapped in a function that evaluates them and calls it with the values and the
+  context.
+- **Validation** (`web/validate.ts`). `validate()` is a middleware that marks
+  the request, calls `next()`, and answers when the evaluation of an argument
+  reports it invalid. The arguments of a marked request go through their
+  validators.
 - **Building the graph** (`web/build-graph.ts`): for each module of the injector
   with a controller that has handlers, the routes are read and checked, the
   controllers are resolved in that module's scope, and middleware and error
