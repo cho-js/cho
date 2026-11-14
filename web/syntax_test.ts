@@ -11,18 +11,29 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  Args,
+  Body,
   Catch,
   ChoWeb,
+  type ChoWebArg,
   type ChoWebContext,
   type ChoWebMiddlewareFn,
+  type ChoWebValidator,
   Controller,
+  Doc,
+  Form,
   Get,
+  Header,
   Injectable,
   Middlewares,
   Module,
+  Param,
   Post,
   provider,
+  Put,
+  Query,
   token,
+  validate,
 } from "./mod.ts";
 import { TestLinker } from "./testing.ts";
 
@@ -330,5 +341,193 @@ describe("decorator syntax", () => {
       }
       return Twice;
     }, { message: /A method can have one HTTP method decorator/ });
+  });
+});
+
+describe("decorator syntax, handler arguments", () => {
+  type NewUser = { name: string; age?: number };
+
+  /** A validator in the shape of a zod schema, written by hand. */
+  const NewUser: ChoWebValidator<NewUser> = {
+    parse(value) {
+      const { name, age } = (value ?? {}) as Record<string, unknown>;
+      if (typeof name !== "string") {
+        throw Object.assign(new Error("invalid"), {
+          issues: [{ path: ["name"], message: "Required" }],
+        });
+      }
+      return { name, ...(typeof age === "number" ? { age } : {}) };
+    },
+  };
+  const Id: ChoWebValidator<number> = {
+    parse(value) {
+      const id = Number(value);
+      if (!Number.isInteger(id)) {
+        throw new Error("the id is a whole number");
+      }
+      return id;
+    },
+  };
+  /** An argument of the application's own. */
+  const Agent: ChoWebArg<string> = (ctx) =>
+    ctx.req.headers.get("user-agent") ?? "unknown";
+
+  @Doc({ tags: ["accounts"] })
+  @Middlewares(validate())
+  @Controller({ route: "accounts", dependencies: [Store] })
+  class Accounts {
+    constructor(readonly store: Store) {}
+
+    @Doc({ summary: "Update an account" })
+    @Put(":id")
+    @Args(Param("id", Id), Query("notify"), Body(NewUser))
+    update(
+      id: number,
+      notify: string | undefined,
+      user: NewUser,
+      ctx: ChoWebContext,
+    ) {
+      return { id, notify, user, path: ctx.url.pathname };
+    }
+
+    @Args(Form("name"), Form(), Header("x-token"), Agent)
+    @Post("login")
+    login(
+      name: string | undefined,
+      form: Readonly<Record<string, string>>,
+      token: string | undefined,
+      agent: string,
+    ) {
+      return { name, form, token, agent, found: this.store.find("1").name };
+    }
+
+    @Get(":id") // no @Args: the context alone
+    get(ctx: ChoWebContext) {
+      return { id: ctx.params.id };
+    }
+  }
+
+  @Module({ providers: [Store], controllers: [Accounts] })
+  class AccountsApp {}
+
+  const send = async (path: string, init: RequestInit = {}) => {
+    const app = await ChoWeb.create(AccountsApp, { linker: new TestLinker() });
+    const response = await app.handler(
+      new Request(`http://localhost${path}`, init),
+    );
+    return [response.status, await response.json()];
+  };
+
+  it("calls the handler with its arguments, validated, and the context", async () => {
+    assert.deepEqual(
+      await send("/accounts/7?notify=1", {
+        method: "PUT",
+        body: JSON.stringify({ name: "Ada", age: 36, extra: true }),
+      }),
+      [200, {
+        id: 7,
+        notify: "1",
+        user: { name: "Ada", age: 36 },
+        path: "/accounts/7",
+      }],
+    );
+    assert.deepEqual(
+      await send("/accounts/login", {
+        method: "POST",
+        body: "name=ada&password=x",
+        headers: { "x-token": "abc", "user-agent": "test" },
+      }),
+      [200, {
+        name: "ada",
+        form: { name: "ada", password: "x" },
+        token: "abc",
+        agent: "test",
+        found: "Ada",
+      }],
+    );
+    assert.deepEqual(await send("/accounts/42"), [200, { id: "42" }]);
+  });
+
+  it("answers 400 for an argument that is not valid", async () => {
+    assert.deepEqual(
+      await send("/accounts/7", { method: "PUT", body: "{}" }),
+      [400, {
+        error: "Invalid request",
+        source: "body",
+        issues: [{ path: ["name"], message: "Required" }],
+      }],
+    );
+    assert.deepEqual(
+      await send("/accounts/x", { method: "PUT", body: '{"name":"Ada"}' }),
+      [400, {
+        error: "Invalid request",
+        source: "param",
+        key: "id",
+        issues: [{ message: "the id is a whole number" }],
+      }],
+    );
+  });
+
+  it("exposes what is declared on the graph", async () => {
+    const app = await ChoWeb.create(AccountsApp, { linker: new TestLinker() });
+    const [controller] = app.graph.features[0]!.controllers;
+    assert.deepEqual(controller!.doc, { tags: ["accounts"] });
+    const update = controller!.methods.find((m) => m.name === "update")!;
+    assert.deepEqual(update.doc, { summary: "Update an account" });
+    assert.deepEqual(
+      update.args.map((arg) => [arg.info?.source, arg.info?.key]),
+      [["param", "id"], ["query", "notify"], ["body", undefined]],
+    );
+    assert.equal(update.validated, true);
+  });
+
+  it("checks the parameters against the arguments, at compile time", () => {
+    // Type-only: never called, so the classes are never defined.
+    const _check = () => {
+      class Wrong {
+        // @ts-expect-error the id is a string, not a number
+        @Args(Param("id"))
+        @Get(":id")
+        a(_id: number) {}
+
+        // @ts-expect-error a query key can be undefined
+        @Args(Query("page"))
+        @Get("b")
+        b(_page: string) {}
+
+        // @ts-expect-error the context comes last
+        @Args(Param("id"))
+        @Get(":id")
+        c(_ctx: ChoWebContext, _id: string) {}
+
+        // @ts-expect-error the validator gives a NewUser
+        @Args(Body(NewUser))
+        @Post("d")
+        d(_user: { name: number }) {}
+
+        // @ts-expect-error without a validator, the body is unknown
+        @Args(Body())
+        @Post("e")
+        e(_user: NewUser) {}
+      }
+      class Right {
+        @Post("a")
+        @Args(Body<NewUser>(), Agent)
+        a(_user: NewUser, _agent: string) {} // the context is left out
+
+        @Get(":id")
+        @Args(Param("id", Id), Param())
+        b(
+          _id: number,
+          _all: Readonly<Record<string, string>>,
+          _ctx: ChoWebContext,
+        ) {}
+
+        @Get("c")
+        @Args()
+        c(_ctx: ChoWebContext) {}
+      }
+      return [Wrong, Right];
+    };
   });
 });

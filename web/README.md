@@ -17,6 +17,9 @@ call.
 - [Guide](#guide)
   - [Routes](#routes)
   - [The request context](#the-request-context)
+  - [Handler arguments](#handler-arguments)
+  - [Validation](#validation)
+  - [Describing the API](#describing-the-api)
   - [Responses](#responses)
   - [Middlewares](#middlewares)
   - [Error handling](#error-handling)
@@ -132,6 +135,125 @@ Handlers, middlewares and error handlers of a request share one `ChoWebContext`:
 | `url`    | The request URL, parsed on first use: `ctx.url.searchParams`                  |
 | `state`  | A `Map` for the request: what a middleware sets, later ones and handlers read |
 | `native` | The adapter's own context, for what only that adapter can do                  |
+
+### Handler arguments
+
+A handler can declare what it receives instead of reading the context. Standard
+decorators cannot decorate a parameter, so the arguments are listed once, on the
+method, in the order of its parameters:
+
+```ts
+import { Args, Body, Param, Query } from "@chojs/web";
+
+@Put(":id") // PUT /users/42?notify=1
+@Args(Param("id"), Query("notify"), Body<UpdateUser>())
+update(id: string, notify: string | undefined, user: UpdateUser, ctx: ChoWebContext) {
+  return this.store.update(id, user);
+}
+```
+
+The handler is called with the value of each argument, and the context last (it
+can leave the context out). The parameters are checked against the arguments at
+compile time: `update(id: number)` above would not compile.
+
+| Function | Reads                           | `Fn()`                           | `Fn("key")`                |
+| -------- | ------------------------------- | -------------------------------- | -------------------------- |
+| `Param`  | The path parameters             | All of them, as an object        | One: a string              |
+| `Query`  | The query string                | All of it, as an object          | One key, or `undefined`    |
+| `Header` | The headers of the request      | All of them, names in lower case | One header, or `undefined` |
+| `Body`   | The body, parsed as JSON        | The parsed body                  | One property of it         |
+| `Form`   | The body, as a URL-encoded form | All the fields, as an object     | One field, or `undefined`  |
+
+`Body` and `Form` read the body for you, once for a request. An argument can
+also be any function `(ctx) => value`, for what is your own:
+
+```ts
+const CurrentUser = (ctx: ChoWebContext) => ctx.state.get("user") as User;
+
+@Get("me")
+@Args(CurrentUser)
+me(user: User) {
+  return user;
+}
+```
+
+### Validation
+
+Each of the five functions takes a validator as its last argument: any object
+with a `parse(value)` method that returns the value or throws. That is the shape
+of a [zod](https://zod.dev) schema, and `@chojs/web` does not depend on zod.
+
+Validators are run by one middleware, `validate()`, on a handler, a controller
+or a feature module. What a validator returns is what the handler receives, so
+it can convert too:
+
+```ts
+import { z } from "zod";
+import { Args, Body, Middlewares, Param, validate } from "@chojs/web";
+
+const NewUser = z.object({ name: z.string(), age: z.number().optional() });
+
+@Middlewares(validate())
+@Controller({ route: "users" })
+class UsersController {
+  @Put(":id")
+  @Args(Param("id", z.coerce.number()), Body(NewUser))
+  update(id: number, user: z.infer<typeof NewUser>) {
+    return this.store.update(id, user);
+  }
+}
+```
+
+A request that is not valid never reaches the handler. The middleware answers
+`400` with `error`, `source`, `key` and `issues`, or with what its `onInvalid`
+option returns:
+
+```ts
+validate({
+  onInvalid: ({ source, key, error }) =>
+    Response.json({ message: `bad ${source}` }, { status: 422 }),
+});
+```
+
+Without the middleware, validators are not run: the handler receives the values
+as they are. Enable `CHO_DEBUGLOG=cho:web` to see which handlers have a
+validator and are not covered.
+
+### Describing the API
+
+Everything declared about a handler is kept on `app.graph`: its method, path and
+name, its arguments with their source, key and validator, and whether it is
+validated. It is what an OpenAPI document of the application will be generated
+from. What the code cannot tell is added with `@Doc`, which changes nothing in
+how a request is handled:
+
+```ts
+@Doc({ tags: ["users"] })
+@Controller({ route: "users" })
+class UsersController {
+  @Doc({
+    summary: "Find a user",
+    responses: {
+      200: { description: "The user", schema: User },
+      404: { description: "No such user" },
+    },
+  })
+  @Get(":id")
+  @Args(Param("id"))
+  get(id: string) {
+    return this.store.find(id);
+  }
+}
+```
+
+| Option        | On                                 | Holds                                       |
+| ------------- | ---------------------------------- | ------------------------------------------- |
+| `summary`     | A handler                          | One line about the operation                |
+| `description` | A handler, a controller, a feature | A longer text                               |
+| `tags`        | A handler, a controller, a feature | The tags of the handlers under it           |
+| `deprecated`  | A handler, a controller, a feature | `true` when it should no longer be used     |
+| `responses`   | A handler                          | By status: a `description` and a `schema`   |
+| `hidden`      | A handler, a controller, a feature | `true` to leave it out of the documentation |
 
 ### Responses
 

@@ -10,6 +10,9 @@
  * - `@Middlewares` and `@Catch` declare the middlewares and the error handler
  *   of a feature module, a controller or a handler. They are the core's
  *   decorators, typed for `@chojs/web`.
+ * - `@Args` declares the arguments a handler receives (see `args.ts`), and
+ *   `@Doc` what the documentation of the application says about a handler, a
+ *   controller or a feature module.
  *
  * @module
  */
@@ -32,9 +35,26 @@ import {
   set_middlewares,
   type WithDependencies,
 } from "@chojs/core/di";
-import { HTTP, http_route, type HttpRoute } from "./keys.ts";
+import { describe } from "@chojs/core/utils";
+import {
+  ARGS,
+  DOC,
+  doc_of,
+  handler_args,
+  type HandlerArgs,
+  HTTP,
+  http_route,
+  type HttpRoute,
+} from "./keys.ts";
 import { normalize_route } from "./path.ts";
-import type { ChoWebErrorHandler, ChoWebMiddleware } from "./types.ts";
+import type {
+  ChoWebArg,
+  ChoWebArgsDecorator,
+  ChoWebArgValues,
+  ChoWebDoc,
+  ChoWebErrorHandler,
+  ChoWebMiddleware,
+} from "./types.ts";
 
 /** The option `@chojs/web` adds to `@Module` and `@Controller`. */
 export type RouteOption = {
@@ -487,4 +507,148 @@ export function Options(route: string): ChoMethodDecorator {
  */
 export function Delete(route: string): ChoMethodDecorator {
   return create_http_decorator("Delete", route, "DELETE");
+}
+
+/**
+ * Declare the arguments a handler receives.
+ *
+ * Standard decorators cannot decorate a parameter, so the arguments are
+ * listed on the method, in the order of its parameters. The handler is then
+ * called with the value of each argument, and with the context last:
+ * `handler(...values, ctx)`. A handler without `@Args` receives the context
+ * alone.
+ *
+ * An argument is made by `Param`, `Query`, `Header`, `Body` or `Form`, or is
+ * any function `(ctx) => value`. The parameters of the method are checked
+ * against the arguments at compile time.
+ *
+ * - The decorator goes above or below the HTTP method decorator.
+ * - A method has one `@Args`. An override that declares it replaces the
+ *   arguments it inherits; one that does not keeps them.
+ * - The arguments are evaluated in order, after the middlewares of the route
+ *   and just before the handler.
+ *
+ * @typeParam A The arguments.
+ * @param args The arguments, in the order of the parameters of the method.
+ * @returns A method decorator.
+ * @throws {TypeError} When an argument is not a function, or when the
+ *   decorated member is not a public, non-static, string-named method.
+ * @throws {Error} When the method already has `@Args`.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   // PUT /users/42?notify=1
+ *   @Put(":id")
+ *   @Args(Param("id"), Query("notify"), Body<UpdateUser>())
+ *   update(id: string, notify: string | undefined, user: UpdateUser, ctx: ChoWebContext) {
+ *     return { id, ...user };
+ *   }
+ * }
+ * ```
+ */
+export function Args<const A extends readonly ChoWebArg[]>(
+  ...args: A
+): ChoWebArgsDecorator<ChoWebArgValues<A>> {
+  const decorate: ChoMethodDecorator = (target, context, descriptor) => {
+    const { name } = decorated_method("@Args()", target, context, descriptor);
+    const of = `method ${String(name)}`;
+    // Rejects a static, private or symbol-named method: its record would
+    // never be read.
+    const meta = decorated_target("@Args()", target, context, descriptor);
+    args.forEach((arg, index) => {
+      if (typeof arg !== "function") {
+        throw new TypeError(
+          `@Args() on ${of}: argument ${
+            index + 1
+          } must be made with Param, Query, Header, Body or Form, or be a function, got ${
+            describe(arg)
+          }`,
+        );
+      }
+    });
+    if (handler_args(read_metadata_object(meta) ?? {})) {
+      throw new Error(`Cannot add @Args() to ${of}: it already has one.`);
+    }
+    add_to_metadata_object(meta, {
+      [ARGS]: Object.freeze(
+        { list: Object.freeze([...args]) } satisfies HandlerArgs,
+      ),
+    });
+  };
+  return decorate as ChoWebArgsDecorator<ChoWebArgValues<A>>;
+}
+
+/** The options of `@Doc` that are for a handler only. */
+const HANDLER_DOC = ["summary", "responses"] as const;
+
+/**
+ * Describe a handler, a controller or a feature module for the documentation
+ * of the application, such as an OpenAPI document. It says what the code
+ * cannot tell, and changes nothing in how a request is handled.
+ *
+ * What is declared is exposed on the graph of the application (`app.graph`),
+ * as the `doc` of the feature, of the controller and of the handler.
+ *
+ * @param options The description: `summary` and `responses` on a handler;
+ *   `description`, `tags`, `deprecated` and `hidden` on a handler, a
+ *   controller or a feature module.
+ * @returns A class or method decorator.
+ * @throws {Error} When an option is unknown, when a handler option is given
+ *   on a class, or when the class or the method already has `@Doc`.
+ * @throws {TypeError} When applied to anything other than a class or a
+ *   public, non-static, string-named method.
+ *
+ * @example
+ * ```ts
+ * @Doc({ tags: ["users"], description: "The users of the application" })
+ * @Controller({ route: "users" })
+ * class UsersController {
+ *   @Doc({
+ *     summary: "Find a user",
+ *     responses: { 200: { description: "The user" }, 404: { description: "No such user" } },
+ *   })
+ *   @Get(":id")
+ *   get(ctx: ChoWebContext) {
+ *     return this.store.find(ctx.params.id);
+ *   }
+ * }
+ * ```
+ */
+export function Doc(options: ChoWebDoc): ChoClassOrMethodDecorator {
+  assert_known_options("@Doc()", options, [
+    "deprecated",
+    "description",
+    "hidden",
+    "responses",
+    "summary",
+    "tags",
+  ]);
+  return (target, context, descriptor) => {
+    const meta = decorated_target("@Doc()", target, context, descriptor);
+    let what: string;
+    if (
+      context === undefined ||
+      (typeof context === "object" && context.kind === "class")
+    ) {
+      what = `class ${describe(target)}`;
+      for (const key of HANDLER_DOC) {
+        if (key in options) {
+          throw new Error(
+            `@Doc(): option ${
+              JSON.stringify(key)
+            } is for a handler, not for a class (${what})`,
+          );
+        }
+      }
+    } else {
+      const { name } = decorated_method("@Doc()", target, context, descriptor);
+      what = `method ${String(name)}`;
+    }
+    if (doc_of(read_metadata_object(meta) ?? {})) {
+      throw new Error(`Cannot add @Doc() to ${what}: it already has one.`);
+    }
+    add_to_metadata_object(meta, { [DOC]: Object.freeze({ ...options }) });
+  };
 }

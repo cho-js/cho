@@ -23,9 +23,16 @@ import {
   FeatureRef,
   MethodRef,
 } from "./graph.ts";
-import { http_route, type HttpRoute } from "./keys.ts";
+import { evaluate_args } from "./args.ts";
+import { doc_of, handler_args, http_route, type HttpRoute } from "./keys.ts";
 import { normalize_route } from "./path.ts";
-import type { ChoWebErrorHandlerFn, ChoWebMiddlewareFn } from "./types.ts";
+import type {
+  ChoWebArg,
+  ChoWebErrorHandlerFn,
+  ChoWebHandler,
+  ChoWebMiddlewareFn,
+} from "./types.ts";
+import { is_validation } from "./validate.ts";
 
 /**
  * The route of a feature module or a controller: `""` when it declares none.
@@ -144,6 +151,59 @@ function create_middleware_factory(
  * @throws {Error} When a route is invalid, or when a middleware or an error
  *   handler is invalid or cannot be created.
  */
+/**
+ * Make the function that calls a handler with the context of a request.
+ *
+ * @param method The method, bound to its controller instance.
+ * @param args The arguments of the handler (`@Args`).
+ * @returns The method itself when it has no arguments. Otherwise a function
+ *   that evaluates them, and calls the method with their values and then the
+ *   context.
+ */
+function create_handler(
+  method: (...args: unknown[]) => unknown,
+  args: readonly ChoWebArg[],
+): ChoWebHandler {
+  return args.length === 0
+    ? method
+    : async (ctx) => method(...await evaluate_args(args, ctx), ctx);
+}
+
+/**
+ * Assert that every `Param("name")` argument of a handler names a parameter
+ * of its path.
+ *
+ * @param args The arguments of the handler.
+ * @param levels The routes of the application, the feature, the controller
+ *   and the handler.
+ * @param name Where the handler is declared, for the error message.
+ * @throws {Error} When a name is not a parameter of the path.
+ */
+function assert_param_args(
+  args: readonly ChoWebArg[],
+  levels: readonly string[],
+  name: string,
+): void {
+  const path = "/" + levels.filter((level) => level !== "").join("/");
+  const params = new Set(
+    path.split("/")
+      .filter((segment) => segment.startsWith(":"))
+      .map((segment) => segment.slice(1)),
+  );
+  for (const { info } of args) {
+    if (
+      info?.source === "param" && info.key !== undefined &&
+      !params.has(info.key)
+    ) {
+      throw new Error(
+        `@Args() of ${name}: Param(${
+          JSON.stringify(info.key)
+        }) is not a parameter of the route ${JSON.stringify(path)}`,
+      );
+    }
+  }
+}
+
 export async function build_http_graph(
   injector: Injector,
   prefix: string,
@@ -191,6 +251,7 @@ export async function build_http_graph(
       get_route(meta, `feature ${describe(mdl.ctr)}`),
       await create_middlewares(meta.middlewares),
       await error_handler(meta.errorHandler),
+      doc_of(meta.options),
     );
 
     for (const { ctrl, route, methods } of controllers) {
@@ -200,17 +261,32 @@ export async function build_http_graph(
         await create_middlewares(ctrl.middlewares),
         await error_handler(ctrl.errorHandler),
         instance,
+        doc_of(ctrl.options),
       );
 
-      for (const { m, http, route } of methods) {
+      for (const { m, http, route: method_route } of methods) {
+        const args = handler_args(m.meta)?.list ?? [];
+        assert_param_args(
+          args,
+          [graph.route, feature.route, route, method_route],
+          `${describe(ctrl.provider.provide)}.${m.name}`,
+        );
+        const middlewares = await create_middlewares(m.middlewares);
         controller.methods.push(
           new MethodRef(
             m.name,
-            route,
+            method_route,
             http.method,
-            await create_middlewares(m.middlewares),
+            middlewares,
             await error_handler(m.errorHandler),
-            instance[m.name].bind(instance),
+            create_handler(instance[m.name].bind(instance), args),
+            args,
+            doc_of(m.meta),
+            [
+              ...feature.middlewares,
+              ...controller.middlewares,
+              ...middlewares,
+            ].some(is_validation),
           ),
         );
       }

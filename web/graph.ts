@@ -17,6 +17,8 @@
  */
 
 import type {
+  ChoWebArg,
+  ChoWebDoc,
   ChoWebErrorHandlerFn,
   ChoWebHandler,
   ChoWebMiddlewareFn,
@@ -24,10 +26,16 @@ import type {
 
 export type { ChoWebContext } from "./context.ts";
 export type {
+  ChoWebArg,
+  ChoWebArgInfo,
+  ChoWebArgSource,
+  ChoWebDoc,
+  ChoWebDocResponse,
   ChoWebErrorHandlerFn,
   ChoWebHandler,
   ChoWebMiddlewareFn,
   ChoWebNext,
+  ChoWebValidator,
 } from "./types.ts";
 
 /**
@@ -44,6 +52,8 @@ export abstract class NodeRef {
   readonly middlewares: ChoWebMiddlewareFn[];
   /** The error handler of the node, or `null` when it has none. */
   readonly errorHandler: ErrorHandlerRef;
+  /** What `@Doc` declares about the node; an empty object when there is none. */
+  readonly doc: ChoWebDoc;
 
   /**
    * Create a node.
@@ -51,15 +61,18 @@ export abstract class NodeRef {
    * @param route The route of the node, relative to its parent.
    * @param middlewares The middlewares of the node.
    * @param errorHandler The error handler of the node, or `null`.
+   * @param doc What `@Doc` declares about the node. Default: nothing.
    */
   constructor(
     route: string,
     middlewares: ChoWebMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
+    doc: ChoWebDoc = {},
   ) {
     this.route = route;
     this.middlewares = middlewares;
     this.errorHandler = errorHandler;
+    this.doc = doc;
   }
 }
 
@@ -69,8 +82,19 @@ export class MethodRef extends NodeRef {
   readonly name: string;
   /** The HTTP method, such as `"GET"`. */
   readonly method: string;
-  /** The method, bound to its controller instance. */
+  /**
+   * Calls the method on its controller instance, with the context of a
+   * request. When the method has arguments (`@Args`), they are evaluated
+   * first, and the method receives their values and then the context.
+   */
   readonly handler: ChoWebHandler;
+  /** The arguments of the handler (`@Args`), in order; empty when it has none. */
+  readonly args: readonly ChoWebArg[];
+  /**
+   * Whether the validation middleware (`validate()`) covers the handler: it
+   * is among the middlewares of its feature, of its controller or its own.
+   */
+  readonly validated: boolean;
 
   /**
    * Create a route handler node.
@@ -80,7 +104,11 @@ export class MethodRef extends NodeRef {
    * @param method The HTTP method.
    * @param middlewares The middlewares of the method.
    * @param errorHandler The error handler of the method, or `null`.
-   * @param handler The method, bound to its controller instance.
+   * @param handler Calls the method on its controller instance.
+   * @param args The arguments of the handler. Default: none.
+   * @param doc What `@Doc` declares about the handler. Default: nothing.
+   * @param validated Whether the validation middleware covers the handler.
+   *   Default: `false`.
    */
   constructor(
     name: string,
@@ -89,11 +117,16 @@ export class MethodRef extends NodeRef {
     middlewares: ChoWebMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
     handler: ChoWebHandler,
+    args: readonly ChoWebArg[] = [],
+    doc: ChoWebDoc = {},
+    validated = false,
   ) {
-    super(route, middlewares, errorHandler);
+    super(route, middlewares, errorHandler, doc);
     this.name = name;
     this.method = method;
     this.handler = handler;
+    this.args = args;
+    this.validated = validated;
   }
 }
 
@@ -111,14 +144,16 @@ export class ControllerRef extends NodeRef {
    * @param middlewares The middlewares of the controller.
    * @param errorHandler The error handler of the controller, or `null`.
    * @param instance The controller instance.
+   * @param doc What `@Doc` declares about the controller. Default: nothing.
    */
   constructor(
     route: string,
     middlewares: ChoWebMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
     instance: object,
+    doc: ChoWebDoc = {},
   ) {
-    super(route, middlewares, errorHandler);
+    super(route, middlewares, errorHandler, doc);
     this.instance = instance;
     this.methods = [];
   }
@@ -135,13 +170,15 @@ export class FeatureRef extends NodeRef {
    * @param route The route of the feature, relative to the global prefix.
    * @param middlewares The middlewares of the feature module.
    * @param errorHandler The error handler of the feature module, or `null`.
+   * @param doc What `@Doc` declares about the feature. Default: nothing.
    */
   constructor(
     route: string,
     middlewares: ChoWebMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
+    doc: ChoWebDoc = {},
   ) {
-    super(route, middlewares, errorHandler);
+    super(route, middlewares, errorHandler, doc);
     this.controllers = [];
   }
 }
