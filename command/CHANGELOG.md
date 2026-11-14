@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/cho-js/cho/compare/command-v3.0.0...command-v3.1.0) (2026-11-14)
+
+
+### Miscellaneous Chores
+
+* **command:** Synchronize cho versions
+
 ## [3.0.0](https://github.com/cho-js/cho/compare/command-v2.5.1...command-v3.0.0) (2026-11-12)
 
 
