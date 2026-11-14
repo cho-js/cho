@@ -380,3 +380,161 @@ suite("ChoLinker, handler arguments", () => {
     });
   });
 });
+
+suite("ChoLinker, the middlewares of the router", () => {
+  /** A middleware that records its name and the path, then goes on. */
+  const record =
+    (seen: string[], name: string): ChoWebMiddlewareFn => async (ctx, next) => {
+      seen.push(`${name} in ${ctx.url.pathname}`);
+      const response = await next();
+      seen.push(`${name} out ${response.status}`);
+      return response;
+    };
+
+  it("run for every request, in order, a request no route matches included", async () => {
+    const seen: string[] = [];
+    const linked = new ChoLinker({
+      middlewares: [record(seen, "a"), record(seen, "b")],
+    }).link([named("GET", "/x", "x")]);
+
+    assert.equal(await (await send(linked, "/x")).text(), "x");
+    assert.equal((await send(linked, "/nope")).status, 404);
+    assert.deepEqual(seen, [
+      "a in /x",
+      "b in /x",
+      "b out 200",
+      "a out 200",
+      "a in /nope",
+      "b in /nope",
+      "b out 404",
+      "a out 404",
+    ]);
+  });
+
+  it("receive the parameters of the route that matched, or none", async () => {
+    const params: unknown[] = [];
+    const linked = new ChoLinker({
+      middlewares: [(ctx, next) => {
+        params.push(ctx.params);
+        return next();
+      }],
+    }).link([echo("GET", "/users/:id")]);
+    await send(linked, "/users/a%20b");
+    await send(linked, "/nope");
+    assert.deepEqual(params, [{ id: "a b" }, {}]);
+  });
+
+  it("can answer by themselves, and change the response", async () => {
+    let handled = 0;
+    const route: Route = {
+      ...echo("GET", "/x"),
+      handle: () => {
+        handled++;
+        return Promise.resolve(new Response("x"));
+      },
+    };
+    const guard: ChoWebMiddlewareFn = (ctx, next) =>
+      ctx.req.headers.has("x-key")
+        ? next()
+        : new Response("no key", { status: 401 });
+    const stamp: ChoWebMiddlewareFn = async (_ctx, next) => {
+      const response = await next();
+      response.headers.set("x-stamp", "1");
+      return response;
+    };
+    const linked = new ChoLinker({ middlewares: [stamp, guard] }).link([route]);
+
+    const refused = await send(linked, "/x");
+    assert.deepEqual(
+      [refused.status, refused.headers.get("x-stamp"), handled],
+      [401, "1", 0],
+    );
+    const allowed = await linked.handler(
+      new Request("http://localhost/x", { headers: { "x-key": "k" } }),
+    );
+    assert.deepEqual([await allowed.text(), handled], ["x", 1]);
+  });
+
+  it("wrap the notFound option, and the answer to a HEAD request", async () => {
+    const seen: string[] = [];
+    const linked = new ChoLinker({
+      notFound: () => new Response("nothing here", { status: 404 }),
+      middlewares: [record(seen, "a")],
+    }).link([named("GET", "/x", "x")]);
+    assert.equal(await (await send(linked, "/nope")).text(), "nothing here");
+    const head = await send(linked, "/x", "HEAD");
+    assert.deepEqual([head.status, head.body], [200, null]);
+    assert.deepEqual(seen, [
+      "a in /nope",
+      "a out 404",
+      "a in /x",
+      "a out 200",
+    ]);
+  });
+
+  it("see a route that rejects as a 500 response", async () => {
+    const seen: string[] = [];
+    const linked = new ChoLinker({ middlewares: [record(seen, "a")] }).link([{
+      ...echo("GET", "/x"),
+      handle: () => Promise.reject(new Error("boom")),
+    }]);
+    const { result, output } = await capture(() => send(linked, "/x"));
+    assert.equal(result.status, 500);
+    assert.equal((output.error[0] as Error).message, "boom");
+    assert.deepEqual(seen, ["a in /x", "a out 500"]);
+  });
+
+  it("answer 500 when one of them fails, and log the error", async () => {
+    const failing: ChoWebMiddlewareFn = () => {
+      throw new Error("broken middleware");
+    };
+    const linked = new ChoLinker({ middlewares: [failing] }).link([
+      echo("GET", "/x"),
+    ]);
+    const { result, output } = await capture(() => send(linked, "/x"));
+    assert.deepEqual(
+      [result.status, await result.text()],
+      [500, "Internal Server Error"],
+    );
+    assert.equal((output.error[0] as Error).message, "broken middleware");
+  });
+
+  it("have a context of their own: its state is not the route's", async () => {
+    const linked = await ChoWeb.create(
+      (() => {
+        class Ctrl {
+          get(ctx: ChoWebContext) {
+            return { from_router: ctx.state.get("user") ?? null };
+          }
+        }
+        legacy(Get(""), Ctrl, "get");
+        Controller({ route: "x" })(Ctrl);
+        class App {}
+        Module({ controllers: [Ctrl] })(App);
+        return App;
+      })(),
+      {
+        linker: new ChoLinker({
+          middlewares: [(ctx, next) => {
+            ctx.state.set("user", "ada");
+            return next();
+          }],
+        }),
+      },
+    );
+    assert.deepEqual(
+      await (await linked.handler(new Request("http://localhost/x"))).json(),
+      { from_router: null },
+    );
+  });
+
+  it("must be functions", () => {
+    assert.throws(
+      () => new ChoLinker(loose({ middlewares: [() => {}, "cors"] })).link([]),
+      {
+        name: "TypeError",
+        message: 'ChoLinker: middleware 2 must be a function, got "cors"',
+      },
+    );
+  });
+});

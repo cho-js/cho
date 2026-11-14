@@ -10,7 +10,7 @@ Security fixes are released for the latest major version of every CHO package.
 | < 3.0   | No        |
 
 The policy covers the packages of this repository: `@chojs/core`,
-`@chojs/command`, `@chojs/web`, `@chojs/vendor-hono` and
+`@chojs/command`, `@chojs/web`, `@chojs/vendor-cho`, `@chojs/vendor-hono` and
 `@chojs/vendor-fastify`.
 
 ## Reporting a Vulnerability

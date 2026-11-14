@@ -20,6 +20,7 @@ TypeScript.
 |-------------------------------------------------------|---------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
 | [`@chojs/web`](./web/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/web)](https://jsr.io/@chojs/web)                       | HTTP applications                                                          |
 | [`@chojs/command`](./command/README.md)               | [![JSR](https://jsr.io/badges/@chojs/command)](https://jsr.io/@chojs/command)               | Command-line applications                                                  |
+| [`@chojs/vendor-cho`](./vendor/cho/README.md)         | [![JSR](https://jsr.io/badges/@chojs/vendor-cho)](https://jsr.io/@chojs/vendor-cho)         | Middlewares for the built-in router of `@chojs/web`, such as CORS |
 | [`@chojs/vendor-hono`](./vendor/hono/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-hono)](https://jsr.io/@chojs/vendor-hono)       | Running `@chojs/web` on [Hono](https://hono.dev)                           |
 | [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | [![JSR](https://jsr.io/badges/@chojs/vendor-fastify)](https://jsr.io/@chojs/vendor-fastify) | Running `@chojs/web` on [Fastify](https://fastify.dev) (Node.js only)      |
 | [`@chojs/core`](./core/README.md)                     | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)                     | The dependency injection engine underneath                                 |
@@ -180,6 +181,7 @@ application with TypeScript 5 or run it with a tool such as `tsx`.
 |-------------------------|--------------------------------------|-----------------------------|
 | `@chojs/web`            | [README](./web/README.md)            | [specs](./web/specs.md)     |
 | `@chojs/command`        | [README](./command/README.md)        | [specs](./command/specs.md) |
+| `@chojs/vendor-cho`     | [README](./vendor/cho/README.md)     |                             |
 | `@chojs/vendor-hono`    | [README](./vendor/hono/README.md)    |                             |
 | `@chojs/vendor-fastify` | [README](./vendor/fastify/README.md) |                             |
 | `@chojs/core`           | [README](./core/README.md)           | [specs](./core/specs.md)    |

@@ -527,7 +527,9 @@ middlewares. Each adapter has a function that makes one a CHO middleware, for
 middleware runs on its own adapter only; on another one it fails the request.
 What must wrap every request, unmatched ones included, goes on the library's own
 application, which the adapter takes (`new HonoLinker(hono)`). See
-`vendor/hono/README.md` and `vendor/fastify/README.md`.
+`vendor/hono/README.md` and `vendor/fastify/README.md`. The built-in router has
+its own way: the `middlewares` option of `ChoLinker` (section 7), and the
+middlewares of `@chojs/vendor-cho`.
 
 A middleware that calls `next()` twice, returns something that is not a
 `Response`, or returns nothing without calling `next()`, makes the request fail
@@ -695,7 +697,26 @@ method and path.
 | `HEAD` without `@Head` | `@Get`, without the body                                 | `@Get`, without the body                         | `@Get`, without the body                                   |
 | No route matches       | the `notFound` option; `404`                             | `notFound` of the Hono application               | the not-found handler of the Fastify application           |
 | A route rejects        | logged with `console.error`; `500`                       | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`        |
-| Its own middlewares    | none                                                     | `fromHono(middleware)`                           | `fromFastify(hook)`                                        |
+| Its own middlewares    | `@chojs/vendor-cho` (`cors`)                             | `fromHono(middleware)`                           | `fromFastify(hook)`                                        |
+
+**The middlewares of the built-in router.** `new ChoLinker({ middlewares })`
+takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
+
+- they run for **every** request, in order, around the route that answers it,
+  and also around the `notFound` answer of a request no route matches. That is
+  what a CORS middleware needs, to answer the preflight requests of every path;
+- each request gives them a context of their own: `params` are those of the
+  route that matched (empty when there is none), `native` is `undefined`, and
+  `state` is not the `state` the middlewares and the handler of the route see;
+- a route that rejects reaches them as the `500` response;
+- one that fails (it throws, or breaks a rule of section 4) is logged with
+  `console.error`, and the request is answered `500`;
+- one that is not a function makes `link()` throw
+  `TypeError: ChoLinker: middleware <n> must be a function, got <v>`.
+
+`@chojs/vendor-cho` has middlewares written for it, such as `cors`
+(`vendor/cho/README.md`). On the other adapters, what wraps every request goes
+on the library's own application.
 
 An adapter implements `Linker` (`@chojs/web/linker`): it receives the
 application's routes and returns a `Linked`, the runtime's application object
@@ -755,6 +776,7 @@ instance, middleware and error handler already created:
 | `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `@chojs/vendor-cho`     | `cors`, `CorsOptions`: the middlewares of the built-in router                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
