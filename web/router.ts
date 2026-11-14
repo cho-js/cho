@@ -8,7 +8,11 @@
  * @module
  */
 
+import { describe } from "@chojs/core/utils";
+import { compose, type Endpoint } from "./compose.ts";
+import { type ChoWebContext, create_context } from "./context.ts";
 import type { Linked, Linker, Route } from "./linker.ts";
+import type { ChoWebMiddlewareFn } from "./types.ts";
 
 /** The options of a {@link ChoLinker}. */
 export type ChoLinkerOptions = {
@@ -17,7 +21,23 @@ export type ChoLinkerOptions = {
    * `Not Found`.
    */
   readonly notFound?: (req: Request) => Response | Promise<Response>;
+  /**
+   * The middlewares of the router: functions `(ctx, next)` that run for
+   * **every** request, in order, around the route that answers it. Unlike the
+   * middlewares of `@Middlewares`, they also run for a request no route
+   * matches, which is what a CORS middleware needs to answer the preflight
+   * requests of every path. Default: none.
+   *
+   * They have a context of their own for each request: `params` are those of
+   * the matched route (empty when there is none). Its `state` is the one the
+   * middlewares and the handler of the route see, so what a middleware of the
+   * router sets (the authenticated user, a request id) reaches them.
+   */
+  readonly middlewares?: readonly ChoWebMiddlewareFn[];
 };
+
+/** What a request matched: a route, or the `GET` route that answers a `HEAD`. */
+type Found = ChoMatch & { readonly head_from_get: boolean };
 
 /** A route a {@link ChoRouter} matched, and the parameters of the match. */
 export type ChoMatch = {
@@ -73,6 +93,10 @@ export class ChoRouter {
   readonly #table = new Map<string, { route: Route; pattern: URLPattern }[]>();
   /** Answers a request no route matches. */
   readonly #not_found: (req: Request) => Response | Promise<Response>;
+  /** Runs the middlewares of the router around a request, when it has some. */
+  readonly #run: Endpoint | undefined;
+  /** What each request matched, for the end of the middleware chain. */
+  readonly #found = new WeakMap<ChoWebContext, Found | undefined>();
 
   /**
    * Create a router.
@@ -80,6 +104,7 @@ export class ChoRouter {
    * @param routes The routes of the application.
    * @param options The options of the linker.
    * @throws {Error} When the runtime has no URL Pattern API.
+   * @throws {TypeError} When a middleware of the router is not a function.
    */
   constructor(routes: readonly Route[], options: ChoLinkerOptions = {}) {
     if (typeof URLPattern !== "function") {
@@ -90,6 +115,22 @@ export class ChoRouter {
     this.routes = routes;
     this.#not_found = options.notFound ??
       (() => new Response("Not Found", { status: 404 }));
+    const middlewares = options.middlewares ?? [];
+    middlewares.forEach((middleware, index) => {
+      if (typeof middleware !== "function") {
+        throw new TypeError(
+          `ChoLinker: middleware ${index + 1} must be a function, got ${
+            describe(middleware)
+          }`,
+        );
+      }
+    });
+    this.#run = middlewares.length === 0 ? undefined : compose(
+      middlewares,
+      // The request and the state are the context's: a middleware can have
+      // replaced the first, and the handlers of the route see the second.
+      (ctx) => this.#answer(ctx.req, this.#found.get(ctx), ctx.state),
+    );
     for (const route of routes) {
       const pattern = new URLPattern({
         pathname: pattern_pathname(route.path),
@@ -128,36 +169,63 @@ export class ChoRouter {
   /**
    * The request handler: a `fetch`-style function.
    *
+   * - The middlewares of the router, if any, run around everything below.
    * - A `HEAD` request without a `HEAD` route is answered by the `GET` route
    *   of the path, without the body.
    * - A request no route matches is answered by the `notFound` option.
-   * - A route that rejects is logged with `console.error`, and answered with
-   *   `500`.
+   * - A route or a middleware of the router that rejects is logged with
+   *   `console.error`, and answered with `500`.
    *
    * @param req The request.
    * @returns The response.
    */
   readonly fetch = async (req: Request): Promise<Response> => {
     const { pathname } = new URL(req.url);
-    let found = this.match(req.method, pathname);
-    let head_from_get = false;
-    if (!found && req.method === "HEAD") {
-      found = this.match("GET", pathname);
-      head_from_get = found !== undefined;
+    let found: Found | undefined;
+    const exact = this.match(req.method, pathname);
+    if (exact) {
+      found = { ...exact, head_from_get: false };
+    } else if (req.method === "HEAD") {
+      const get = this.match("GET", pathname);
+      found = get && { ...get, head_from_get: true };
     }
+    if (!this.#run) {
+      return await this.#answer(req, found);
+    }
+    const ctx = create_context(req, found?.params ?? {});
+    this.#found.set(ctx, found);
+    try {
+      return await this.#run(ctx);
+    } catch (error) {
+      console.error(error);
+      return new Response("Internal Server Error", { status: 500 });
+    }
+  };
+
+  /** Answer a request with the route it matched, or as not found. */
+  async #answer(
+    req: Request,
+    found: Found | undefined,
+    state?: Map<PropertyKey, unknown>,
+  ): Promise<Response> {
     if (!found) {
       return await this.#not_found(req);
     }
     try {
-      const response = await found.route.handle(req, found.params);
-      return head_from_get && response.body !== null
+      const response = await found.route.handle(
+        req,
+        found.params,
+        undefined,
+        state,
+      );
+      return found.head_from_get && response.body !== null
         ? new Response(null, response)
         : response;
     } catch (error) {
       console.error(error);
       return new Response("Internal Server Error", { status: 500 });
     }
-  };
+  }
 }
 
 /**
@@ -192,6 +260,13 @@ export class ChoRouter {
  * const linker = new ChoLinker({
  *   notFound: () => Response.json({ error: "not found" }, { status: 404 }),
  * });
+ * ```
+ *
+ * @example With middlewares that run for every request
+ * ```ts
+ * import { cors } from "@chojs/vendor-cho";
+ *
+ * const linker = new ChoLinker({ middlewares: [cors()] });
  * ```
  */
 export class ChoLinker implements Linker<ChoRouter> {

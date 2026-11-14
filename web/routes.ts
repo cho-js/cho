@@ -122,8 +122,8 @@ export function compile_routes(
           method: method.method,
           path,
           name,
-          async handle(req, params, native) {
-            const ctx = create_context(req, params, native);
+          async handle(req, params, native, state) {
+            const ctx = create_context(req, params, native, state);
             try {
               return finish(await run(ctx));
             } catch (error) {

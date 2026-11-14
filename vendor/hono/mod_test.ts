@@ -12,8 +12,12 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Hono } from "hono";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
+import { basicAuth } from "hono/basic-auth";
 import { cors } from "hono/cors";
+import { etag } from "hono/etag";
+import { HTTPException } from "hono/http-exception";
+import { secureHeaders } from "hono/secure-headers";
 import {
   Args,
   Body,
@@ -33,7 +37,7 @@ import {
 } from "@chojs/web";
 import type { Route } from "@chojs/web/linker";
 import { capture, legacy, loose } from "@chojs/core/utils/test_utils";
-import { HonoLinked, HonoLinker } from "./mod.ts";
+import { fromHono, HonoLinked, HonoLinker } from "./mod.ts";
 
 /** Send a request to a `fetch`-style handler, by path and method. */
 function send(
@@ -304,5 +308,291 @@ describe("HonoLinker, handler arguments", () => {
       body: { name: "Ada" },
       hono: "string",
     });
+  });
+});
+
+describe("fromHono", () => {
+  type Class = new () => object;
+
+  /** A controller with `GET x` and `OPTIONS x`, which answer with what `handler` returns. */
+  function controller(
+    handler: (ctx: ChoWebContext) => unknown,
+    ...middlewares: ChoWebMiddlewareFn[]
+  ) {
+    class Ctrl {
+      run(ctx: ChoWebContext) {
+        return handler(ctx);
+      }
+      options(ctx: ChoWebContext) {
+        return handler(ctx);
+      }
+    }
+    legacy(Get(""), Ctrl, "run");
+    legacy(Options(""), Ctrl, "options");
+    Controller({ route: "x" })(Ctrl);
+    if (middlewares.length > 0) {
+      Middlewares(...middlewares)(Ctrl);
+    }
+    return Ctrl;
+  }
+
+  /** The application of one controller, on Hono. */
+  function create(ctrl: Class, hono = new Hono()) {
+    class App {}
+    Module({ controllers: [ctrl] })(App);
+    return ChoWeb.create(App, { linker: new HonoLinker(hono) });
+  }
+
+  const get = (app: ChoWeb<unknown>, init: RequestInit = {}) =>
+    app.handler(new Request("http://localhost/x", init));
+
+  it("runs a Hono middleware that adds headers to the response", async () => {
+    const app = await create(
+      controller(
+        () => ({ ok: true }),
+        fromHono(cors({ origin: "https://example.com" })),
+        fromHono(secureHeaders()),
+      ),
+    );
+    const response = await get(app, {
+      headers: { origin: "https://example.com" },
+    });
+    assert.deepEqual(await response.json(), { ok: true });
+    // Bun adds a charset to the content type of a JSON response
+    assert.match(
+      response.headers.get("content-type") ?? "",
+      /^application\/json/,
+    );
+    assert.equal(
+      response.headers.get("access-control-allow-origin"),
+      "https://example.com",
+    );
+    assert.equal(response.headers.get("x-frame-options"), "SAMEORIGIN");
+  });
+
+  it("lets a Hono middleware answer by itself", async () => {
+    let called = 0;
+    const app = await create(
+      controller(
+        () => ++called,
+        fromHono(cors({ origin: "https://example.com" })),
+      ),
+    );
+    // a CORS preflight request: answered by the middleware, not the handler
+    const preflight = await get(app, {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://example.com",
+        "access-control-request-method": "GET",
+      },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(
+      preflight.headers.get("access-control-allow-origin"),
+      "https://example.com",
+    );
+    assert.equal(called, 0);
+  });
+
+  it("answers an HTTPException with its response, as Hono does", async () => {
+    const caught: unknown[] = [];
+    const ctrl = controller(
+      () => "secret",
+      fromHono(basicAuth({ username: "ada", password: "pw" })),
+    );
+    Catch((error) => {
+      caught.push(error);
+      return new Response("caught", { status: 500 });
+    })(ctrl);
+    const app = await create(ctrl);
+
+    const refused = await get(app);
+    assert.equal(refused.status, 401);
+    assert.match(refused.headers.get("www-authenticate") ?? "", /^Basic/);
+    const allowed = await get(app, {
+      headers: { authorization: `Basic ${btoa("ada:pw")}` },
+    });
+    assert.deepEqual([allowed.status, await allowed.text()], [200, "secret"]);
+    // the exception is a response: the error handler never saw it
+    assert.deepEqual(caught, []);
+  });
+
+  it("gives other errors of the middleware to the CHO error handlers", async () => {
+    const failing: MiddlewareHandler = () => {
+      throw new Error("broken middleware");
+    };
+    const ctrl = controller(() => "never", fromHono(failing));
+    Catch((error) =>
+      new Response(`caught: ${(error as Error).message}`, { status: 502 })
+    )(ctrl);
+    const response = await get(await create(ctrl));
+    assert.deepEqual([response.status, await response.text()], [
+      502,
+      "caught: broken middleware",
+    ]);
+  });
+
+  it("lets a Hono middleware read and replace the response after next()", async () => {
+    const seen: string[] = [];
+    const wrap: MiddlewareHandler = async (c, next) => {
+      seen.push(`before ${c.req.path}`);
+      await next();
+      seen.push(`after ${c.res.status} ${await c.res.clone().text()}`);
+      c.res = new Response(`wrapped(${await c.res.text()})`, { status: 201 });
+    };
+    const app = await create(controller(() => "inner", fromHono(wrap)));
+    const response = await get(app);
+    assert.deepEqual([response.status, await response.text()], [
+      201,
+      "wrapped(inner)",
+    ]);
+    assert.deepEqual(seen, ["before /x", "after 200 inner"]);
+  });
+
+  it("runs an ETag middleware: a conditional request is answered 304", async () => {
+    const app = await create(controller(() => "content", fromHono(etag())));
+    const first = await get(app);
+    const tag = first.headers.get("etag");
+    assert.ok(tag);
+    assert.equal(await first.text(), "content");
+    const second = await get(app, { headers: { "if-none-match": tag } });
+    assert.deepEqual([second.status, await second.text()], [304, ""]);
+  });
+
+  it("shares the Hono context with the handler", async () => {
+    const login: MiddlewareHandler = async (c, next) => {
+      c.set("user", "ada");
+      await next();
+    };
+    const app = await create(
+      controller(
+        (ctx) => ({ user: (ctx.native as Context).get("user") }),
+        fromHono(login),
+      ),
+    );
+    assert.deepEqual(await (await get(app)).json(), { user: "ada" });
+  });
+
+  it("keeps its place among the CHO middlewares", async () => {
+    const seen: string[] = [];
+    const cho = (name: string): ChoWebMiddlewareFn => async (_ctx, next) => {
+      seen.push(`${name} in`);
+      const response = await next();
+      seen.push(`${name} out`);
+      // a new response: what the outer middleware returns is what is sent
+      return new Response(`${name}(${await response.text()})`, response);
+    };
+    const hono = (name: string): MiddlewareHandler => async (c, next) => {
+      seen.push(`${name} in`);
+      await next();
+      seen.push(`${name} out`);
+      c.header(`x-${name}`, "1");
+    };
+    const app = await create(
+      controller(
+        () => "handler",
+        cho("a"),
+        fromHono(hono("b")),
+        cho("c"),
+        fromHono(hono("d")),
+      ),
+    );
+    const response = await get(app);
+    assert.equal(await response.text(), "a(c(handler))");
+    assert.deepEqual(
+      [response.headers.get("x-b"), response.headers.get("x-d")],
+      ["1", "1"],
+    );
+    assert.deepEqual(seen, [
+      "a in",
+      "b in",
+      "c in",
+      "d in",
+      "d out",
+      "c out",
+      "b out",
+      "a out",
+    ]);
+  });
+
+  it("keeps the cookies of the handler's response", async () => {
+    const app = await create(
+      controller(
+        () =>
+          new Response("ok", {
+            headers: [["set-cookie", "a=1"], ["set-cookie", "b=2"]],
+          }),
+        fromHono(cors()),
+      ),
+    );
+    const response = await get(app, { headers: { origin: "https://a.b" } });
+    assert.deepEqual(response.headers.getSetCookie(), ["a=1", "b=2"]);
+    assert.equal(response.headers.get("access-control-allow-origin"), "*");
+  });
+
+  it("works under the middlewares of the Hono application itself", async () => {
+    const hono = new Hono();
+    hono.use(async (c, next) => {
+      await next();
+      c.header("x-app", String(c.res.status));
+    });
+    const app = await create(
+      controller(() => "ok", fromHono(secureHeaders())),
+      hono,
+    );
+    const response = await get(app);
+    assert.equal(response.headers.get("x-app"), "200");
+    assert.equal(response.headers.get("x-frame-options"), "SAMEORIGIN");
+    assert.equal(await response.text(), "ok");
+  });
+
+  it("fails a middleware that neither answers nor calls next", async () => {
+    const silent: MiddlewareHandler = () => Promise.resolve();
+    const ctrl = controller(() => "never", fromHono(silent));
+    Catch((error) => new Response((error as Error).message, { status: 500 }))(
+      ctrl,
+    );
+    const response = await get(await create(ctrl));
+    assert.match(
+      await response.text(),
+      /returned no response: return a Response or call next\(\)/,
+    );
+  });
+
+  it("keeps a thrown HTTPException out of the context of later requests", async () => {
+    let fail = true;
+    const sometimes: MiddlewareHandler = async (_c, next) => {
+      if (fail) {
+        throw new HTTPException(418, { message: "teapot" });
+      }
+      await next();
+    };
+    const app = await create(controller(() => "ok", fromHono(sometimes)));
+    assert.equal((await get(app)).status, 418);
+    fail = false;
+    const response = await get(app);
+    assert.deepEqual([response.status, await response.text()], [200, "ok"]);
+  });
+
+  it("refuses to run on another adapter", async () => {
+    const ctrl = controller(() => "never", fromHono(cors()));
+    Catch((error) => new Response((error as Error).message, { status: 500 }))(
+      ctrl,
+    );
+    class App {}
+    Module({ controllers: [ctrl] })(App);
+    // a linker with no Hono context: `ctx.native` is undefined
+    const app = await ChoWeb.create(App, {
+      linker: {
+        link: (routes) => ({
+          instance: routes,
+          handler: (req) => routes[0]!.handle(req),
+        }),
+      },
+    });
+    assert.equal(
+      await (await get(app)).text(),
+      "fromHono(): a Hono middleware runs on the Hono adapter only: create the application with a HonoLinker",
+    );
   });
 });

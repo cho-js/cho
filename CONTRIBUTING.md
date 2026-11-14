@@ -88,6 +88,7 @@ tests.
 | `core/`           | `@chojs/core`           | The dependency injection engine, and shared utilities |
 | `command/`        | `@chojs/command`        | Command-line applications                             |
 | `web/`            | `@chojs/web`            | HTTP applications                                     |
+| `vendor/cho/`     | `@chojs/vendor-cho`     | Middlewares for the built-in router of `@chojs/web`   |
 | `vendor/hono/`    | `@chojs/vendor-hono`    | Web adapter on Hono                                   |
 | `vendor/fastify/` | `@chojs/vendor-fastify` | Web adapter on Fastify (Node.js only)                 |
 | `examples/`       |                         | Runnable examples                                     |
@@ -210,8 +211,8 @@ not follow the convention is left out of the release.
 | `build`    | The build, the CI or the dependencies         | None    |
 | `chore`    | Anything else                                 | None    |
 
-- The scope is the package: `core`, `command`, `web`, `vendor-hono` or
-  `vendor-fastify`.
+- The scope is the package: `core`, `command`, `web`, `vendor-cho`,
+  `vendor-hono` or `vendor-fastify`.
 - A breaking change has a `!` after the type or the scope, and is released as a
   major version.
 

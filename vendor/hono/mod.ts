@@ -4,6 +4,9 @@
  * {@link HonoLinker} registers the routes of a `@chojs/web` application on a
  * Hono application. Pass it to `ChoWeb.create` as `linker`.
  *
+ * {@link fromHono} turns a Hono middleware (`cors()`, `basicAuth()`, ...)
+ * into a CHO middleware, for `@Middlewares`.
+ *
  * @example
  * ```ts
  * import { ChoWeb } from "@chojs/web";
@@ -16,12 +19,21 @@
  * @module
  */
 
-import { Hono } from "hono";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
+import type { ChoWebContext, ChoWebMiddlewareFn, ChoWebNext } from "@chojs/web";
 import type { Linked, Linker, Route } from "@chojs/web/linker";
 
-// The `@chojs/web` types `HonoLinker` and `HonoLinked` refer to. (`Hono` is
-// the class of the `hono` package: import it from there.)
-export type { Linked, Linker, Route };
+// The `@chojs/web` types this module refers to. (`Hono` and
+// `MiddlewareHandler` are types of the `hono` package: import them from
+// there.)
+export type {
+  ChoWebContext,
+  ChoWebMiddlewareFn,
+  ChoWebNext,
+  Linked,
+  Linker,
+  Route,
+};
 
 /**
  * A Hono application linked by {@link HonoLinker}.
@@ -146,4 +158,95 @@ export class HonoLinker implements Linker<Hono> {
     }
     return new HonoLinked(app);
   }
+}
+
+/** The Hono context of a request, or an error when the adapter is not Hono's. */
+function hono_context(ctx: ChoWebContext): Context {
+  const native = ctx.native as Partial<Context> | undefined;
+  if (
+    native === null || typeof native !== "object" ||
+    typeof native.newResponse !== "function" || !("finalized" in native)
+  ) {
+    throw new Error(
+      "fromHono(): a Hono middleware runs on the Hono adapter only: create the application with a HonoLinker",
+    );
+  }
+  return native as Context;
+}
+
+/**
+ * Turn a Hono middleware into a CHO middleware, so that the middlewares that
+ * come with Hono (`cors()`, `basicAuth()`, `etag()`, `secureHeaders()`, ...)
+ * can be given to `@Middlewares`, on a handler, a controller or a feature
+ * module.
+ *
+ * The Hono middleware runs with the Hono context of the request, at the
+ * place of the CHO middleware in the chain:
+ *
+ * - its `next()` runs the rest of the CHO chain (the next middlewares, then
+ *   the handler), and sets `c.res` to the response, which the middleware can
+ *   read and change;
+ * - a `Response` it returns answers the request;
+ * - an `HTTPException` it throws is answered with the exception's response,
+ *   as Hono does. Any other error goes to the CHO error handlers.
+ *
+ * It only works for an application created with a {@link HonoLinker}: on
+ * another adapter the middleware throws.
+ *
+ * A middleware that must also cover the requests no route matches (CORS
+ * preflight requests of paths without an `OPTIONS` route, say) belongs on the
+ * Hono application given to the linker instead (`hono.use(cors())`).
+ *
+ * @param middleware The Hono middleware.
+ * @returns A CHO middleware function.
+ *
+ * @example
+ * ```ts
+ * import { basicAuth } from "hono/basic-auth";
+ * import { etag } from "hono/etag";
+ * import { Controller, Get, Middlewares } from "@chojs/web";
+ * import { fromHono } from "@chojs/vendor-hono";
+ *
+ * @Middlewares(fromHono(basicAuth({ username: "ada", password: "secret" })))
+ * @Controller({ route: "admin" })
+ * class AdminController {
+ *   @Middlewares(fromHono(etag()))
+ *   @Get("report")
+ *   report() {
+ *     return { users: 3 };
+ *   }
+ * }
+ * ```
+ */
+export function fromHono(middleware: MiddlewareHandler): ChoWebMiddlewareFn {
+  return async (ctx, next) => {
+    const c = hono_context(ctx);
+    try {
+      const result = await middleware(c, async () => {
+        // What the middleware set on the context before (CORS headers, say)
+        // is merged into the response by Hono's setter.
+        c.res = await next();
+      });
+      if (result instanceof Response) {
+        return result;
+      }
+      // Nothing returned: the response is the context's, when it has one
+      // (`next()` was called, or the middleware set `c.res`).
+      return c.finalized ? c.res : undefined;
+    } catch (error) {
+      // An HTTPException is a response, not a failure.
+      const get_response = (error as { getResponse?: unknown } | null)
+        ?.getResponse;
+      if (typeof get_response === "function") {
+        return get_response.call(error) as Response;
+      }
+      throw error;
+    } finally {
+      // Give the context back as Hono expects it at this point: without a
+      // response. The response of the route is what the CHO chain returns,
+      // and Hono ignores it when the context already has one.
+      c.res = undefined;
+      c.finalized = false;
+    }
+  };
 }

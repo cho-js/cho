@@ -3,5 +3,6 @@
   "command": "3.0.0",
   "web": "3.0.0",
   "vendor/hono": "3.0.0",
-  "vendor/fastify": "3.0.0"
+  "vendor/fastify": "3.0.0",
+  "vendor/cho": "3.0.0"
 }

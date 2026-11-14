@@ -9,6 +9,7 @@
     "./core",
     "./web",
     "./vendor/hono",
+    "./vendor/cho",
     "./vendor/fastify"
   ],
   "fmt": {

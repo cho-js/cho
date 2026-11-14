@@ -303,6 +303,13 @@ A middleware can also be a class with a `handle(ctx, next)` method. It is
 created by the injector, so it can have dependencies; list it in the module's
 `providers`. Middlewares only run for the routes they apply to.
 
+The middlewares of the HTTP library of an adapter can be used too: each adapter
+has a function that makes one a CHO middleware, `fromHono(cors())` in
+`@chojs/vendor-hono` and `fromFastify(hook)` in `@chojs/vendor-fastify`. The
+built-in router has no HTTP library: its middlewares, such as `cors`, are in
+[`@chojs/vendor-cho`](../vendor/cho/README.md), and it can run them for every
+request (see [The built-in router](#the-built-in-router)).
+
 ### Error handling
 
 An error thrown by a handler or a middleware goes to the nearest `@Catch`
@@ -477,18 +484,40 @@ const linker = new ChoLinker({
 const app = await ChoWeb.create(App, { linker });
 ```
 
+The router takes middlewares of its own. Unlike the middlewares of
+`@Middlewares`, they run for **every** request, in order, the requests no route
+matches included:
+
+```ts
+import { ChoLinker, ChoWeb } from "@chojs/web";
+import { cors } from "@chojs/vendor-cho";
+
+const app = await ChoWeb.create(App, {
+  linker: new ChoLinker({ middlewares: [cors()] }),
+});
+```
+
+They are functions `(ctx, next)` like any CHO middleware. Their context has the
+`params` of the route that matched (empty when there is none), and its `state`
+is the one the middlewares and the handler of the route see: what a middleware
+of the router sets there (a request id, the authenticated user) reaches them.
+[`@chojs/vendor-cho`](../vendor/cho/README.md) has the middlewares an HTTP
+library would bring: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`,
+`requestId`, `etag`, `basicAuth`, `bearerAuth` and `compress`.
+
 There is no runtime context on this router: `ctx.native` is `undefined`.
 
-| Topic              | Behavior                                                                                                                   |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| Matching order     | Routes are matched in declaration order: declare static routes before parameter routes (`@Get("me")` before `@Get(":id")`) |
-| Paths              | Matched as written: case and a trailing slash count. A parameter matches one segment, never an empty one                   |
-| Path parameters    | Percent-decoded. One that cannot be decoded is passed as it was sent                                                       |
-| `HEAD` requests    | Run the `@Head` handler of the route. Without one, the `@Get` handler answers, without the body                            |
-| Unhandled errors   | A route that fails with no `@Catch` and no `onError` is logged with `console.error`, and answered with `500`               |
-| Unmatched requests | Answered by the `notFound` option; `404` by default, also when the path exists under another method                        |
-| HTTP methods       | Any method is matched as given                                                                                             |
-| Several apps       | A linker can be used for several applications: each `link()` makes a new router                                            |
+| Topic              | Behavior                                                                                                                                      |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Matching order     | Routes are matched in declaration order: declare static routes before parameter routes (`@Get("me")` before `@Get(":id")`)                    |
+| Paths              | Matched as written: case and a trailing slash count. A parameter matches one segment, never an empty one                                      |
+| Path parameters    | Percent-decoded. One that cannot be decoded is passed as it was sent                                                                          |
+| `HEAD` requests    | Run the `@Head` handler of the route. Without one, the `@Get` handler answers, without the body                                               |
+| Unhandled errors   | A route that fails with no `@Catch` and no `onError` is logged with `console.error`, and answered with `500`                                  |
+| Unmatched requests | Answered by the `notFound` option; `404` by default, also when the path exists under another method                                           |
+| Middlewares        | The `middlewares` option: they wrap every request, the `notFound` answer included. A middleware that fails is logged, and answered with `500` |
+| HTTP methods       | Any method is matched as given                                                                                                                |
+| Several apps       | A linker can be used for several applications: each `link()` makes a new router                                                               |
 
 ## Runtime support
 

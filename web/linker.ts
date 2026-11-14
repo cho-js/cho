@@ -33,6 +33,9 @@ export type Route = {
    * @param params The path parameters of the match, decoded.
    * @param native The runtime's own request context, if any; handlers see it
    *   as `ctx.native`.
+   * @param state The state of the request, when something ran for it before
+   *   the route (the middlewares of the built-in router): handlers see it as
+   *   `ctx.state`. Default: a new, empty one.
    * @returns The response. It rejects when the route fails and has no error
    *   handler, or when its error handler fails: the runtime answers `500`.
    */
@@ -40,6 +43,7 @@ export type Route = {
     req: Request,
     params?: Readonly<Record<string, string>>,
     native?: unknown,
+    state?: Map<PropertyKey, unknown>,
   ): Promise<Response>;
 };
 

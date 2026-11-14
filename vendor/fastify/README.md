@@ -60,9 +60,11 @@ await app.close();
 
 ## Using Fastify options, plugins and hooks
 
-Fastify plugins and hooks are written for Fastify's request and reply, so they
-are not CHO middlewares. Create the Fastify application yourself, and give it to
-the linker. What you add to it applies to every route:
+Fastify plugins and hooks are written for Fastify's request and reply. There are
+two ways to use them.
+
+**On every route:** create the Fastify application yourself, and give it to the
+linker. What you add to it applies to every route:
 
 ```ts
 import Fastify from "fastify";
@@ -78,6 +80,56 @@ const app = await ChoWeb.create(App, { linker: new FastifyLinker(fastify) });
 ```
 
 The same Fastify application takes your `setErrorHandler`.
+
+**On a handler, a controller or a feature**, with `fromFastify`, which turns a
+Fastify hook into a CHO middleware for `@Middlewares`. A hook is what many
+plugins give to protect a route: `fastify.basicAuth`, `fastify.auth([...])`,
+`fastify.rateLimit()`, `fastify.csrfProtection`, or a function of your own.
+
+```ts
+import Fastify from "fastify";
+import basicAuth from "@fastify/basic-auth";
+import { ChoWeb, Controller, Get, Middlewares } from "@chojs/web";
+import { FastifyLinker, fromFastify } from "@chojs/vendor-fastify";
+
+const fastify = Fastify();
+await fastify.register(basicAuth, { validate, authenticate: true });
+
+@Middlewares(fromFastify(fastify.basicAuth))
+@Controller({ route: "admin" })
+class AdminController {
+  @Middlewares(fromFastify(async (request, reply) => {
+    if (request.ip !== "127.0.0.1") {
+      return reply.code(403).send({ error: "forbidden" });
+    }
+  }))
+  @Get("report")
+  report() {
+    return { users: 3 };
+  }
+}
+
+const app = await ChoWeb.create(App, { linker: new FastifyLinker(fastify) });
+```
+
+The hook runs with Fastify's request and reply, at its place among the CHO
+middlewares, on the Fastify application of the route (`this`):
+
+| In the hook                                | What happens                                                |
+| ------------------------------------------ | ----------------------------------------------------------- |
+| Its promise resolves, or it calls `done()` | The rest of the CHO chain runs                              |
+| `reply.send()`, `reply.redirect()`         | The hook answered: the rest of the chain does not run       |
+| It throws, rejects or calls `done(error)`  | The error goes to the CHO error handlers, then to Fastify's |
+
+- A hook is a step before the handler: it cannot change the handler's response.
+  For that, and for plugins that are not hooks (`@fastify/cors`,
+  `@fastify/helmet`), register the plugin on the Fastify application.
+- When a hook answers, the response is the one Fastify sends. The CHO
+  middlewares around it see its status and headers, and cannot change it.
+- Fastify does not parse the body of CHO routes, so `request.body` is not set in
+  a hook.
+- A middleware made with `fromFastify` only runs on this adapter: on another one
+  it fails the request.
 
 ## Reaching Fastify from a handler
 
