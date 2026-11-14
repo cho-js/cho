@@ -88,7 +88,6 @@ tests.
 | `core/`           | `@chojs/core`           | The dependency injection engine, and shared utilities |
 | `command/`        | `@chojs/command`        | Command-line applications                             |
 | `web/`            | `@chojs/web`            | HTTP applications                                     |
-| `vendor/cho/`     | `@chojs/vendor-cho`     | The built-in router of `@chojs/web`, re-exported      |
 | `vendor/hono/`    | `@chojs/vendor-hono`    | Web adapter on Hono                                   |
 | `vendor/fastify/` | `@chojs/vendor-fastify` | Web adapter on Fastify (Node.js only)                 |
 | `examples/`       |                         | Runnable examples                                     |
@@ -167,9 +166,9 @@ The name of a function says who it is for.
 A web adapter connects `@chojs/web` to an HTTP library. It lives in
 `vendor/<name>/` and is published as `@chojs/vendor-<name>`.
 
-- It exports a linker (`HonoLinker`, `ChoLinker`, `FastifyLinker`) that
-  implements `Linker` from `@chojs/web/linker`, and is passed to
-  `ChoWeb.create`. See [the web specification](./web/specs.md), section 7.
+- It exports a linker (`HonoLinker`, `FastifyLinker`) that implements `Linker`
+  from `@chojs/web/linker`, and is passed to `ChoWeb.create`. See
+  [the web specification](./web/specs.md), section 7.
 - It only matches requests to routes. Middlewares, error handling and the
   conversion of results belong to `@chojs/web`.
 - It does not have to support every runtime, as long as its README says which
@@ -211,8 +210,8 @@ not follow the convention is left out of the release.
 | `build`    | The build, the CI or the dependencies         | None    |
 | `chore`    | Anything else                                 | None    |
 
-- The scope is the package: `core`, `command`, `web`, `vendor-cho`,
-  `vendor-hono` or `vendor-fastify`.
+- The scope is the package: `core`, `command`, `web`, `vendor-hono` or
+  `vendor-fastify`.
 - A breaking change has a `!` after the type or the scope, and is released as a
   major version.
 

@@ -13,7 +13,6 @@
         "command",
         "web",
         "vendor-hono",
-        "vendor-cho",
         "vendor-fastify"
       ]
     }
@@ -58,18 +57,6 @@
     "vendor/hono": {
       "component": "vendor-hono",
       "package-name": "@chojs/vendor-hono",
-      "changelog-path": "CHANGELOG.md",
-      "extra-files": [
-        {
-          "type": "json",
-          "path": "deno.json",
-          "jsonpath": "$.version"
-        }
-      ]
-    },
-    "vendor/cho": {
-      "component": "vendor-cho",
-      "package-name": "@chojs/vendor-cho",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {
