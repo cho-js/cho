@@ -44,7 +44,7 @@ export interface ChoWebContext {
 class Context implements ChoWebContext {
   readonly req: Request;
   readonly params: Readonly<Record<string, string>>;
-  readonly state: Map<PropertyKey, unknown> = new Map();
+  readonly state: Map<PropertyKey, unknown>;
   readonly native: unknown;
   #url: URL | undefined;
 
@@ -52,10 +52,12 @@ class Context implements ChoWebContext {
     req: Request,
     params: Readonly<Record<string, string>>,
     native: unknown,
+    state: Map<PropertyKey, unknown>,
   ) {
     this.req = req;
     this.params = params;
     this.native = native;
+    this.state = state;
   }
 
   get url(): URL {
@@ -69,12 +71,15 @@ class Context implements ChoWebContext {
  * @param req The request.
  * @param params The path parameters of the matched route.
  * @param native The context of the HTTP runtime, if any.
+ * @param state The state of the request, when it already has one. Default: a
+ *   new, empty one.
  * @returns The context.
  */
 export function create_context(
   req: Request,
   params: Readonly<Record<string, string>> = {},
   native?: unknown,
+  state: Map<PropertyKey, unknown> = new Map(),
 ): ChoWebContext {
-  return new Context(req, params, native);
+  return new Context(req, params, native, state);
 }

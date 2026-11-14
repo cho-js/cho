@@ -499,33 +499,49 @@ suite("ChoLinker, the middlewares of the router", () => {
     assert.equal((output.error[0] as Error).message, "broken middleware");
   });
 
-  it("have a context of their own: its state is not the route's", async () => {
-    const linked = await ChoWeb.create(
-      (() => {
-        class Ctrl {
-          get(ctx: ChoWebContext) {
-            return { from_router: ctx.state.get("user") ?? null };
-          }
-        }
-        legacy(Get(""), Ctrl, "get");
-        Controller({ route: "x" })(Ctrl);
-        class App {}
-        Module({ controllers: [Ctrl] })(App);
-        return App;
-      })(),
-      {
-        linker: new ChoLinker({
-          middlewares: [(ctx, next) => {
-            ctx.state.set("user", "ada");
-            return next();
-          }],
-        }),
-      },
-    );
+  it("share their state with the middlewares and the handler of the route", async () => {
+    class Ctrl {
+      get(ctx: ChoWebContext) {
+        return { from_router: ctx.state.get("user") ?? null };
+      }
+    }
+    legacy(Get(""), Ctrl, "get");
+    Controller({ route: "x" })(Ctrl);
+    class App {}
+    Module({ controllers: [Ctrl] })(App);
+    const seen: unknown[] = [];
+    const app = await ChoWeb.create(App, {
+      linker: new ChoLinker({
+        middlewares: [async (ctx, next) => {
+          ctx.state.set("user", "ada");
+          const response = await next();
+          // and what the route sets comes back
+          seen.push(ctx.state.get("user"));
+          return response;
+        }],
+      }),
+    });
     assert.deepEqual(
-      await (await linked.handler(new Request("http://localhost/x"))).json(),
-      { from_router: null },
+      await (await app.handler(new Request("http://localhost/x"))).json(),
+      { from_router: "ada" },
     );
+    assert.deepEqual(seen, ["ada"]);
+  });
+
+  it("can replace the request the route receives", async () => {
+    const linked = new ChoLinker({
+      middlewares: [(ctx, next) => {
+        (ctx as { req: Request }).req = new Request(ctx.req, {
+          headers: { "x-added": "1" },
+        });
+        return next();
+      }],
+    }).link([{
+      ...echo("GET", "/x"),
+      handle: (req) =>
+        Promise.resolve(new Response(req.headers.get("x-added") ?? "none")),
+    }]);
+    assert.equal(await (await send(linked, "/x")).text(), "1");
   });
 
   it("must be functions", () => {

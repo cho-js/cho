@@ -5,7 +5,8 @@
   "exports": "./mod.ts",
   "publish": {
     "exclude": [
-      "./**/*_test.ts"
+      "./**/*_test.ts",
+      "./testing.ts"
     ]
   }
 }

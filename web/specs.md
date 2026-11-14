@@ -706,17 +706,21 @@ takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
   and also around the `notFound` answer of a request no route matches. That is
   what a CORS middleware needs, to answer the preflight requests of every path;
 - each request gives them a context of their own: `params` are those of the
-  route that matched (empty when there is none), `native` is `undefined`, and
-  `state` is not the `state` the middlewares and the handler of the route see;
+  route that matched (empty when there is none) and `native` is `undefined`. Its
+  `state` is shared with the route: what a middleware of the router sets there
+  is in the `state` of the route's middlewares and handler;
+- a middleware can replace the request (`ctx.req`), to limit or change how the
+  body is read: the route receives the one the context has;
 - a route that rejects reaches them as the `500` response;
 - one that fails (it throws, or breaks a rule of section 4) is logged with
   `console.error`, and the request is answered `500`;
 - one that is not a function makes `link()` throw
   `TypeError: ChoLinker: middleware <n> must be a function, got <v>`.
 
-`@chojs/vendor-cho` has middlewares written for it, such as `cors`
-(`vendor/cho/README.md`). On the other adapters, what wraps every request goes
-on the library's own application.
+`@chojs/vendor-cho` has middlewares written for it (`vendor/cho/README.md`):
+`cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId`, `etag`,
+`basicAuth`, `bearerAuth` and `compress`. On the other adapters, what wraps
+every request goes on the library's own application.
 
 An adapter implements `Linker` (`@chojs/web/linker`): it receives the
 application's routes and returns a `Linked`, the runtime's application object
@@ -725,18 +729,19 @@ applications pass one to `ChoWeb.create`.
 
 An adapter does no plumbing. Each `Route` is ready to call:
 
-| Property | Holds                                                                      |
-| -------- | -------------------------------------------------------------------------- |
-| `method` | the HTTP method, upper case (`"GET"`)                                      |
-| `path`   | the full path, global prefix included (`"/api/users/:id"`)                 |
-| `name`   | where it is declared, for logs (`"UsersController.get"`)                   |
-| `handle` | `(req, params?, native?) => Promise<Response>`: answers a matching request |
+| Property | Holds                                                                              |
+| -------- | ---------------------------------------------------------------------------------- |
+| `method` | the HTTP method, upper case (`"GET"`)                                              |
+| `path`   | the full path, global prefix included (`"/api/users/:id"`)                         |
+| `name`   | where it is declared, for logs (`"UsersController.get"`)                           |
+| `handle` | `(req, params?, native?, state?) => Promise<Response>`: answers a matching request |
 
 `handle` runs the route's middlewares, its handler and its error handler. The
 adapter gives it the `Request`, the decoded path parameters of the match and,
-optionally, its own request context, which handlers see as `ctx.native`. It
-rejects when the route fails without an error handler: the adapter answers
-`500`.
+optionally, its own request context, which handlers see as `ctx.native`, and the
+state of the request, when something ran for it before the route (the
+middlewares of the built-in router): handlers see it as `ctx.state`. It rejects
+when the route fails without an error handler: the adapter answers `500`.
 
 ```ts
 class MyLinker implements Linker<MyServer> {
@@ -776,7 +781,7 @@ instance, middleware and error handler already created:
 | `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `@chojs/vendor-cho`     | `cors`, `CorsOptions`: the middlewares of the built-in router                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 

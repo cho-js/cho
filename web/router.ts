@@ -29,8 +29,9 @@ export type ChoLinkerOptions = {
    * requests of every path. Default: none.
    *
    * They have a context of their own for each request: `params` are those of
-   * the matched route (empty when there is none), and `state` is not the
-   * `state` the handlers of the route see.
+   * the matched route (empty when there is none). Its `state` is the one the
+   * middlewares and the handler of the route see, so what a middleware of the
+   * router sets (the authenticated user, a request id) reaches them.
    */
   readonly middlewares?: readonly ChoWebMiddlewareFn[];
 };
@@ -126,7 +127,9 @@ export class ChoRouter {
     });
     this.#run = middlewares.length === 0 ? undefined : compose(
       middlewares,
-      (ctx) => this.#answer(ctx.req, this.#found.get(ctx)),
+      // The request and the state are the context's: a middleware can have
+      // replaced the first, and the handlers of the route see the second.
+      (ctx) => this.#answer(ctx.req, this.#found.get(ctx), ctx.state),
     );
     for (const route of routes) {
       const pattern = new URLPattern({
@@ -200,12 +203,21 @@ export class ChoRouter {
   };
 
   /** Answer a request with the route it matched, or as not found. */
-  async #answer(req: Request, found: Found | undefined): Promise<Response> {
+  async #answer(
+    req: Request,
+    found: Found | undefined,
+    state?: Map<PropertyKey, unknown>,
+  ): Promise<Response> {
     if (!found) {
       return await this.#not_found(req);
     }
     try {
-      const response = await found.route.handle(req, found.params);
+      const response = await found.route.handle(
+        req,
+        found.params,
+        undefined,
+        state,
+      );
       return found.head_from_get && response.body !== null
         ? new Response(null, response)
         : response;

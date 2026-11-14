@@ -497,11 +497,13 @@ const app = await ChoWeb.create(App, {
 });
 ```
 
-They are functions `(ctx, next)` like any CHO middleware, with a context of
-their own: its `params` are those of the route that matched (empty when there is
-none), and its `state` is not the one the handlers see.
+They are functions `(ctx, next)` like any CHO middleware. Their context has the
+`params` of the route that matched (empty when there is none), and its `state`
+is the one the middlewares and the handler of the route see: what a middleware
+of the router sets there (a request id, the authenticated user) reaches them.
 [`@chojs/vendor-cho`](../vendor/cho/README.md) has the middlewares an HTTP
-library would bring, starting with `cors`.
+library would bring: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`,
+`requestId`, `etag`, `basicAuth`, `bearerAuth` and `compress`.
 
 There is no runtime context on this router: `ctx.native` is `undefined`.
 
