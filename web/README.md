@@ -303,6 +303,10 @@ A middleware can also be a class with a `handle(ctx, next)` method. It is
 created by the injector, so it can have dependencies; list it in the module's
 `providers`. Middlewares only run for the routes they apply to.
 
+The middlewares of the HTTP library of an adapter can be used too: each adapter
+has a function that makes one a CHO middleware, `fromHono(cors())` in
+`@chojs/vendor-hono` and `fromFastify(hook)` in `@chojs/vendor-fastify`.
+
 ### Error handling
 
 An error thrown by a handler or a middleware goes to the nearest `@Catch`

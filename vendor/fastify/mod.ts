@@ -5,6 +5,10 @@
  * a Fastify application. Pass it to `ChoWeb.create` as `linker`, and serve
  * the Fastify application.
  *
+ * {@link fromFastify} turns a Fastify request hook (what `@fastify/auth`,
+ * `@fastify/basic-auth`, `@fastify/rate-limit` and others give for a route)
+ * into a CHO middleware, for `@Middlewares`.
+ *
  * @example
  * ```ts
  * import { ChoWeb } from "@chojs/web";
@@ -25,12 +29,20 @@ import Fastify, {
   type FastifyRequest,
   type HTTPMethods,
 } from "fastify";
+import type { ChoWebContext, ChoWebMiddlewareFn, ChoWebNext } from "@chojs/web";
 import type { Linked, Linker, Route } from "@chojs/web/linker";
 
-// The `@chojs/web` types `FastifyLinker` and `FastifyLinked` refer to.
-// (`FastifyInstance`, `FastifyRequest` and `FastifyReply` are types of the
-// `fastify` package: import them from there.)
-export type { Linked, Linker, Route };
+// The `@chojs/web` types this module refers to. (`FastifyInstance`,
+// `FastifyRequest` and `FastifyReply` are types of the `fastify` package:
+// import them from there.)
+export type {
+  ChoWebContext,
+  ChoWebMiddlewareFn,
+  ChoWebNext,
+  Linked,
+  Linker,
+  Route,
+};
 
 /**
  * What a handler finds in `ctx.native` on this adapter: Fastify's request and
@@ -50,6 +62,9 @@ export type FastifyNative = {
   /** Fastify's reply. */
   readonly reply: FastifyReply;
 };
+
+/** The replies a Fastify hook answered by itself (see {@link fromFastify}). */
+const ANSWERED = new WeakSet<FastifyReply>();
 
 /** The statuses of a response that has no body. */
 const NO_BODY = new Set([101, 204, 205, 304]);
@@ -260,6 +275,10 @@ export class FastifyLinker implements Linker<FastifyInstance> {
         params,
         native,
       );
+      // A Fastify hook (`fromFastify`) answered: the response is Fastify's.
+      if (ANSWERED.has(reply)) {
+        return reply;
+      }
       return reply.send(
         bodiless && response.body !== null
           ? new Response(null, response)
@@ -296,4 +315,161 @@ export class FastifyLinker implements Linker<FastifyInstance> {
     });
     return new FastifyLinked(this.#app);
   }
+}
+
+/**
+ * A Fastify hook of the request phase (`onRequest`, `preValidation`,
+ * `preHandler`): a function of the request and the reply, that either
+ * returns a promise or calls `done`. It is what many Fastify plugins give to
+ * protect a route: `fastify.basicAuth`, `fastify.auth([...])`,
+ * `fastify.rateLimit()`, `fastify.csrfProtection`.
+ */
+export type FastifyHook = (
+  this: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  done: (error?: Error) => void,
+) => unknown;
+
+/** Fastify's request and reply, or an error when the adapter is not Fastify's. */
+function fastify_native(ctx: ChoWebContext): FastifyNative {
+  const native = ctx.native as Partial<FastifyNative> | undefined;
+  if (
+    native === null || typeof native !== "object" ||
+    typeof native.reply?.send !== "function" ||
+    typeof native.request?.raw !== "object"
+  ) {
+    throw new Error(
+      "fromFastify(): a Fastify hook runs on the Fastify adapter only: create the application with a FastifyLinker",
+    );
+  }
+  return native as FastifyNative;
+}
+
+/** Whether Fastify has sent, or is sending, the response of a reply. */
+function is_sent(reply: FastifyReply): boolean {
+  return reply.sent || reply.raw.writableEnded || !reply.raw.writable;
+}
+
+/**
+ * Run a Fastify hook, in either of its two styles.
+ *
+ * @returns Whether the hook answered the request itself, once it is done:
+ *   its promise resolved, it called `done`, or it sent the reply without
+ *   calling `done`.
+ */
+function run_hook(
+  hook: FastifyHook,
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    // A hook that answers in the callback style never calls `done`: the end
+    // of the response is what says it is done.
+    const closed = () => resolve(true);
+    reply.raw.once("close", closed);
+    const settle = (error: unknown, returned?: unknown) => {
+      reply.raw.off("close", closed);
+      if (error !== undefined && error !== null) {
+        reject(error);
+      } else {
+        // Returning the reply says "I answered", as in a Fastify handler.
+        resolve(returned === reply || is_sent(reply));
+      }
+    };
+    try {
+      const result = hook.call(request.server, request, reply, settle);
+      if (typeof (result as PromiseLike<unknown> | null)?.then === "function") {
+        (result as PromiseLike<unknown>).then(
+          (returned) => settle(undefined, returned),
+          (error) => settle(error ?? new Error("the hook rejected")),
+        );
+      }
+    } catch (error) {
+      settle(error ?? new Error("the hook threw"));
+    }
+  });
+}
+
+/**
+ * Turn a Fastify hook into a CHO middleware, so that what Fastify plugins
+ * give to protect a route (`fastify.basicAuth`, `fastify.auth([...])`,
+ * `fastify.rateLimit()`, ...) can be given to `@Middlewares`, on a handler, a
+ * controller or a feature module.
+ *
+ * The hook runs with Fastify's request and reply, at the place of the CHO
+ * middleware in the chain, on the Fastify application of the route (`this`):
+ *
+ * - when it is done (its promise resolves, or it calls `done()`), the rest
+ *   of the CHO chain runs;
+ * - when it answers by itself (`reply.send()`, `reply.redirect()`), the rest
+ *   of the chain does not run, and the response is the one Fastify sends.
+ *   The CHO middlewares around it see a response with that status and those
+ *   headers, and cannot change it;
+ * - when it fails (it throws, rejects, or calls `done(error)`), the error
+ *   goes to the CHO error handlers, then to Fastify's.
+ *
+ * A hook is a step before the handler: it cannot change the response of the
+ * handler. For that, and for plugins that are not hooks (`@fastify/cors`,
+ * `@fastify/helmet`), register the plugin on the Fastify application given
+ * to the linker.
+ *
+ * Fastify does not parse the body of CHO routes, so `request.body` is not set
+ * in a hook.
+ *
+ * It only works for an application created with a {@link FastifyLinker}: on
+ * another adapter the middleware throws.
+ *
+ * @param hook The Fastify hook.
+ * @returns A CHO middleware function.
+ *
+ * @example
+ * ```ts
+ * import Fastify from "fastify";
+ * import basicAuth from "@fastify/basic-auth";
+ * import { ChoWeb, Controller, Get, Middlewares } from "@chojs/web";
+ * import { FastifyLinker, fromFastify } from "@chojs/vendor-fastify";
+ *
+ * const fastify = Fastify();
+ * await fastify.register(basicAuth, { validate, authenticate: true });
+ *
+ * @Middlewares(fromFastify(fastify.basicAuth))
+ * @Controller({ route: "admin" })
+ * class AdminController {
+ *   @Get("report")
+ *   report() {
+ *     return { users: 3 };
+ *   }
+ * }
+ *
+ * const app = await ChoWeb.create(App, { linker: new FastifyLinker(fastify) });
+ * ```
+ *
+ * @example A hook of your own
+ * ```ts
+ * const only_local = fromFastify(async (request, reply) => {
+ *   if (request.ip !== "127.0.0.1") {
+ *     return reply.code(403).send({ error: "forbidden" });
+ *   }
+ * });
+ * ```
+ */
+export function fromFastify(hook: FastifyHook): ChoWebMiddlewareFn {
+  return async (ctx, next) => {
+    const { request, reply } = fastify_native(ctx);
+    if (!await run_hook(hook, request, reply)) {
+      return next();
+    }
+    ANSWERED.add(reply);
+    // What the CHO chain sees of Fastify's answer: its status and headers.
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(reply.getHeaders())) {
+      for (const one of Array.isArray(value) ? value : [value]) {
+        if (one !== undefined) {
+          headers.append(name, String(one));
+        }
+      }
+    }
+    return new Response(null, { status: reply.statusCode, headers });
+  };
 }

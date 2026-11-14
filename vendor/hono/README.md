@@ -41,9 +41,47 @@ app.linked.instance; // the Hono application
 
 ## Using Hono middlewares
 
-Hono middlewares (`cors()`, `logger()`, …) are written for Hono's context, so
-they are not CHO middlewares. Add them to a Hono application and give it to the
-linker. The routes are registered after them, so they wrap every route:
+Hono middlewares (`cors()`, `basicAuth()`, `etag()`, …) are written for Hono's
+context. There are two ways to use them.
+
+**On a handler, a controller or a feature**, with `fromHono`, which turns a Hono
+middleware into a CHO middleware for `@Middlewares`:
+
+```ts
+import { basicAuth } from "hono/basic-auth";
+import { etag } from "hono/etag";
+import { Controller, Get, Middlewares } from "@chojs/web";
+import { fromHono } from "@chojs/vendor-hono";
+
+@Middlewares(fromHono(basicAuth({ username: "ada", password: "secret" })))
+@Controller({ route: "admin" })
+class AdminController {
+  @Middlewares(fromHono(etag()))
+  @Get("report")
+  report() {
+    return { users: 3 };
+  }
+}
+```
+
+The Hono middleware runs with Hono's context, at its place among the CHO
+middlewares:
+
+| In the Hono middleware            | What happens                                                   |
+| --------------------------------- | -------------------------------------------------------------- |
+| `await next()`                    | The rest of the CHO chain runs, and `c.res` is its response    |
+| Changing `c.res`, or `c.header()` | Changes the response, as in Hono                               |
+| Returning a `Response`            | Answers the request                                            |
+| Throwing an `HTTPException`       | Answers with the exception's response, as Hono does            |
+| Throwing anything else            | The error goes to the CHO error handlers (`@Catch`, `onError`) |
+
+A middleware made with `fromHono` only runs on this adapter: on another one it
+fails the request.
+
+**On every request**, unmatched ones included: add the middleware to a Hono
+application and give it to the linker. The routes are registered after it, so it
+wraps every route. This is the place for what must also answer requests no route
+matches, such as CORS preflight requests:
 
 ```ts
 import { Hono } from "hono";

@@ -34,7 +34,13 @@ import {
 import type { Route } from "@chojs/web/linker";
 import { engine } from "@chojs/core/utils";
 import { legacy, loose } from "@chojs/core/utils/test_utils";
-import { FastifyLinked, FastifyLinker, type FastifyNative } from "./mod.ts";
+import {
+  type FastifyHook,
+  FastifyLinked,
+  FastifyLinker,
+  type FastifyNative,
+  fromFastify,
+} from "./mod.ts";
 
 /** `describe`, skipped on a runtime the adapter does not support. */
 const suite = engine() === "node" ? describe : describe.skip;
@@ -564,5 +570,270 @@ suite("FastifyLinker, handler arguments", () => {
       await fastify.close();
       await app.close();
     }
+  });
+});
+
+suite("fromFastify", () => {
+  type Class = new () => object;
+
+  /** A controller with `GET x`, which answers with what `handler` returns. */
+  function controller(
+    handler: (ctx: ChoWebContext) => unknown,
+    ...middlewares: ChoWebMiddlewareFn[]
+  ) {
+    class Ctrl {
+      run(ctx: ChoWebContext) {
+        return handler(ctx);
+      }
+    }
+    legacy(Get(""), Ctrl, "run");
+    Controller({ route: "x" })(Ctrl);
+    if (middlewares.length > 0) {
+      Middlewares(...middlewares)(Ctrl);
+    }
+    return Ctrl;
+  }
+
+  /** The application of one controller, on Fastify. */
+  function create(ctrl: Class, fastify = Fastify()) {
+    class App {}
+    Module({ controllers: [ctrl] })(App);
+    return ChoWeb.create(App, { linker: new FastifyLinker(fastify) });
+  }
+
+  /** Send `GET /x`, and give the status and the body. */
+  async function get(app: ChoWeb<unknown>, init: RequestInit = {}) {
+    const response = await send(app, "/x", "GET", init);
+    return [response.status, await response.text()];
+  }
+
+  it("runs an asynchronous hook, then the rest of the chain", async () => {
+    type WithUser = { user?: string };
+    const hook: FastifyHook = async (request) => {
+      await Promise.resolve();
+      (request as WithUser).user = "ada";
+    };
+    const app = await create(
+      controller(
+        // the hook and the handler share Fastify's request
+        (ctx) => ((ctx.native as FastifyNative).request as WithUser).user,
+        fromFastify(hook),
+      ),
+    );
+    assert.deepEqual(await get(app), [200, "ada"]);
+  });
+
+  it("runs a hook in the callback style", async () => {
+    const seen: string[] = [];
+    const hook: FastifyHook = (request, _reply, done) => {
+      seen.push(request.url);
+      done();
+    };
+    const app = await create(controller(() => "ok", fromFastify(hook)));
+    assert.deepEqual(await get(app), [200, "ok"]);
+    assert.deepEqual(seen, ["/x"]);
+  });
+
+  it("calls the hook on the Fastify application of the route", async () => {
+    const fastify = Fastify();
+    fastify.decorate("secret", "s3cret");
+    const hook: FastifyHook = function (_request, reply) {
+      reply.header("x-secret", (this as unknown as { secret: string }).secret);
+      return Promise.resolve();
+    };
+    const app = await create(
+      controller(() => "ok", fromFastify(hook)),
+      fastify,
+    );
+    const response = await send(app, "/x");
+    assert.equal(response.headers.get("x-secret"), "s3cret");
+    assert.equal(await response.text(), "ok");
+  });
+
+  for (
+    const [style, hook] of [
+      [
+        "an asynchronous hook that returns the reply",
+        (_request, reply) =>
+          Promise.resolve(reply.code(401).send({ error: "unauthorized" })),
+      ],
+      ["an asynchronous hook that sends the reply", async (_request, reply) => {
+        await Promise.resolve();
+        reply.code(401).send({ error: "unauthorized" });
+      }],
+      [
+        "a callback hook that sends and does not call done",
+        (_request, reply) => {
+          reply.code(401).send({ error: "unauthorized" });
+        },
+      ],
+    ] as [string, FastifyHook][]
+  ) {
+    it(`stops the chain when the hook answers: ${style}`, async () => {
+      let called = false;
+      const app = await create(
+        controller(() => {
+          called = true;
+        }, fromFastify(hook)),
+      );
+      assert.deepEqual(await get(app), [401, '{"error":"unauthorized"}']);
+      assert.equal(called, false);
+    });
+  }
+
+  it("lets a hook redirect", async () => {
+    const hook: FastifyHook = (_request, reply) => {
+      reply.redirect("/login");
+    };
+    const app = await create(controller(() => "never", fromFastify(hook)));
+    const response = await send(app, "/x");
+    assert.deepEqual(
+      [response.status, response.headers.get("location")],
+      [302, "/login"],
+    );
+  });
+
+  it("answers once when the application has an asynchronous onSend hook", async () => {
+    const fastify = Fastify();
+    fastify.addHook("onSend", async (_request, reply, payload) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      reply.header("x-on-send", "1");
+      return payload;
+    });
+    const hook: FastifyHook = (_request, reply) =>
+      Promise.resolve(reply.code(403).send("forbidden"));
+    const app = await create(
+      controller(() => "never", fromFastify(hook)),
+      fastify,
+    );
+    const response = await send(app, "/x");
+    assert.deepEqual(
+      [response.status, response.headers.get("x-on-send")],
+      [403, "1"],
+    );
+    assert.equal(await response.text(), "forbidden");
+  });
+
+  it("gives the CHO middlewares around it the status and headers of the answer", async () => {
+    const seen: unknown[] = [];
+    const outer: ChoWebMiddlewareFn = async (_ctx, next) => {
+      const response = await next();
+      seen.push([response.status, response.headers.get("x-reason")]);
+      return response;
+    };
+    const hook: FastifyHook = (_request, reply) =>
+      Promise.resolve(reply.code(429).header("x-reason", "limit").send("slow"));
+    const app = await create(
+      controller(() => "never", outer, fromFastify(hook)),
+    );
+    assert.deepEqual(await get(app), [429, "slow"]);
+    assert.deepEqual(seen, [[429, "limit"]]);
+  });
+
+  it("keeps its place among the CHO middlewares", async () => {
+    const seen: string[] = [];
+    const cho = (name: string): ChoWebMiddlewareFn => (_ctx, next) => {
+      seen.push(name);
+      return next();
+    };
+    const hook = (name: string): FastifyHook => (_request, _reply, done) => {
+      seen.push(name);
+      done();
+    };
+    const app = await create(
+      controller(
+        () => "ok",
+        cho("a"),
+        fromFastify(hook("b")),
+        cho("c"),
+        fromFastify(hook("d")),
+      ),
+    );
+    assert.deepEqual(await get(app), [200, "ok"]);
+    assert.deepEqual(seen, ["a", "b", "c", "d"]);
+  });
+
+  for (
+    const [style, hook] of [
+      ["throws", () => {
+        throw new Error("broken hook");
+      }],
+      ["rejects", () => Promise.reject(new Error("broken hook"))],
+      ["calls done with an error", (_request, _reply, done) => {
+        done(new Error("broken hook"));
+      }],
+    ] as [string, FastifyHook][]
+  ) {
+    it(`gives the error to the CHO error handlers when the hook ${style}`, async () => {
+      const ctrl = controller(() => "never", fromFastify(hook));
+      Catch((error) =>
+        new Response(`caught: ${(error as Error).message}`, { status: 502 })
+      )(ctrl);
+      assert.deepEqual(await get(await create(ctrl)), [
+        502,
+        "caught: broken hook",
+      ]);
+    });
+  }
+
+  it("leaves an unhandled error of the hook to Fastify's error handler", async () => {
+    const app = await create(
+      controller(
+        () => "never",
+        fromFastify(() => Promise.reject(new Error("broken hook"))),
+      ),
+    );
+    const [status, body] = await get(app);
+    assert.equal(status, 500);
+    assert.equal(JSON.parse(body as string).message, "broken hook");
+  });
+
+  it("works over HTTP, on a listening server", async () => {
+    const guard: FastifyHook = (request, reply, done) => {
+      if (request.headers["x-key"] === "k") {
+        done();
+      } else {
+        reply.code(401).send("no key");
+      }
+    };
+    const app = await create(controller(() => "ok", fromFastify(guard)));
+    const fastify = app.linked.instance;
+    const address = await fastify.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const refused = await fetch(`${address}/x`);
+      assert.deepEqual([refused.status, await refused.text()], [401, "no key"]);
+      const allowed = await fetch(`${address}/x`, {
+        headers: { "x-key": "k" },
+      });
+      assert.deepEqual([allowed.status, await allowed.text()], [200, "ok"]);
+    } finally {
+      await fastify.close();
+      await app.close();
+    }
+  });
+
+  it("refuses to run on another adapter", async () => {
+    const ctrl = controller(
+      () => "never",
+      fromFastify((_request, _reply, done) => done()),
+    );
+    Catch((error) => new Response((error as Error).message, { status: 500 }))(
+      ctrl,
+    );
+    class App {}
+    Module({ controllers: [ctrl] })(App);
+    // a linker with no Fastify request: `ctx.native` is undefined
+    const app = await ChoWeb.create(App, {
+      linker: {
+        link: (routes) => ({
+          instance: routes,
+          handler: (req) => routes[0]!.handle(req),
+        }),
+      },
+    });
+    assert.equal(
+      await (await send(app, "/x")).text(),
+      "fromFastify(): a Fastify hook runs on the Fastify adapter only: create the application with a FastifyLinker",
+    );
   });
 });
