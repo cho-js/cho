@@ -4,6 +4,20 @@
   "include-component-in-tag": true,
   "separate-pull-requests": false,
   "bootstrap-sha": "e5dca1df318d23a40a7ebad877d38b1927f7b7fc",
+  "plugins": [
+    {
+      "type": "linked-versions",
+      "groupName": "cho",
+      "components": [
+        "core",
+        "command",
+        "web",
+        "vendor-hono",
+        "vendor-cho",
+        "vendor-fastify"
+      ]
+    }
+  ],
   "packages": {
     "core": {
       "component": "core",
