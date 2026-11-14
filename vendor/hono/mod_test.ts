@@ -358,7 +358,11 @@ describe("fromHono", () => {
       headers: { origin: "https://example.com" },
     });
     assert.deepEqual(await response.json(), { ok: true });
-    assert.equal(response.headers.get("content-type"), "application/json");
+    // Bun adds a charset to the content type of a JSON response
+    assert.match(
+      response.headers.get("content-type") ?? "",
+      /^application\/json/,
+    );
     assert.equal(
       response.headers.get("access-control-allow-origin"),
       "https://example.com",
