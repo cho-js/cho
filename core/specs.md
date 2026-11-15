@@ -661,6 +661,12 @@ Runtime helpers that work on every runtime:
   middleware returns a result (to end or replace it) or nothing (to pass it on).
   `kind` says what a result is and how to name it in error messages.
   `@chojs/web` uses it with a `Response`, `@chojs/command` with an exit code.
+  Without a `kind`, `compose(middlewares, endpoint)` runs a chain that has **no
+  result**: what a middleware returns is ignored, and one that returns without
+  calling `next()` ends the chain there, which is not a mistake. A middleware
+  cannot hide the failure of the rest of the chain: when `next()` rejects, the
+  chain rejects, even when the middleware catches the error. `@chojs/message`
+  uses it: a message is handled, or it fails.
 - `describe(value)`: a readable name for error messages.
 - `is_class(value)`, `is_class_implement(value, method)`: whether a value is a
   class, and whether its prototype has a given method.

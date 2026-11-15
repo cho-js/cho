@@ -4,7 +4,9 @@
       "@chojs/core/di": ["./core/di/mod.ts"],
       "@chojs/core/utils": ["./core/utils/mod.ts"],
       "@chojs/core/utils/test_utils": ["./core/utils/test_utils.ts"],
-      "@chojs/web": ["./web/mod.ts"]
+      "@chojs/web": ["./web/mod.ts"],
+      "@chojs/message": ["./message/mod.ts"],
+      "@chojs/message/linker": ["./message/linker.ts"]
     }
   }
 }

@@ -1,7 +1,8 @@
 /**
  * Runs a chain of middlewares around an endpoint (the onion model). Shared by
  * the CHO modules that have middlewares: `@chojs/web`, whose result is a
- * `Response`, and `@chojs/command`, whose result is an exit code.
+ * `Response`, `@chojs/command`, whose result is an exit code, and
+ * `@chojs/message`, whose chain has no result.
  *
  * @module
  */
@@ -24,6 +25,24 @@ export type MiddlewareFn<Ctx, Result> = (
   ctx: Ctx,
   next: () => Promise<Result>,
 ) => Result | void | Promise<Result | void>;
+
+/**
+ * A middleware function of a chain that has no result, as {@link compose}
+ * runs it without a `kind`. It wraps the rest of the chain (the next
+ * middlewares, then the endpoint):
+ *
+ * - `next()` runs the rest of the chain. It resolves when the rest is done,
+ *   and rejects with its error;
+ * - returning without calling `next()` ends the chain there: the endpoint
+ *   does not run, and the chain is done;
+ * - what it returns is ignored.
+ *
+ * @typeParam Ctx The context every middleware and the endpoint receive.
+ */
+export type VoidMiddlewareFn<Ctx> = (
+  ctx: Ctx,
+  next: () => Promise<void>,
+) => unknown;
 
 /**
  * What the chain produces: how to recognize it, and how to name it in error
@@ -82,6 +101,54 @@ export function compose<Ctx, Result>(
   middlewares: readonly MiddlewareFn<Ctx, Result>[],
   endpoint: (ctx: Ctx) => Promise<Result>,
   kind: ResultKind<Result>,
+): (ctx: Ctx) => Promise<Result>;
+/**
+ * Compose middlewares and an endpoint into one function, for a chain that
+ * has no result: it is done, or it fails.
+ *
+ * The middlewares run in order; each `next()` runs the rest of the chain. See
+ * {@link VoidMiddlewareFn} for what a middleware can do.
+ *
+ * @typeParam Ctx The context every middleware and the endpoint receive.
+ * @param middlewares The middlewares, in the order they run.
+ * @param endpoint The end of the chain.
+ * @returns A function that runs the chain once. It resolves when the chain is
+ *   done: when the endpoint has run, or when a middleware returned without
+ *   calling `next()`. It rejects when:
+ *   - a middleware or the endpoint throws. A middleware that catches the
+ *     error of `next()` does not hide it: the chain still rejects with it,
+ *     unless the middleware throws another one;
+ *   - a middleware calls `next()` twice
+ *     (`middleware <name>: next() called more than once`).
+ *
+ * @example
+ * ```ts
+ * const seen: string[] = [];
+ * const run = compose<{ topic: string }>(
+ *   [async (ctx, next) => {
+ *     seen.push(`in ${ctx.topic}`);
+ *     await next();
+ *     seen.push(`out ${ctx.topic}`);
+ *   }],
+ *   (ctx) => {
+ *     seen.push(`handled ${ctx.topic}`);
+ *     return Promise.resolve();
+ *   },
+ * );
+ * await run({ topic: "orders" }); // in orders, handled orders, out orders
+ * ```
+ */
+export function compose<Ctx>(
+  middlewares: readonly VoidMiddlewareFn<Ctx>[],
+  endpoint: (ctx: Ctx) => Promise<void>,
+): (ctx: Ctx) => Promise<void>;
+export function compose<Ctx, Result>(
+  middlewares: readonly ((
+    ctx: Ctx,
+    next: () => Promise<Result>,
+  ) => unknown)[],
+  endpoint: (ctx: Ctx) => Promise<Result>,
+  kind?: ResultKind<Result>,
 ): (ctx: Ctx) => Promise<Result> {
   if (middlewares.length === 0) {
     return endpoint;
@@ -113,6 +180,12 @@ export function compose<Ctx, Result>(
       };
 
       const result = await middleware(ctx, next);
+      if (!kind) {
+        // No result: what the middleware returned is ignored. The rest of
+        // the chain decides, when it ran: the chain is not done before it
+        // is, and its failure is the failure of the chain.
+        return await downstream as Result;
+      }
       if (kind.is(result)) {
         return result;
       }

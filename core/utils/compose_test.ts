@@ -1,11 +1,16 @@
 /**
  * Tests for `compose.ts`: running middlewares around an endpoint, for any
- * context and result. Here the result is a number.
+ * context and result (here the result is a number), and for a chain that has
+ * no result.
  */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { compose, type MiddlewareFn } from "./compose.ts";
+import {
+  compose,
+  type MiddlewareFn,
+  type VoidMiddlewareFn,
+} from "./compose.ts";
 import { loose } from "./test_utils.ts";
 
 type Ctx = { log: string[] };
@@ -125,6 +130,159 @@ describe("compose", () => {
     assert.equal(
       await run([eager], ctx(), () => Promise.reject(new Error("end"))),
       4,
+    );
+  });
+});
+
+describe("compose, without a result", () => {
+  type Step = VoidMiddlewareFn<Ctx>;
+  const done = (c: Ctx) => {
+    c.log.push("end");
+    return Promise.resolve();
+  };
+  const go = (middlewares: Step[], c = ctx(), end = done) =>
+    compose(middlewares, end)(c);
+
+  it("is the endpoint itself without middlewares", () => {
+    assert.equal(compose([], done), done);
+  });
+
+  it("runs the middlewares in order, around the endpoint", async () => {
+    const mw = (name: string): Step => async (c, next) => {
+      c.log.push(`${name} in`);
+      await next();
+      c.log.push(`${name} out`);
+    };
+    const c = ctx();
+    assert.equal(await go([mw("a"), mw("b")], c), undefined);
+    assert.deepEqual(c.log, ["a in", "b in", "end", "b out", "a out"]);
+  });
+
+  it("ends the chain when a middleware returns without calling next", async () => {
+    const c = ctx();
+    await go(
+      [
+        (c, next) => {
+          c.log.push("a");
+          return next();
+        },
+        (c) => {
+          c.log.push("b stops");
+        },
+        (c, next) => {
+          c.log.push("c");
+          return next();
+        },
+      ],
+      c,
+    );
+    assert.deepEqual(c.log, ["a", "b stops"]);
+  });
+
+  it("ignores what a middleware returns", async () => {
+    for (const returned of [0, "text", {}, null, false]) {
+      const c = ctx();
+      // returned without next: the chain ends, whatever the value
+      assert.equal(await go([() => returned], c), undefined);
+      assert.deepEqual(c.log, []);
+      // returned after next: the chain went on
+      assert.equal(
+        await go([async (_c, next) => {
+          await next();
+          return returned;
+        }], c),
+        undefined,
+      );
+      assert.deepEqual(c.log, ["end"]);
+    }
+  });
+
+  it("waits for the rest of the chain, even when a middleware does not", async () => {
+    const c = ctx();
+    await go(
+      [(_c, next) => {
+        next(); // not awaited, not returned
+      }],
+      c,
+      async (c) => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        c.log.push("end");
+      },
+    );
+    assert.deepEqual(c.log, ["end"]);
+  });
+
+  it("rejects when next is called twice", async () => {
+    async function twice(_c: Ctx, next: () => Promise<void>) {
+      await next();
+      await next();
+    }
+    const c = ctx();
+    await assert.rejects(go([twice], c), {
+      message: "middleware twice: next() called more than once",
+    });
+    assert.deepEqual(c.log, ["end"]);
+  });
+
+  it("rejects with the error of a middleware or of the endpoint", async () => {
+    const boom = new Error("boom");
+    await assert.rejects(
+      go([() => {
+        throw boom;
+      }]),
+      (error) => error === boom,
+    );
+    await assert.rejects(
+      go([(_c, next) => next()], ctx(), () => Promise.reject(boom)),
+      (error) => error === boom,
+    );
+  });
+
+  it("does not let a middleware hide an error down the chain", async () => {
+    const boom = new Error("boom");
+    let caught: unknown;
+    await assert.rejects(
+      go(
+        [async (_c, next) => {
+          try {
+            await next();
+          } catch (error) {
+            caught = error; // seen, and swallowed
+          }
+        }],
+        ctx(),
+        () => Promise.reject(boom),
+      ),
+      (error) => error === boom,
+    );
+    assert.equal(caught, boom);
+  });
+
+  it("rejects with the error a middleware throws in place of one down the chain", async () => {
+    const mine = new Error("mine");
+    await assert.rejects(
+      go(
+        [async (_c, next) => {
+          await next().catch(() => {});
+          throw mine;
+        }],
+        ctx(),
+        () => Promise.reject(new Error("theirs")),
+      ),
+      (error) => error === mine,
+    );
+  });
+
+  it("does not leave an unhandled rejection when next is not awaited", async () => {
+    await assert.rejects(
+      go(
+        [(_c, next) => {
+          next();
+        }],
+        ctx(),
+        () => Promise.reject(new Error("late")),
+      ),
+      { message: "late" },
     );
   });
 });
