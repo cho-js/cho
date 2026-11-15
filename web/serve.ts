@@ -41,6 +41,14 @@ export type ServeOptions = {
   hostname?: string;
   /** Closes the server when it is aborted. Default: none. */
   signal?: AbortSignal;
+  /**
+   * How long closing the server waits for the requests in flight, in
+   * milliseconds, before it cuts their connections; `0` cuts them at once.
+   * Default: none: it waits for every request to end, however long that
+   * takes, and for ever for a response that has no end, such as a stream of
+   * server-sent events that is still open.
+   */
+  closeTimeout?: number;
 };
 
 /** A server started by {@link serve}. */
@@ -53,7 +61,8 @@ export type ChoWebServer = {
   readonly hostname: string;
   /**
    * Stop accepting requests, wait for the ones in flight, and close the
-   * server. Calling it again does nothing more.
+   * server. With the `closeTimeout` option, the requests that are still in
+   * flight after that long are cut. Calling it again does nothing more.
    */
   close(): Promise<void>;
 };
@@ -64,11 +73,17 @@ type DenoLike = {
     options: {
       port: number;
       hostname?: string;
+      signal?: AbortSignal;
       onListen: () => void;
     },
-    handler: ServeHandler,
+    handler: (
+      req: Request,
+      info: { completed: Promise<void> },
+    ) => Response | Promise<Response>,
   ): {
     addr: { port: number; hostname: string };
+    /** Resolves when the server is closed, and its connections with it. */
+    finished: Promise<void>;
     shutdown(): Promise<void>;
   };
 };
@@ -80,7 +95,8 @@ type BunLike = {
   ): {
     port: number;
     hostname: string;
-    stop(): void | Promise<void>;
+    /** `true` also closes the connections of the requests in flight. */
+    stop(closeActiveConnections?: boolean): void | Promise<void>;
   };
 };
 
@@ -99,13 +115,20 @@ const DEFAULT_PORT = 3000;
  * On Node.js a handler that rejects is logged with `console.error` and
  * answered with `500`; on Deno and Bun the runtime's server does the same.
  *
+ * Closing the server waits for the requests in flight. A response with no
+ * end, such as an open stream of server-sent events, would hold it for ever:
+ * the `closeTimeout` option cuts what is still in flight after a grace
+ * period.
+ *
  * @param handler The request handler, such as `app.handler`.
- * @param options The port and the host name, and a signal that closes the
- *   server.
+ * @param options The port and the host name, a signal that closes the
+ *   server, and how long closing waits for the requests in flight.
  * @returns The server, once it is listening.
  * @throws {Error} (as a rejection) On a runtime that is not Deno, Bun or
  *   Node.js, such as Cloudflare Workers: give the handler to that runtime's
  *   own entry point instead.
+ * @throws {TypeError} (as a rejection) When the handler is not a function,
+ *   or `closeTimeout` not a whole number of milliseconds.
  *
  * @example
  * ```ts
@@ -123,6 +146,12 @@ const DEFAULT_PORT = 3000;
  * // ...
  * await server.close(); // stop the server, then release the application
  * await app.close();
+ * ```
+ *
+ * @example Closing with open streams
+ * ```ts
+ * // Requests get 10 seconds to end; what is still open then is cut.
+ * const server = await serve(app.handler, { closeTimeout: 10_000 });
  * ```
  */
 export function serve(
@@ -151,6 +180,17 @@ export async function serve_on(
       "serve() expects a request handler, such as app.handler",
     );
   }
+  const { closeTimeout } = options;
+  if (
+    closeTimeout !== undefined &&
+    !(Number.isInteger(closeTimeout) && closeTimeout >= 0)
+  ) {
+    throw new TypeError(
+      `serve(): closeTimeout must be a whole number of milliseconds, got ${
+        String(closeTimeout)
+      }`,
+    );
+  }
   const port = options.port ?? DEFAULT_PORT;
   const hostname = options.hostname === undefined
     ? {}
@@ -158,15 +198,7 @@ export async function serve_on(
 
   let server: ChoWebServer;
   if (runtime === "deno") {
-    const deno = (globalThis as unknown as { Deno: DenoLike }).Deno;
-    // `onListen` replaces the line Deno prints: the address is returned.
-    const native = deno.serve({ port, ...hostname, onListen() {} }, handler);
-    server = {
-      runtime,
-      port: native.addr.port,
-      hostname: native.addr.hostname,
-      close: once(() => native.shutdown()),
-    };
+    server = serve_deno(handler, port, options.hostname, closeTimeout);
   } else if (runtime === "bun") {
     const bun = (globalThis as unknown as { Bun: BunLike }).Bun;
     const native = bun.serve({ port, ...hostname, fetch: handler });
@@ -174,10 +206,16 @@ export async function serve_on(
       runtime,
       port: native.port,
       hostname: native.hostname,
-      close: once(async () => await native.stop()),
+      close: once(() =>
+        close_within(
+          async () => await native.stop(),
+          () => native.stop(true),
+          closeTimeout,
+        )
+      ),
     };
   } else if (runtime === "node") {
-    server = await serve_node(handler, port, options.hostname);
+    server = await serve_node(handler, port, options.hostname, closeTimeout);
   } else {
     throw new Error(
       `serve() has no server for this runtime (${runtime}): ` +
@@ -203,6 +241,120 @@ function once(close: () => Promise<void>): () => Promise<void> {
 }
 
 /**
+ * Close a server that can be closed in two ways: wait for its requests in
+ * flight, and cut them when they take too long.
+ *
+ * @param graceful Stops accepting requests, and resolves once the ones in
+ *   flight have ended. It must also resolve once `force` was called.
+ * @param force Cuts the connections of the requests in flight.
+ * @param timeout How long to wait before `force`, in milliseconds. Default:
+ *   for ever.
+ */
+async function close_within(
+  graceful: () => Promise<void>,
+  force: () => unknown,
+  timeout: number | undefined,
+): Promise<void> {
+  if (timeout === undefined) {
+    return await graceful();
+  }
+  const timer = setTimeout(force, timeout);
+  try {
+    await graceful();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Serve a handler on `Deno.serve`. It is the Deno part of {@link serve}.
+ *
+ * `Deno.serve` closes in one of two ways, and not one after the other: it
+ * waits for every request (`shutdown()`), or cuts them all (its `signal`).
+ * So with a `close_timeout` the requests in flight are counted here: closing
+ * waits until there is none left, or for the timeout, and then cuts. A
+ * request that arrives while it waits is answered `503`.
+ *
+ * @param handler The request handler.
+ * @param port The port to listen on; `0` picks a free one.
+ * @param hostname The host name or address to listen on. Default: every
+ *   network interface.
+ * @param close_timeout How long closing waits for the requests in flight, in
+ *   milliseconds. Default: for ever.
+ * @returns The server: it is listening.
+ */
+function serve_deno(
+  handler: ServeHandler,
+  port: number,
+  hostname?: string,
+  close_timeout?: number,
+): ChoWebServer {
+  const deno = (globalThis as unknown as { Deno: DenoLike }).Deno;
+  const address = hostname === undefined ? {} : { hostname };
+  if (close_timeout === undefined) {
+    // `onListen` replaces the line Deno prints: the address is returned.
+    const native = deno.serve(
+      { port, ...address, onListen() {} },
+      // Deno reads the number of parameters: one is the request alone.
+      (req) => handler(req),
+    );
+    return {
+      runtime: "deno",
+      port: native.addr.port,
+      hostname: native.addr.hostname,
+      close: once(() => native.shutdown()),
+    };
+  }
+
+  const cut = new AbortController();
+  let in_flight = 0;
+  let closing = false;
+  /** Called when the last request in flight has ended. */
+  let idle = () => {};
+  const native = deno.serve(
+    { port, ...address, signal: cut.signal, onListen() {} },
+    (req, info) => {
+      if (closing) {
+        return new Response("Service Unavailable", {
+          status: 503,
+          headers: { connection: "close" },
+        });
+      }
+      in_flight++;
+      const ended = () => {
+        if (--in_flight === 0) {
+          idle();
+        }
+      };
+      // Settles when the response is sent, or the connection lost.
+      info.completed.then(ended, ended);
+      return handler(req);
+    },
+  );
+  return {
+    runtime: "deno",
+    port: native.addr.port,
+    hostname: native.addr.hostname,
+    close: once(async () => {
+      closing = true;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await new Promise<void>((resolve) => {
+        idle = resolve;
+        if (in_flight === 0) {
+          resolve();
+        } else {
+          timer = setTimeout(resolve, close_timeout);
+        }
+      });
+      clearTimeout(timer);
+      // Closes the server, and what is still in flight with it.
+      cut.abort();
+      await native.finished;
+    }),
+  };
+}
+
+/**
  * Serve a handler on the `node:http` server. It is the Node.js part of
  * {@link serve}; it also runs on the runtimes that have `node:http`.
  *
@@ -210,19 +362,32 @@ function once(close: () => Promise<void>): () => Promise<void> {
  * @param port The port to listen on; `0` picks a free one.
  * @param hostname The host name or address to listen on. Default: every
  *   network interface.
+ * @param close_timeout How long closing waits for the requests in flight, in
+ *   milliseconds, before it cuts their connections. Default: for ever.
  * @returns The server, once it is listening.
  */
 export async function serve_node(
   handler: ServeHandler,
   port: number,
   hostname?: string,
+  close_timeout?: number,
 ): Promise<ChoWebServer> {
   // Imported here, so that nothing of Node.js is loaded on another runtime.
   const { createServer } = await import("node:http");
   const { Readable } = await import("node:stream");
   const { pipeline } = await import("node:stream/promises");
 
+  /** Whether the server is closing: it waits for its requests in flight. */
+  let closing = false;
+
   const native: NodeServer = createServer((incoming, outgoing) => {
+    // A connection that is kept alive would hold a closing server open once
+    // its request has ended.
+    outgoing.once("close", () => {
+      if (closing) {
+        native.closeIdleConnections();
+      }
+    });
     answer(incoming, outgoing).catch((error) => {
       console.error(error);
       if (outgoing.headersSent) {
@@ -283,11 +448,18 @@ export async function serve_node(
     port: listening.port,
     hostname: listening.address,
     close: once(() =>
-      new Promise<void>((resolve, reject) => {
-        native.close((error) => error ? reject(error) : resolve());
-        // Connections kept alive with no request would hold the server open.
-        native.closeIdleConnections();
-      })
+      close_within(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            closing = true;
+            native.close((error) => error ? reject(error) : resolve());
+            // Connections kept alive with no request would hold the server
+            // open.
+            native.closeIdleConnections();
+          }),
+        () => native.closeAllConnections(),
+        close_timeout,
+      )
     ),
   };
 }

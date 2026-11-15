@@ -22,6 +22,7 @@ import type {
   ChoWebErrorHandlerFn,
   ChoWebHandler,
   ChoWebMiddlewareFn,
+  ChoWebSseOptions,
 } from "./types.ts";
 
 export type { ChoWebContext } from "./context.ts";
@@ -95,6 +96,12 @@ export class MethodRef extends NodeRef {
    * is among the middlewares of its feature, of its controller or its own.
    */
   readonly validated: boolean;
+  /**
+   * The options of `@Sse` (an empty object when it has none), when the
+   * handler answers with a stream of server-sent events; `undefined` for any
+   * other handler.
+   */
+  readonly sse: ChoWebSseOptions | undefined;
 
   /**
    * Create a route handler node.
@@ -109,6 +116,8 @@ export class MethodRef extends NodeRef {
    * @param doc What `@Doc` declares about the handler. Default: nothing.
    * @param validated Whether the validation middleware covers the handler.
    *   Default: `false`.
+   * @param sse The options of `@Sse`, for a handler that answers with a
+   *   stream of events. Default: `undefined`.
    */
   constructor(
     name: string,
@@ -120,6 +129,7 @@ export class MethodRef extends NodeRef {
     args: readonly ChoWebArg[] = [],
     doc: ChoWebDoc = {},
     validated = false,
+    sse?: ChoWebSseOptions,
   ) {
     super(route, middlewares, errorHandler, doc);
     this.name = name;
@@ -127,6 +137,7 @@ export class MethodRef extends NodeRef {
     this.handler = handler;
     this.args = args;
     this.validated = validated;
+    this.sse = sse;
   }
 }
 

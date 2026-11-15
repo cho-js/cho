@@ -185,6 +185,108 @@ for (const [name, start] of starts) {
       await assert.rejects(fetch(url));
     });
 
+    /** A response whose body sends a chunk every 20 ms, for ever. */
+    function endless(cancelled: () => void = () => {}) {
+      return new Response(
+        new ReadableStream({
+          async pull(controller) {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            controller.enqueue(new TextEncoder().encode("tick "));
+          },
+          cancel: () => cancelled(),
+        }),
+      );
+    }
+
+    it("cuts the requests still in flight after closeTimeout", async () => {
+      const cancelled = Promise.withResolvers<void>();
+      const server = await start(() => endless(cancelled.resolve), {
+        closeTimeout: 150,
+      });
+      const url = `http://127.0.0.1:${server.port}`;
+      const reader = (await fetch(url)).body!.getReader();
+      await reader.read();
+
+      const started = Date.now();
+      await server.close();
+      const took = Date.now() - started;
+      // it waited for the request, and no longer than it was told to
+      assert.ok(took >= 100, `closed after ${took}ms`);
+      assert.ok(took < 3000, `closed after ${took}ms`);
+      // the handler is told: the body of its response is cancelled
+      await cancelled.promise;
+      // the client loses the connection, and nothing answers any more
+      await assert.rejects(async () => {
+        while (!(await reader.read()).done);
+        throw new Error("the response ended");
+      });
+      await assert.rejects(fetch(url));
+    });
+
+    it("lets a request that ends within closeTimeout end", async () => {
+      const server = await start(
+        () =>
+          new Response(
+            new ReadableStream({
+              async start(controller) {
+                const encoder = new TextEncoder();
+                controller.enqueue(encoder.encode("first "));
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                controller.enqueue(encoder.encode("last"));
+                controller.close();
+              },
+            }),
+          ),
+        { closeTimeout: 5000 },
+      );
+      const response = await fetch(`http://127.0.0.1:${server.port}`);
+      const started = Date.now();
+      const closing = server.close(); // while the response is being sent
+      assert.equal(await response.text(), "first last");
+      await closing;
+      // it closed when the request ended, not at the end of the timeout
+      assert.ok(Date.now() - started < 3000);
+    });
+
+    it("cuts the requests in flight at once, with a closeTimeout of 0", async () => {
+      const server = await start(() => endless(), { closeTimeout: 0 });
+      const reader = (await fetch(`http://127.0.0.1:${server.port}`)).body!
+        .getReader();
+      await reader.read();
+      const started = Date.now();
+      await server.close();
+      assert.ok(Date.now() - started < 2000);
+      await reader.cancel().catch(() => {});
+    });
+
+    it("applies closeTimeout when the signal closes the server", async () => {
+      const stop = new AbortController();
+      const server = await start(() => endless(), {
+        signal: stop.signal,
+        closeTimeout: 50,
+      });
+      const reader = (await fetch(`http://127.0.0.1:${server.port}`)).body!
+        .getReader();
+      await reader.read();
+      stop.abort();
+      await server.close(); // the same close: wait for it
+      await reader.cancel().catch(() => {});
+    });
+
+    it("rejects a closeTimeout that is not a whole number of milliseconds", async () => {
+      for (const closeTimeout of [-1, 1.5, NaN, "100"]) {
+        await assert.rejects(
+          // deno-lint-ignore no-explicit-any
+          start(() => new Response(""), { closeTimeout } as any),
+          {
+            name: "TypeError",
+            message:
+              `serve(): closeTimeout must be a whole number of milliseconds, got ${closeTimeout}`,
+          },
+        );
+      }
+    });
+
     it("serves a ChoWeb application", async () => {
       class Users {
         get(ctx: { params: Record<string, string | undefined> }) {

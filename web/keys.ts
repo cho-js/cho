@@ -9,9 +9,9 @@
  * @module
  */
 
-import type { ChoWebArg, ChoWebDoc } from "./types.ts";
+import type { ChoWebArg, ChoWebDoc, ChoWebSseOptions } from "./types.ts";
 
-/** The route of a handler method, written by `@Get`, `@Post`, ... */
+/** The route of a handler method, written by `@Get`, `@Post`, ... and `@Sse`. */
 export const HTTP: unique symbol = Symbol.for("chojs.web.http");
 
 /** What an HTTP method decorator declares about a handler method. */
@@ -20,6 +20,11 @@ export type HttpRoute = {
   readonly method: string;
   /** The route of the handler, relative to its controller, as declared. */
   readonly route: string;
+  /**
+   * The options of `@Sse`, when it is what declared the route: the handler
+   * answers with a stream of server-sent events.
+   */
+  readonly sse?: ChoWebSseOptions;
 };
 
 /**

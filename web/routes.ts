@@ -12,10 +12,11 @@
 
 import { type Debuglog, debuglog, describe } from "@chojs/core/utils";
 import { compose } from "./compose.ts";
-import { create_context } from "./context.ts";
+import { type ChoWebContext, create_context } from "./context.ts";
 import type { AppRef } from "./graph.ts";
 import type { Route } from "./linker.ts";
 import { to_response } from "./response.ts";
+import { is_async_iterable, sse_response } from "./sse.ts";
 
 /**
  * What identifies a route for a router: its method and path, with every
@@ -65,7 +66,9 @@ export function assert_no_duplicate_routes(routes: readonly Route[]): void {
  *   the handler's routes;
  * - the chain is the feature's, the controller's, then the handler's
  *   middlewares, then the handler, whose result is converted by
- *   `to_response`;
+ *   `to_response`, or, for an `@Sse` handler, becomes the body of an event
+ *   stream (`sse_response`). An error that cuts such a stream is not given to
+ *   an error handler: the response has started, so there is nothing to answer;
  * - an error thrown anywhere in the chain goes to the nearest error handler
  *   (the handler's, the controller's, the feature's, then the application's),
  *   whose result is
@@ -94,21 +97,47 @@ export function compile_routes(
         const name = `${
           describe(controller.instance.constructor)
         }.${method.name}`;
+        const on_error = method.errorHandler ?? controller.errorHandler ??
+          feature.errorHandler ?? graph.errorHandler;
+        const { sse } = method;
+        /** The response of an `@Sse` handler: its own, or its events. */
+        const to_events = (value: unknown, ctx: ChoWebContext): Response => {
+          if (value instanceof Response) {
+            return value;
+          }
+          if (!is_async_iterable(value)) {
+            throw new TypeError(
+              `@Sse() handler ${name} must return an async iterable or a Response, got ${
+                value === null ? "null" : typeof value
+              }`,
+            );
+          }
+          return sse_response(value, {
+            name,
+            keepAlive: sse?.keepAlive,
+            // The status is sent: no error handler can answer this one.
+            failed: (error) =>
+              log.error(
+                `${ctx.req.method} ${ctx.url.pathname} stream failed:`,
+                error,
+              ),
+          });
+        };
         const run = compose(
           [
             ...feature.middlewares,
             ...controller.middlewares,
             ...method.middlewares,
           ],
-          async (ctx) => to_response(await method.handler(ctx)),
+          sse === undefined
+            ? async (ctx) => to_response(await method.handler(ctx))
+            : async (ctx) => to_events(await method.handler(ctx), ctx),
         );
         // A HEAD response has no body, whatever produced it.
         const finish = method.method === "HEAD"
           ? (response: Response) =>
             response.body === null ? response : new Response(null, response)
           : (response: Response) => response;
-        const on_error = method.errorHandler ?? controller.errorHandler ??
-          feature.errorHandler ?? graph.errorHandler;
         if (
           log.enabled && !method.validated &&
           method.args.some((arg) => arg.info?.validator)

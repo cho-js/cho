@@ -17,6 +17,7 @@ import {
   Middlewares,
   Module,
   Post,
+  Sse,
 } from "@chojs/web";
 import { legacy, loose } from "@chojs/core/utils/test_utils";
 import * as vendor from "./mod.ts";
@@ -131,5 +132,75 @@ routed("the middlewares, together on the built-in router", () => {
       "201",
       "204",
     ]);
+  });
+
+  it("passes a stream of server-sent events through every one of them", async () => {
+    const ended = Promise.withResolvers<void>();
+    class Feed {
+      async *events() {
+        try {
+          while (true) { // never ends: nothing may wait for its end
+            yield { event: "tick", data: "now" };
+          }
+        } finally {
+          ended.resolve();
+        }
+      }
+    }
+    legacy(loose(Sse("events")), Feed, "events");
+    legacy(
+      Middlewares(
+        vendor.basicAuth({ username: "ada", password: "s3cret" }),
+        vendor.etag(),
+      ),
+      Feed,
+      "events",
+    );
+    Controller({ route: "feed" })(Feed);
+    class App {}
+    Module({ controllers: [Feed] })(App);
+    const app = await ChoWeb.create(App, {
+      linker: new ChoLinker({
+        middlewares: [
+          vendor.logger({ log: (line) => lines.push(line) }),
+          vendor.requestId(),
+          vendor.cors({ origin: "https://example.com" }),
+          vendor.secureHeaders(),
+          vendor.compress({ threshold: 0 }),
+          vendor.etag(),
+          vendor.bodyLimit({ maxSize: 20 }),
+          vendor.timeout({ ms: 1000 }),
+        ],
+      }),
+    });
+
+    const response = await send(app, "/feed/events", {
+      headers: {
+        origin: "https://example.com",
+        authorization: `Basic ${btoa("ada:s3cret")}`,
+        "accept-encoding": "gzip",
+        "if-none-match": "*",
+      },
+    });
+    assert.deepEqual(
+      [
+        response.status,
+        response.headers.get("content-type"),
+        response.headers.get("content-encoding"),
+        response.headers.get("etag"),
+        response.headers.get("access-control-allow-origin"),
+        response.headers.get("x-content-type-options"),
+      ],
+      [200, "text/event-stream", null, null, "https://example.com", "nosniff"],
+    );
+    const reader = response.body!.getReader();
+    assert.equal(
+      new TextDecoder().decode((await reader.read()).value),
+      "event: tick\ndata: now\n\n",
+    );
+    // the stream is logged when it opens, not when it ends
+    assert.match(lines.at(-1)!, /^GET \/feed\/events 200 \d+ms$/);
+    await reader.cancel();
+    await ended.promise;
   });
 });

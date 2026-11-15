@@ -18,6 +18,7 @@ import {
   type ChoWebArg,
   type ChoWebContext,
   type ChoWebMiddlewareFn,
+  type ChoWebSseEvent,
   type ChoWebValidator,
   Controller,
   Doc,
@@ -32,6 +33,7 @@ import {
   provider,
   Put,
   Query,
+  Sse,
   token,
   validate,
 } from "./mod.ts";
@@ -528,6 +530,104 @@ describe("decorator syntax, handler arguments", () => {
         c(_ctx: ChoWebContext) {}
       }
       return [Wrong, Right];
+    };
+  });
+});
+
+describe("@Sse, in decorator syntax", () => {
+  @Controller({ route: "feed", dependencies: [Store] })
+  class Feed {
+    constructor(readonly store: Store) {}
+
+    @Sse("events")
+    async *events(ctx: ChoWebContext) {
+      yield "ready";
+      yield { event: "path", data: ctx.url.pathname };
+      yield { event: "user", id: "1", retry: 1000, data: this.store.find("1") };
+    }
+
+    @Sse(":id/events", { keepAlive: 15_000 })
+    @Args(Param("id"), Header("last-event-id"))
+    of(id: string, last: string | undefined) {
+      if (id === "0") {
+        return new Response("no such user", { status: 404 });
+      }
+      const store = this.store;
+      return (async function* (): AsyncGenerator<ChoWebSseEvent> {
+        yield { data: { ...store.find(id), last } };
+      })();
+    }
+
+    @Args(Body<{ question: string }>())
+    @Sse("answers", { method: "POST" })
+    async *answer(body: { question: string }) {
+      for (const word of body.question.split(" ")) {
+        yield word;
+      }
+    }
+  }
+
+  @Module({ providers: [Store], controllers: [Feed] })
+  class FeedApp {}
+
+  it("streams the events of async generator and plain methods", async () => {
+    const app = await ChoWeb.create(FeedApp, { linker: new TestLinker() });
+    const send = (path: string, init?: RequestInit) =>
+      app.handler(new Request(`http://localhost${path}`, init));
+
+    assert.equal(
+      await (await send("/feed/events")).text(),
+      "data: ready\n\n" +
+        "event: path\ndata: /feed/events\n\n" +
+        'event: user\nid: 1\nretry: 1000\ndata: {"id":"1","name":"Ada"}\n\n',
+    );
+    assert.equal(
+      await (await send("/feed/7/events", {
+        headers: { "last-event-id": "3" },
+      })).text(),
+      'data: {"id":"7","name":"Ada","last":"3"}\n\n',
+    );
+    assert.equal((await send("/feed/0/events")).status, 404);
+    assert.equal(
+      await (await send("/feed/answers", {
+        method: "POST",
+        body: JSON.stringify({ question: "is it" }),
+      })).text(),
+      "data: is\n\ndata: it\n\n",
+    );
+  });
+
+  it("checks what the handler returns, at compile time", () => {
+    // Type-only: never called, so the class is never defined.
+    const _check = () => {
+      class Wrong {
+        // @ts-expect-error a string is not a stream of events
+        @Sse("a")
+        a() {
+          return "text";
+        }
+
+        // @ts-expect-error a number is not an event
+        @Sse("b")
+        async *b() {
+          yield 42;
+        }
+
+        // @ts-expect-error an event has data
+        @Sse("c")
+        async *c() {
+          yield { event: "tick" };
+        }
+
+        // @ts-expect-error events come as an async iterable, not as a list
+        @Sse("d")
+        d() {
+          return [{ data: "x" }];
+        }
+      }
+      // @ts-expect-error HEAD is not a method of a stream
+      const _head = Sse("e", { method: "HEAD" });
+      return Wrong;
     };
   });
 });

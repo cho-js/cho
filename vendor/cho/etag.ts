@@ -5,6 +5,7 @@
  */
 
 import type { ChoWebMiddlewareFn } from "@chojs/web";
+import { is_event_stream } from "./headers.ts";
 
 /** The options of {@link etag}. */
 export type EtagOptions = {
@@ -43,6 +44,8 @@ function matches(if_none_match: string, tag: string): boolean {
  * - It applies to `GET` and `HEAD` requests answered `200`.
  * - The body is read whole to be hashed, so a streamed response is not
  *   streamed any more: keep the middleware off the routes that stream.
+ * - A stream of server-sent events (`text/event-stream`, an `@Sse` handler)
+ *   is passed on as it is, its body unread.
  * - A response that already has an `ETag` is not hashed: its own tag is
  *   compared.
  *
@@ -63,7 +66,10 @@ export function etag(options: EtagOptions = {}): ChoWebMiddlewareFn {
   return async (ctx, next) => {
     let response = await next();
     const { method, headers: sent } = ctx.req;
-    if ((method !== "GET" && method !== "HEAD") || response.status !== 200) {
+    if (
+      (method !== "GET" && method !== "HEAD") || response.status !== 200 ||
+      is_event_stream(response)
+    ) {
       return response;
     }
     let tag = response.headers.get("etag");

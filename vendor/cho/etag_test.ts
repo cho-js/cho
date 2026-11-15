@@ -3,7 +3,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { etag } from "./etag.ts";
-import { run } from "./testing.ts";
+import { event_stream, first_chunk, run } from "./testing.ts";
 
 /** The tag of a response of `etag()` with a given body. */
 async function tag_of(body: string, weak = false) {
@@ -108,5 +108,17 @@ describe("etag", () => {
       () => new Response("content"),
     );
     assert.equal(response.headers.get("etag"), await tag_of("content"));
+  });
+
+  it("passes a stream of server-sent events on, its body unread", async () => {
+    // With the tag of the client too: nothing is compared.
+    const { response } = await run(
+      etag(),
+      { headers: { "if-none-match": "*" } },
+      () => event_stream(),
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("etag"), null);
+    assert.equal(await first_chunk(response), "data: tick\n\n");
   });
 });

@@ -21,6 +21,7 @@ call.
   - [Validation](#validation)
   - [Describing the API](#describing-the-api)
   - [Responses](#responses)
+  - [Server-sent events](#server-sent-events)
   - [Middlewares](#middlewares)
   - [Error handling](#error-handling)
   - [Serving](#serving)
@@ -46,6 +47,8 @@ call.
   write your own.
 - **Same behavior on every adapter.** Middlewares, error handling and the
   conversion of results are done by `@chojs/web` itself.
+- **Server-sent events.** An `async *` method is a stream of events: every
+  `yield` is one.
 - **Dependency injection.** Controllers, middlewares and error handlers receive
   their dependencies. Everything is created and checked before the server
   starts.
@@ -269,6 +272,132 @@ What a handler returns is the response.
 
 For another status or content type, return a `Response`.
 
+### Server-sent events
+
+`@Sse` declares a handler that answers with a stream of
+[server-sent events](https://developer.mozilla.org/docs/Web/API/Server-sent_events):
+the response stays open, and the handler sends events for as long as it wants.
+The handler is an `async *` method, and every `yield` is an event:
+
+```ts
+import { type ChoWebContext, Controller, Sse } from "@chojs/web";
+
+@Controller({ route: "orders", dependencies: [Orders] })
+class OrdersController {
+  constructor(readonly orders: Orders) {}
+
+  @Sse("events") // GET /orders/events
+  async *events(ctx: ChoWebContext) {
+    yield "listening"; // a string is the event { data: "listening" }
+    for await (const order of this.orders.changes(ctx.req.signal)) {
+      yield { event: "order", id: String(order.version), data: order };
+    }
+  }
+}
+```
+
+```js
+// in the browser
+const source = new EventSource("/orders/events");
+source.addEventListener("order", (event) => show(JSON.parse(event.data)));
+```
+
+An event is an object:
+
+| Property | Holds                                                                     |
+| -------- | ------------------------------------------------------------------------- |
+| `data`   | The data, required. A string is sent as it is, anything else as JSON      |
+| `event`  | The name of the event, for `addEventListener(name)`. Default: a `message` |
+| `id`     | The id of the event: a client that reconnects sends it, `Last-Event-ID`   |
+| `retry`  | How long the client waits before it reconnects, in milliseconds           |
+
+`@Sse(route, options)` takes two options:
+
+| Option      | Default | Use                                                               |
+| ----------- | ------- | ----------------------------------------------------------------- |
+| `method`    | `"GET"` | The HTTP method: `GET`, `POST`, `PUT`, `PATCH` or `DELETE`        |
+| `keepAlive` | None    | Send a comment when that many milliseconds pass with nothing sent |
+
+The comment is ignored by clients; it keeps a proxy from closing a connection
+that is idle.
+
+`EventSource` only sends `GET` requests. A stream that answers a request with a
+body is declared on another method, and read with `fetch`:
+
+```ts
+@Sse("answers", { method: "POST" }) // POST /chat/answers
+@Args(Body<{ question: string }>())
+async *answer(body: { question: string }) {
+  for await (const word of this.model.answer(body.question)) {
+    yield word;
+  }
+}
+```
+
+What to know:
+
+- **Before the stream, everything is as usual.** Middlewares, `@Args` and
+  `validate()` run first, and answer a request they refuse (`401`, `400`). The
+  last id a client got is `Header("last-event-id")`.
+- **An `async *` method cannot refuse.** Its body runs as part of the stream,
+  when the `200` is already sent. A handler that must be able to answer `404` is
+  a plain method, which returns a `Response` or the events:
+
+  ```ts
+  @Sse(":id/events")
+  @Args(Param("id"))
+  events(id: string) {
+    const order = this.orders.find(id);
+    return order
+      ? this.orders.eventsOf(order) // an async iterable
+      : new Response("no such order", { status: 404 });
+  }
+  ```
+
+- **When the client goes away**, the iteration is ended, so the `finally` blocks
+  of the method run, and `ctx.req.signal` is aborted. A method that waits for
+  long (a queue, a timer) should watch the signal: an `async *` method only ends
+  once what it awaits settles.
+- **An error in the stream cuts it**, and `EventSource` reconnects.
+  [Error handlers](#error-handling) are **not** called: `@Catch` and `onError`
+  answer a request, and this one is already answered. Catch the error in the
+  method, to log it or to `yield` an event that tells the client:
+
+  ```ts
+  @Sse("events")
+  async *events(ctx: ChoWebContext) {
+    try {
+      yield* this.orders.changes(ctx.req.signal);
+    } catch (error) {
+      this.log.error(error);
+      yield { event: "failed", data: "the feed is not available" };
+    }
+  }
+  ```
+
+- **A middleware gets the response when the stream opens**, not when it ends,
+  and must not read its body.
+- **An open stream is a request in flight**: `server.close()` waits for it, for
+  ever when the stream has no end. Give [`serve`](#serving) a `closeTimeout`:
+  what is still open after that long is cut.
+
+The response has three headers:
+
+| Header              | Value                    | Why                                             |
+| ------------------- | ------------------------ | ----------------------------------------------- |
+| `content-type`      | `text/event-stream`      | What `EventSource` expects                      |
+| `cache-control`     | `no-cache, no-transform` | Nothing on the way keeps or rewrites the events |
+| `x-accel-buffering` | `no`                     | See below                                       |
+
+`x-accel-buffering` is not a standard header: it is one that nginx reads. As a
+reverse proxy, nginx collects a response before it passes it on, so the events
+of a stream would reach the client late, and in batches. `no` turns that off for
+this response, which saves setting `proxy_buffering off` in the configuration of
+the proxy. Everything else ignores the header.
+
+[`examples/sse-http.ts`](../examples/sse-http.ts) is a runnable application with
+both kinds of streams, and a page that reads them.
+
 ### Middlewares
 
 `@Middlewares` applies to a feature module, a controller or a handler. A
@@ -345,11 +474,22 @@ const server = await serve(app.handler, { port: 3000 });
 console.log(`listening on http://localhost:${server.port}`);
 ```
 
-| Option     | Default               | Use                                     |
-| ---------- | --------------------- | --------------------------------------- |
-| `port`     | `3000`                | The port; `0` picks a free one          |
-| `hostname` | the runtime's default | The host name or address to listen on   |
-| `signal`   | none                  | An `AbortSignal` that closes the server |
+| Option         | Default               | Use                                                                |
+| -------------- | --------------------- | ------------------------------------------------------------------ |
+| `port`         | `3000`                | The port; `0` picks a free one                                     |
+| `hostname`     | the runtime's default | The host name or address to listen on                              |
+| `signal`       | none                  | An `AbortSignal` that closes the server                            |
+| `closeTimeout` | none                  | How long closing waits for the requests in flight, in milliseconds |
+
+`server.close()` stops accepting requests and waits for the ones in flight. A
+request that never ends, such as an open stream of
+[server-sent events](#server-sent-events), would hold it for ever. With
+`closeTimeout`, the requests that are still in flight after that long are cut;
+their handlers see a client that went away.
+
+```ts
+const server = await serve(app.handler, { closeTimeout: 10_000 });
+```
 
 It resolves, once the server is listening, to
 `{ runtime, port, hostname,
@@ -381,9 +521,10 @@ releases them in reverse creation order: every instance with a
 `app.handler` answers `503`.
 
 ```ts
-const server = await serve(app.handler);
+const server = await serve(app.handler, { closeTimeout: 10_000 });
 process.once("SIGTERM", async () => {
-  await server.close(); // stop accepting, finish the requests in flight
+  // stop accepting, give the requests in flight 10 seconds to finish
+  await server.close();
   await app.close();
 });
 ```
@@ -537,7 +678,8 @@ Debug logging is enabled with `CHO_DEBUG=1`, or with `CHO_DEBUGLOG=cho:web`.
 - [`@chojs/vendor-hono`](../vendor/hono/README.md): the Hono adapter.
 - [`@chojs/vendor-fastify`](../vendor/fastify/README.md): the Fastify adapter,
   for Node.js.
-- Example: [`hello-world-http.ts`](../examples/hello-world-http.ts).
+- Examples: [`hello-world-http.ts`](../examples/hello-world-http.ts), and
+  [`sse-http.ts`](../examples/sse-http.ts) for server-sent events.
 
 ## License
 

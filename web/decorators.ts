@@ -2,9 +2,11 @@
  * The decorators of `@chojs/web`.
  *
  * - `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Head` and `@Options` mark
- *   the route handlers of a controller. They write the handler's method and route on the decorated
- *   method, under the private `HTTP` key (`keys.ts`), which the web graph
- *   builder reads (see `build-graph.ts`).
+ *   the route handlers of a controller. They write the handler's method and
+ *   route on the decorated method, under the private `HTTP` key (`keys.ts`),
+ *   which the web graph builder reads (see `build-graph.ts`).
+ * - `@Sse` marks a route handler that answers with a stream of server-sent
+ *   events (see `sse.ts`).
  * - `@Module` and `@Controller` are the core's decorators, with the `route`
  *   option of `@chojs/web`. They accept no other option.
  * - `@Middlewares` and `@Catch` declare the middlewares and the error handler
@@ -54,6 +56,9 @@ import type {
   ChoWebDoc,
   ChoWebErrorHandler,
   ChoWebMiddleware,
+  ChoWebSseDecorator,
+  ChoWebSseMethod,
+  ChoWebSseOptions,
 } from "./types.ts";
 
 /** The option `@chojs/web` adds to `@Module` and `@Controller`. */
@@ -149,12 +154,14 @@ export function Controller<const D extends readonly Dependency[] = []>(
  * @param name The decorator's name, for error messages (`"Get"`).
  * @param route The route of the handler, relative to its controller.
  * @param method The HTTP method.
+ * @param sse The options of `@Sse`, when it is the decorator.
  * @returns A method decorator.
  */
 function create_http_decorator(
   name: string,
   route: string,
   method: string,
+  sse?: ChoWebSseOptions,
 ): ChoMethodDecorator {
   return function (target, context, descriptor) {
     const decorator = `@${name}()`;
@@ -185,9 +192,112 @@ function create_http_decorator(
       );
     }
     add_to_metadata_object(decorated.meta, {
-      [HTTP]: { method, route } satisfies HttpRoute,
+      [HTTP]: Object.freeze(
+        { method, route, ...(sse ? { sse } : {}) } satisfies HttpRoute,
+      ),
     });
   };
+}
+
+/** The HTTP methods of `@Sse`. */
+const SSE_METHODS: readonly ChoWebSseMethod[] = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+];
+
+/**
+ * Mark a method as a handler that answers with a stream of
+ * [server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html):
+ * the response stays open, and the handler sends events for as long as it
+ * wants. The route is `GET route`, unless the `method` option says otherwise.
+ *
+ * The method returns the events as an async iterable, so it is usually an
+ * `async *` method, where every `yield` is an event: an object
+ * `{ data, event?, id?, retry? }`, or a string, short for `{ data: string }`.
+ * It can also return a `Response`, to answer without a stream.
+ *
+ * - The response is a `200` of `text/event-stream`, sent before the first
+ *   event. The body of an `async *` method runs as part of the stream, so it
+ *   cannot answer with another status: a handler that must be able to refuse
+ *   is a plain method that returns a `Response` or the events.
+ * - When the client goes away, the iteration is ended (the `finally` blocks
+ *   of an `async *` method run), and `ctx.req.signal` is aborted.
+ * - An error in the stream cuts it. No error handler is called: the response
+ *   is already on its way. Catch the error in the method to log it, or to
+ *   tell the client with an event of your own.
+ * - The response has the headers `content-type: text/event-stream`,
+ *   `cache-control: no-cache, no-transform`, and `x-accel-buffering: no`,
+ *   which tells an nginx proxy to pass each event on at once.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
+ *   controller's own route.
+ * @param options The HTTP method of the route (`method`), and the delay of
+ *   the keep-alive comments (`keepAlive`).
+ * @returns A method decorator, which only accepts a method that returns the
+ *   events or a `Response`.
+ * @throws {Error} When an option is unknown, when the route is invalid, or
+ *   when the method already has an HTTP method decorator.
+ * @throws {TypeError} When an option is invalid, or when the decorated member
+ *   is not a public, non-static, string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "clock" })
+ * class ClockController {
+ *   // GET /clock/ticks
+ *   @Sse("ticks", { keepAlive: 15_000 })
+ *   async *ticks(ctx: ChoWebContext) {
+ *     while (!ctx.req.signal.aborted) {
+ *       yield { event: "tick", data: { now: Date.now() } };
+ *       await new Promise((resolve) => setTimeout(resolve, 1000));
+ *     }
+ *   }
+ * }
+ * ```
+ *
+ * @example On another method, read with `fetch`
+ * ```ts
+ * @Sse("answers", { method: "POST" })
+ * @Args(Body<{ question: string }>())
+ * async *answer(body: { question: string }) {
+ *   for (const word of await this.model.answer(body.question)) {
+ *     yield word;
+ *   }
+ * }
+ * ```
+ */
+export function Sse(
+  route: string,
+  options: ChoWebSseOptions = {},
+): ChoWebSseDecorator {
+  assert_known_options("@Sse()", options, ["keepAlive", "method"]);
+  const { keepAlive, method = "GET" } = options;
+  if (!SSE_METHODS.includes(method)) {
+    throw new TypeError(
+      `@Sse(): method must be one of ${SSE_METHODS.join(", ")}, got ${
+        describe(method)
+      }`,
+    );
+  }
+  if (
+    keepAlive !== undefined && !(Number.isInteger(keepAlive) && keepAlive > 0)
+  ) {
+    throw new TypeError(
+      `@Sse(): keepAlive must be a positive whole number of milliseconds, got ${
+        describe(keepAlive)
+      }`,
+    );
+  }
+  return create_http_decorator(
+    "Sse",
+    route,
+    method,
+    Object.freeze({ ...options }),
+  ) as ChoWebSseDecorator;
 }
 
 /**

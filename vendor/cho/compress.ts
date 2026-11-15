@@ -5,6 +5,7 @@
  */
 
 import type { ChoWebMiddlewareFn } from "@chojs/web";
+import { is_event_stream } from "./headers.ts";
 
 /** The options of {@link compress}. */
 export type CompressOptions = {
@@ -45,7 +46,9 @@ function pick_encoding(accept: string | null): "gzip" | "deflate" | undefined {
  * A response is compressed when it has a body of a text type (text, JSON,
  * XML, JavaScript, SVG), is not compressed already, does not forbid it
  * (`Cache-Control: no-transform`), and is not smaller than the threshold. The
- * body is compressed as a stream: a streamed response stays streamed.
+ * body is compressed as a stream: a streamed response stays streamed. A stream
+ * of server-sent events (`text/event-stream`, an `@Sse` handler) is never
+ * compressed: its events must go out as they come.
  *
  * It uses the standard `CompressionStream`. On a runtime that does not have
  * it, the middleware changes nothing.
@@ -82,6 +85,8 @@ export function compress(options: CompressOptions = {}): ChoWebMiddlewareFn {
       response.body === null ||
       ctx.req.method === "HEAD" ||
       headers.has("content-encoding") ||
+      // Compressed events would wait for the compressor to fill a block.
+      is_event_stream(response) ||
       !TEXT_TYPES.test(headers.get("content-type") ?? "") ||
       /\bno-transform\b/i.test(headers.get("cache-control") ?? "") ||
       (length !== null && Number(length) < threshold)

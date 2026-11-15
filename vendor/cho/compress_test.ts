@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { loose } from "@chojs/core/utils/test_utils";
 import { compress } from "./compress.ts";
-import { run } from "./testing.ts";
+import { event_stream, first_chunk, run } from "./testing.ts";
 
 /** A body large enough to be compressed, and that compresses well. */
 const BODY = JSON.stringify({ items: Array(200).fill("the same text") });
@@ -188,6 +188,24 @@ suite("compress", () => {
         name: "TypeError",
         message: "compress(): threshold must be a whole number of bytes",
       });
+    }
+  });
+
+  it("never compresses a stream of server-sent events", async () => {
+    for (
+      const headers of [
+        {},
+        { "content-type": "TEXT/EVENT-STREAM; charset=utf-8" },
+        { "cache-control": "no-cache, no-transform" },
+      ]
+    ) {
+      const { response } = await run(
+        compress({ threshold: 0 }),
+        accepting("gzip"),
+        () => event_stream(headers),
+      );
+      assert.equal(response.headers.get("content-encoding"), null);
+      assert.equal(await first_chunk(response), "data: tick\n\n");
     }
   });
 });
