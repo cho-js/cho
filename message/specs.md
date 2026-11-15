@@ -771,6 +771,9 @@ which is what the package does.
   linked versions. `./vendor/kafka` joins them with the adapter. The package has
   to exist on JSR before the next release: the release workflow publishes every
   package of the workspace.
-- **`@chojs/core`**: nothing. The records, the injector, `compose` and the
-  helpers for a CHO module's own `@Module` and `@Controller` are the ones
-  `@chojs/web` uses.
+- **`@chojs/core`: `compose` runs a chain that has no result**, when it is given
+  no `kind` (`core/specs.md`, section 3.3). It is the chain of section 4: what a
+  middleware returns is ignored, and one that returns without calling `next()`
+  ends the chain. Nothing else changed in the core: the records, the injector
+  and the helpers for a CHO module's own `@Module` and `@Controller` are the
+  ones `@chojs/web` uses.
