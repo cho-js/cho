@@ -338,17 +338,23 @@ function serve_deno(
     close: once(async () => {
       closing = true;
       let timer: ReturnType<typeof setTimeout> | undefined;
-      await new Promise<void>((resolve) => {
-        idle = resolve;
+      const in_time = await new Promise<boolean>((resolve) => {
+        idle = () => resolve(true);
         if (in_flight === 0) {
-          resolve();
+          resolve(true);
         } else {
-          timer = setTimeout(resolve, close_timeout);
+          timer = setTimeout(() => resolve(false), close_timeout);
         }
       });
       clearTimeout(timer);
-      // Closes the server, and what is still in flight with it.
-      cut.abort();
+      if (in_time) {
+        // Not `abort()`: it would drop a response Deno has just been given,
+        // before it is written. Nothing is in flight, so this does not wait.
+        await native.shutdown();
+      } else {
+        // Closes the server, and what is still in flight with it.
+        cut.abort();
+      }
       await native.finished;
     }),
   };

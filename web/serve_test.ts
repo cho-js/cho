@@ -248,6 +248,21 @@ for (const [name, start] of starts) {
       assert.ok(Date.now() - started < 3000);
     });
 
+    it("answers a request whose handler ends within closeTimeout", async () => {
+      const server = await start(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return new Response("done");
+      }, { closeTimeout: 5000 });
+      const answer = fetch(`http://127.0.0.1:${server.port}`);
+      // the handler is running: nothing of the response is sent yet
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const started = Date.now();
+      const closing = server.close();
+      assert.equal(await (await answer).text(), "done");
+      await closing;
+      assert.ok(Date.now() - started < 3000);
+    });
+
     it("cuts the requests in flight at once, with a closeTimeout of 0", async () => {
       const server = await start(() => endless(), { closeTimeout: 0 });
       const reader = (await fetch(`http://127.0.0.1:${server.port}`)).body!
