@@ -8,7 +8,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Injectable, provider, token } from "@chojs/core/di";
+import { Injectable, Injector, provider, token } from "@chojs/core/di";
 import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
 import { Controller, Get, Module } from "./decorators.ts";
 import type { Ctr } from "@chojs/core/di";
@@ -65,6 +65,23 @@ describe("ChoWeb.create", () => {
     );
     assert.equal(app.linked.instance.routes, routes);
     assert.equal(app.routes, routes);
+  });
+
+  it("exposes its injector, with the instances of the application", async () => {
+    class Store {}
+    Injectable()(Store);
+    class App {}
+    Module({ providers: [Store] })(App);
+    const app = await ChoWeb.create(App, { linker: new FakeLinker() });
+    assert.ok(app.injector instanceof Injector);
+    const store = await app.injector.resolve(Store);
+    assert.ok(store instanceof Store);
+    assert.equal(await app.injector.resolve(Store), store);
+    // close() disposes it
+    await app.close();
+    await assert.rejects(app.injector.resolve(Store), {
+      message: "The injector is disposed",
+    });
   });
 
   it("gives routes that answer on their own", async () => {

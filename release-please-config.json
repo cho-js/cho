@@ -12,6 +12,7 @@
         "core",
         "command",
         "web",
+        "message",
         "vendor-hono",
         "vendor-fastify",
         "vendor-cho"
@@ -46,6 +47,18 @@
     "web": {
       "component": "web",
       "package-name": "@chojs/web",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    },
+    "message": {
+      "component": "message",
+      "package-name": "@chojs/message",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {

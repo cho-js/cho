@@ -529,6 +529,12 @@ process.once("SIGTERM", async () => {
 });
 ```
 
+`app.injector` is the injector of the application. Another CHO module can build
+a second application on it, which then shares the instances of this one: an
+application that also handles the messages of a broker is made with
+`ChoMessage.from(app.injector)` of `@chojs/message`. The web application owns
+the injector: close the other application first, then `app.close()`.
+
 ### Testing
 
 `app.handler` takes a `Request`, so a test needs no server. The `overrides`
@@ -558,8 +564,9 @@ Without a `linker`, `ChoWeb.create(App)` uses the
 [built-in router](#the-built-in-router).
 
 The application exposes `handler`, `close()`, `routes` (every route with its
-method, path and name), `graph` (the same routes as a tree) and `linked` (the
-adapter's own application object).
+method, path and name), `graph` (the same routes as a tree), `linked` (the
+adapter's own application object) and `injector` (the injector that holds its
+instances).
 
 ## Runtime adapters
 

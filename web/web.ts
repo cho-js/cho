@@ -128,8 +128,14 @@ export class ChoWeb<T = unknown> {
   readonly graph: AppRef;
   /** The routes of the application, as given to the linker. */
   readonly routes: readonly Route[];
-  /** Holds the instances of the application; disposed by {@link close}. */
-  readonly #injector: Injector;
+  /**
+   * The injector of the application: it holds its instances, and is disposed
+   * by {@link close}. Give it to the `from` of another CHO module, such as
+   * `ChoMessage.from(app.injector)` of `@chojs/message`, to build a second
+   * application on the same instances. Close that application first: this
+   * one owns the injector.
+   */
+  readonly injector: Injector;
   /** Whether {@link close} was called: requests are then refused. */
   #closed = false;
   /**
@@ -258,7 +264,7 @@ export class ChoWeb<T = unknown> {
     this.linked = linked;
     this.graph = graph;
     this.routes = routes;
-    this.#injector = injector;
+    this.injector = injector;
     // Servers call the handler with more than the request (Deno's connection
     // info, Bun's server, a Workers' env and context): pass everything on.
     // The request is a declared parameter on purpose: `Deno.serve` reads the
@@ -300,7 +306,7 @@ export class ChoWeb<T = unknown> {
    */
   close(): Promise<void> {
     this.#closed = true;
-    return this.#injector.dispose();
+    return this.injector.dispose();
   }
 
   /** Close the application at the end of an `await using` block. */

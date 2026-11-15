@@ -795,6 +795,7 @@ app.handler; // (req: Request) => Promise<Response>
 app.linked.instance; // the runtime's own application (a Hono app)
 app.routes; // every route: method, path, name
 app.graph; // the same routes as a tree: features, controllers, handlers
+app.injector; // the injector: the instances of the application
 await app.close(); // when the server has stopped: release the instances
 ```
 
@@ -803,6 +804,12 @@ application up front (`injector.init()`), builds and checks the routes, and
 registers them with the adapter. Every wiring, route, middleware or error
 handler mistake makes it reject, before the server starts; what was created
 until then is disposed.
+
+**The injector.** `app.injector` is the injector `ChoWeb.create` built. It is
+there for another CHO module to build a second application on the same
+instances: `ChoMessage.from(app.injector)` of `@chojs/message`
+(`message/specs.md`, section 6.5). The web application owns it: `app.close()`
+disposes it, after the other application is closed.
 
 **The default linker.** Without a `linker` (`ChoWeb.create(App)`, or options
 that have none), the application is linked with the built-in router, a
