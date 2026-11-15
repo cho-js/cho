@@ -26,6 +26,7 @@ import {
   Patch,
   Post,
   Put,
+  Sse,
 } from "./decorators.ts";
 import { HTTP } from "./keys.ts";
 
@@ -132,6 +133,91 @@ describe("HTTP method decorators", () => {
       message:
         "@Get() cannot decorate method Symbol(run): a handler must have a string name",
     });
+  });
+});
+
+describe("@Sse", () => {
+  it("writes a GET route, with its options (TC39 and legacy)", () => {
+    function run() {}
+    tc39(loose(Sse("events")), run, "run");
+    assert.deepEqual(tc39_record(run), {
+      [HTTP]: { method: "GET", route: "events", sse: {} },
+    });
+
+    class Feed {
+      run() {}
+    }
+    legacy(loose(Sse(":id/events", { keepAlive: 15_000 })), Feed, "run");
+    assert.deepEqual(read_method_metadata(Feed, "run"), {
+      [HTTP]: {
+        method: "GET",
+        route: ":id/events",
+        sse: { keepAlive: 15_000 },
+      },
+    });
+  });
+
+  it("writes the route of another method, with the method option", () => {
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"] as const) {
+      class Feed {
+        run() {}
+      }
+      legacy(loose(Sse("answers", { method })), Feed, "run");
+      assert.deepEqual(read_method_metadata(Feed, "run"), {
+        [HTTP]: { method, route: "answers", sse: { method } },
+      });
+    }
+  });
+
+  it("rejects an unknown option, when it is called", () => {
+    assert.throws(() => Sse("events", loose({ keepalive: 1000 })), {
+      message:
+        '@Sse(): unknown option "keepalive". Known options: keepAlive, method',
+    });
+  });
+
+  it("rejects a method a stream cannot answer", () => {
+    for (const method of ["HEAD", "OPTIONS", "get", 1]) {
+      assert.throws(() => Sse("events", loose({ method })), {
+        name: "TypeError",
+        message:
+          /^@Sse\(\): method must be one of GET, POST, PUT, PATCH, DELETE, got /,
+      });
+    }
+  });
+
+  it("rejects a keep-alive delay that is not a positive whole number", () => {
+    for (const keepAlive of [0, -1, 1.5, "1000", NaN]) {
+      assert.throws(() => Sse("events", loose({ keepAlive })), {
+        name: "TypeError",
+        message:
+          /^@Sse\(\): keepAlive must be a positive whole number of milliseconds, got /,
+      });
+    }
+  });
+
+  it("follows the rules of an HTTP method decorator", () => {
+    class Feed {
+      run() {}
+      static fixed() {}
+    }
+    assert.throws(() => legacy(loose(Sse("/events")), Feed, "run"), {
+      message:
+        'Invalid route "/events" of @Sse() on method run: it must not start or end with "/"',
+    });
+    legacy(Get("x"), Feed, "run");
+    assert.throws(() => legacy(loose(Sse("y")), Feed, "run"), {
+      message:
+        'Cannot add @Sse() to method run: it already handles GET "x". A method can have one HTTP method decorator.',
+    });
+    assert.throws(
+      () => legacy(loose(Sse("")), Feed, "fixed", { isStatic: true }),
+      {
+        name: "TypeError",
+        message:
+          "@Sse() cannot decorate static method fixed: a handler must not be static",
+      },
+    );
   });
 });
 

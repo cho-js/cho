@@ -181,6 +181,96 @@ export type ChoWebArgsDecorator<P extends unknown[]> = {
   ): void;
 };
 
+/**
+ * A server-sent event, as an `@Sse` handler yields it.
+ *
+ * @typeParam T The data of the event.
+ *
+ * @example
+ * ```ts
+ * const event: ChoWebSseEvent<Order> = { event: "order", id: "7", data: order };
+ * ```
+ */
+export type ChoWebSseEvent<T = unknown> = {
+  /**
+   * The data of the event. A string is sent as it is, one `data:` line for
+   * each of its lines; anything else is sent as JSON.
+   */
+  data: T;
+  /**
+   * The name of the event, for `addEventListener(name)` on the client.
+   * Default: none, which makes it a `message` event.
+   */
+  event?: string;
+  /**
+   * The id of the event. A client that reconnects sends the last one it got,
+   * in the `Last-Event-ID` header. Default: none.
+   */
+  id?: string;
+  /**
+   * How long the client waits before it reconnects, in milliseconds. Default:
+   * none, which leaves it to the client.
+   */
+  retry?: number;
+};
+
+/** The HTTP methods an `@Sse` handler can answer. */
+export type ChoWebSseMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+/** The options of `@Sse`. */
+export type ChoWebSseOptions = {
+  /**
+   * The HTTP method of the route. Default: `"GET"`, the only one a browser's
+   * `EventSource` sends; a stream on another method is read with `fetch`.
+   */
+  method?: ChoWebSseMethod;
+  /**
+   * Send a comment line, which clients ignore, whenever this many
+   * milliseconds pass with nothing sent, so that a proxy does not close an
+   * idle connection. Default: none.
+   */
+  keepAlive?: number;
+};
+
+/**
+ * What an `@Sse` handler returns, now or as a promise: the events, as an
+ * async iterable (what an `async *` method returns), or a `Response`, to
+ * answer without a stream.
+ */
+export type ChoWebSseResult =
+  | AsyncIterable<ChoWebSseEvent | string>
+  | Response;
+
+/**
+ * The decorator `@Sse` returns. It only accepts a method that returns the
+ * events of the stream (see {@link ChoWebSseResult}): a handler that returns
+ * something else does not compile.
+ *
+ * It has both decorator call shapes: standard (TC39) `(method, context)`, and
+ * legacy / Bun `(prototype, name, descriptor)`.
+ */
+export type ChoWebSseDecorator = {
+  <
+    // deno-lint-ignore no-explicit-any
+    M extends (this: any, ...args: any[]) =>
+      | ChoWebSseResult
+      | Promise<ChoWebSseResult>,
+  >(
+    method: M,
+    context: ClassMethodDecoratorContext,
+  ): void;
+  <
+    // deno-lint-ignore no-explicit-any
+    M extends (this: any, ...args: any[]) =>
+      | ChoWebSseResult
+      | Promise<ChoWebSseResult>,
+  >(
+    target: object,
+    name: string | symbol,
+    descriptor: TypedPropertyDescriptor<M>,
+  ): void;
+};
+
 /** What failed the validation of a request: given to `onInvalid`. */
 export type ChoWebInvalid = {
   /** The source of the argument that is not valid. */

@@ -159,6 +159,10 @@ const response = await app.handler(new Request("http://localhost/users/42"));
 It reads the bodies of the request and of the response whole, so serve real
 traffic with `listen()`.
 
+That goes for a stream of server-sent events too (an `@Sse` handler): through
+`app.handler` it is collected until it ends, so it only suits a stream that does
+end. Served with `listen()`, the events are sent as they come.
+
 ## How it works
 
 The adapter only matches requests. `@chojs/web` builds each route as one

@@ -287,6 +287,7 @@ export async function build_http_graph(
               ...controller.middlewares,
               ...middlewares,
             ].some(is_validation),
+            http.sse,
           ),
         );
       }

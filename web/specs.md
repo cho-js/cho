@@ -80,9 +80,11 @@ Deno.serve(app.handler); // or Bun.serve({ fetch: app.handler })
   `@Get(…)` on it replaces the route.
 - A **handler** is a controller method marked with `@Get(route)`,
   `@Post(route)`, `@Put(route)`, `@Patch(route)`, `@Delete(route)`,
-  `@Head(route)` or `@Options(route)`. Other methods are not routes. A handler
-  is a public, non-static method with a string name, and has one HTTP method
-  decorator: anything else throws when the class is defined.
+  `@Head(route)` or `@Options(route)`, or with `@Sse(route)`, a handler (`GET`
+  by default) that answers with a stream of events (section 3.4). Other methods
+  are not routes. A handler is a public, non-static method with a string name,
+  and has one HTTP method decorator: anything else throws when the class is
+  defined.
 
 Only what serves a route counts. A controller without a handler is not part of
 the web application, and a module left without such a controller is not a
@@ -168,6 +170,7 @@ context. Code that uses `native` only runs on that adapter.
   when the response is sent). For another status or content type, return a
   `Response`. A value that cannot be serialized as JSON (a `BigInt`, a cycle) is
   an error (section 5).
+- An `@Sse` handler returns the events of a stream instead (section 3.4).
 - The response of a `@Head` handler is sent **without its body**: only its
   status and headers. Without a `@Head` handler, what a `HEAD` request gets is
   up to the adapter (the three adapters answer it from the `@Get` handler,
@@ -392,6 +395,7 @@ section says what it will be built from.
 | The name                    | the controller and the method: `UsersController.get` | `operationId`                  |
 | The controller, the feature | the classes                                          | default `tags`                 |
 | Each argument               | `@Args`                                              | `parameters` and `requestBody` |
+| That it is an event stream  | `@Sse` (section 3.4)                                 | a `text/event-stream` response |
 
 An argument made by one of the five functions carries its description:
 
@@ -453,17 +457,208 @@ An unknown option throws when the decorator is called, like the options of
 **Where it is exposed.** On the graph of the application (`app.graph`,
 `@chojs/web/graph`), with every instance already created:
 
-| Node            | Gains                                                             |
-| --------------- | ----------------------------------------------------------------- |
-| `MethodRef`     | `args`: the arguments of the handler, in order; `doc`: its `@Doc` |
-| `ControllerRef` | `doc`: its `@Doc`                                                 |
-| `FeatureRef`    | `doc`: its `@Doc`                                                 |
+| Node            | Gains                                                                                |
+| --------------- | ------------------------------------------------------------------------------------ |
+| `MethodRef`     | `args`: the arguments of the handler, in order; `doc`: its `@Doc`; `sse`: its `@Sse` |
+| `ControllerRef` | `doc`: its `@Doc`                                                                    |
+| `FeatureRef`    | `doc`: its `@Doc`                                                                    |
 
 `doc` is an empty object when there is no `@Doc`, and `args` an empty list when
 there is no `@Args`. `validated` on a `MethodRef` says whether the validation
 middleware covers the handler: whether it is among the middlewares of the
-feature, of the controller or of the handler. `handler` on a `MethodRef` is
-still called with the context alone: it evaluates the arguments itself.
+feature, of the controller or of the handler. `sse` holds the options of `@Sse`
+(an empty object when it has none), and is `undefined` for a handler that is not
+an event stream. `handler` on a `MethodRef` is still called with the context
+alone: it evaluates the arguments itself.
+
+### 3.4 Server-sent events: `@Sse`
+
+`@Sse(route, options?)` declares a handler that answers with a stream of
+[server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html):
+the response stays open, and the handler sends events for as long as it wants.
+Its route is `GET route`, which a browser reads with `EventSource`, unless the
+`method` option says otherwise (below).
+
+| Option      | Default | Use                                                                     |
+| ----------- | ------- | ----------------------------------------------------------------------- |
+| `method`    | `"GET"` | the HTTP method of the route: `GET`, `POST`, `PUT`, `PATCH` or `DELETE` |
+| `keepAlive` | none    | send a comment when that many milliseconds pass with nothing sent       |
+
+An unknown option, a `method` that is not one of the five, and a `keepAlive`
+that is not a positive whole number throw when the decorator is called.
+
+The handler returns the events as an **async iterable**, so the natural handler
+is an `async *` method, where every `yield` is an event:
+
+```ts
+@Controller({ route: "orders", dependencies: [Orders] })
+class OrdersController {
+  constructor(readonly orders: Orders) {}
+
+  @Sse("events") // GET /orders/events
+  async *events(ctx: ChoWebContext) {
+    yield { event: "ready", data: "listening" };
+    for await (const order of this.orders.changes(ctx.req.signal)) {
+      yield { event: "order", id: String(order.version), data: order };
+    }
+  }
+}
+```
+
+**An event** is an object, a `ChoWebSseEvent`:
+
+| Property | Holds                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------- |
+| `data`   | the data of the event, required. A string is sent as it is; anything else is sent as JSON   |
+| `event`  | the name of the event, for `addEventListener(name)`. Without it the event is a `message`    |
+| `id`     | the id of the event. A client that reconnects sends the last one it got, as `Last-Event-ID` |
+| `retry`  | how long the client waits before it reconnects, in milliseconds                             |
+
+A string is short for `{ data: string }`. Anything else that is yielded, an
+`event` or an `id` that is not a string or that has a line break, and a `retry`
+that is not a whole number of milliseconds, are errors of the stream (below).
+
+**On another method.** `EventSource` only sends `GET` requests, with no body. A
+stream that answers a request with a body, such as the answer of a model to a
+question, is declared with the `method` option, and the client reads it with
+`fetch`. The arguments of the handler are those of any handler:
+
+```ts
+@Sse("answers", { method: "POST" }) // POST /chat/answers
+@Args(Body(Question))
+async *answer(question: Question) {
+  for await (const word of this.model.answer(question)) {
+    yield word;
+  }
+}
+```
+
+`HEAD` and `OPTIONS` are not methods of a stream: their responses have no body.
+
+**The response** is a `200` with these headers, and it is sent as soon as the
+handler has returned, before the first event:
+
+| Header              | Value                    | Why                                             |
+| ------------------- | ------------------------ | ----------------------------------------------- |
+| `content-type`      | `text/event-stream`      | what `EventSource` expects                      |
+| `cache-control`     | `no-cache, no-transform` | nothing on the way keeps or rewrites the events |
+| `x-accel-buffering` | `no`                     | a proxy (nginx) passes each event on at once    |
+
+`x-accel-buffering` is not a standard header: it is one that nginx reads. As a
+reverse proxy, nginx collects a response before it passes it on, so the events
+of a stream would reach the client late, and in batches. `no` turns that off for
+this response, without `proxy_buffering off` in the configuration of the proxy.
+Everything else ignores the header.
+
+A middleware adds headers to the response as to any other, after `next()`.
+
+**Before the stream.** What runs before the handler is what it is for any
+handler: the middlewares of the route, the arguments of `@Args` and their
+validation. They answer a request they refuse (`401`, `400`) the usual way, and
+the last id a client got is an argument like any other,
+`Header("last-event-id")`.
+
+The body of an `async *` method is different: it runs as part of the stream,
+when the response has already started, so it cannot answer with another status.
+A handler that must be able to refuse is a plain method, which returns either a
+`Response` or the events:
+
+```ts
+@Sse(":id/events")
+@Args(Param("id"), Header("last-event-id"))
+events(id: string, last: string | undefined) {
+  const order = this.orders.find(id);
+  if (!order) {
+    return new Response("no such order", { status: 404 });
+  }
+  return this.orders.eventsOf(order, last); // an async iterable
+}
+```
+
+A `Response` is sent as it is. A result that is neither a `Response` nor an
+async iterable is an error of the request, given to the nearest error handler
+like any other (section 5).
+
+**The end of the stream.**
+
+- When the iteration ends, the response ends. `EventSource` then reconnects by
+  itself: to make it stop, the client closes it, or the handler answers the next
+  request with `new Response(null, { status: 204 })`.
+- When the client goes away, the iteration is ended (`return()` is called on the
+  iterator), so the `finally` blocks of an `async *` method run. An `async *`
+  method that is waiting only ends once what it awaits settles: something that
+  waits for long should watch `ctx.req.signal`, which the server aborts when the
+  client goes away.
+- An event is read from the iteration when the connection can take it: a slow
+  client slows the handler down, and nothing piles up in memory.
+- A `HEAD` request to a `GET` stream gets the headers, and the events are never
+  read.
+- An open stream is a request in flight: a server that waits for the requests in
+  flight before it closes waits for it, for ever when the stream has no end.
+  Give `serve` a `closeTimeout` (section 6): the streams that are still open
+  after that long are cut, which ends their iteration like a client that goes
+  away.
+
+**An error in the stream.** When the iteration throws, or yields something that
+is not an event, the status is already sent:
+
+- **no error handler is called**: not the `@Catch` of the handler, of the
+  controller or of the feature, and not `onError`. An error handler answers a
+  request, and this one is already answered;
+- the stream is cut: the body of the response fails with the error, so the
+  server closes the connection without a proper end. A client sees a failed
+  connection, and `EventSource` reconnects;
+- the error is the server's to report: `Deno.serve`, `Bun.serve` and the
+  `node:http` bridge of `serve` print a body that fails. It is also logged to
+  the `cho:web` debug context, with the method and the path of the request.
+
+So the errors of a stream are the handler's own business: catch them in the
+handler, to log them, to report them, or to tell the client what went wrong with
+an event of your own.
+
+```ts
+@Sse("events")
+async *events(ctx: ChoWebContext) {
+  try {
+    yield* this.orders.changes(ctx.req.signal);
+  } catch (error) {
+    this.log.error(error);
+    yield { event: "failed", data: "the feed is not available" };
+  }
+}
+```
+
+What the end of the iteration throws once the client has gone away (a `finally`
+block that fails) is logged with `console.error`: there is no response left to
+fail, and no one else would see it.
+
+**Keep-alive.** A proxy closes a connection on which nothing is sent for a while
+(often a minute). With the `keepAlive` option, a comment line, which clients
+ignore, is sent whenever that many milliseconds pass with nothing sent, from the
+moment the response is read:
+
+```ts
+@Sse("events", { keepAlive: 15_000 })
+```
+
+It is off by default.
+
+**With middlewares.** For a middleware, `next()` resolves when the stream opens,
+not when it ends: what it measures or logs is the time until the first byte. A
+middleware must not read the body of an event stream, which would wait for its
+end. The middlewares of `@chojs/vendor-cho` that read or rewrite a body (`etag`,
+`compress`) leave an event stream as it is.
+
+**Rules.**
+
+- `@Sse` is an HTTP method decorator: a method has one of them, the route
+  follows the rules of section 2.3, and `@Args`, `@Middlewares`, `@Catch` and
+  `@Doc` go above or below it.
+- The result of the handler is checked at compile time: an async iterable of
+  events, a `Response`, or a promise of one of them.
+- Every adapter sends the events as they come when a server runs it. The
+  `app.handler` of the Fastify adapter goes through `inject()`, which collects
+  the whole response: there it only suits a stream that ends (section 7).
 
 ## 4. Middlewares
 
@@ -584,6 +779,10 @@ Without any error handler at any level, when the error handler returns nothing,
 or when it throws too, the error goes to the adapter, which answers `500`
 (section 7).
 
+An error in an event stream that has already started is **not** given to an
+error handler: the response is on its way, and there is nothing left to answer.
+The stream is cut (section 3.4).
+
 ## 6. The application: `ChoWeb`
 
 ```ts
@@ -620,11 +819,12 @@ Node.js, through a bridge to `Request` and `Response` that is part of this
 package. It resolves, once the server is listening, to
 `{ runtime, port, hostname, close() }`.
 
-| Option     | Default               | Use                                     |
-| ---------- | --------------------- | --------------------------------------- |
-| `port`     | `3000`                | the port; `0` picks a free one          |
-| `hostname` | the runtime's default | the host name or address to listen on   |
-| `signal`   | none                  | an `AbortSignal` that closes the server |
+| Option         | Default               | Use                                                                |
+| -------------- | --------------------- | ------------------------------------------------------------------ |
+| `port`         | `3000`                | the port; `0` picks a free one                                     |
+| `hostname`     | the runtime's default | the host name or address to listen on                              |
+| `signal`       | none                  | an `AbortSignal` that closes the server                            |
+| `closeTimeout` | none                  | how long closing waits for the requests in flight, in milliseconds |
 
 - `serve` is asynchronous because the Node.js modules are imported when they are
   needed, on Node.js only: `@chojs/web` has no dependency, and loads nothing of
@@ -632,11 +832,23 @@ package. It resolves, once the server is listening, to
 - On Node.js the body of the request is the stream of the connection, the body
   of the response is streamed, `req.signal` is aborted when the client goes
   away, and a handler that rejects is logged and answered with `500`.
-- `close()` stops accepting requests and waits for the ones in flight.
+- `close()` stops accepting requests and waits for the ones in flight. A request
+  that never ends, such as an open stream of server-sent events (section 3.4),
+  would hold it for ever: with `closeTimeout`, the connections of the requests
+  that are still in flight after that long are cut, and `0` cuts them at once.
+  The handler of a request that is cut sees what it sees when a client goes
+  away: `req.signal` is aborted, and the body of its response is cancelled. The
+  timeout also applies when the `signal` closes the server.
+- On Deno, a request that arrives while a server with a `closeTimeout` is
+  closing is answered `503`: `Deno.serve` cannot both wait for its requests and
+  then cut them, so the requests in flight are counted by `serve`, which keeps
+  the server listening until it cuts.
 - It is a separate entry point, so that an application that does not call it
   loads nothing of it. On Cloudflare Workers and the other runtimes that serve
   an exported handler, the entry module is
   `export default { fetch: app.handler }`.
+- A `closeTimeout` that is not a whole number of milliseconds rejects:
+  `TypeError: serve(): closeTimeout must be a whole number of milliseconds, got <v>`.
 - On a runtime that is not Deno, Bun or Node.js it rejects:
   `serve() has no server for this runtime (<runtime>): give app.handler to the runtime's own entry point`.
 - On Deno it needs `--allow-net`.
@@ -650,9 +862,10 @@ own: stop the server first, then close. A request that still reaches
 route.
 
 ```ts
-const server = await serve(app.handler);
+const server = await serve(app.handler, { closeTimeout: 10_000 });
 process.once("SIGTERM", async () => {
-  await server.close(); // stop accepting, finish the requests in flight
+  // stop accepting, give the requests in flight 10 seconds to finish
+  await server.close();
   await app.close();
 });
 ```
@@ -686,18 +899,19 @@ method and path.
 
 ## 7. Runtime adapters
 
-|                        | `ChoLinker` (built in)                                   | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                    |
-| ---------------------- | -------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------- |
-| Linker                 | `new ChoLinker(options?)`                                | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                              |
-| Runs on                | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                               |
-| `app.linked.instance`  | a `ChoRouter`                                            | the `Hono` application                           | the Fastify application                                    |
-| Served with            | `app.handler`                                            | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()` |
-| `ctx.native`           | `undefined`                                              | Hono's `Context`                                 | `{ request, reply }` of Fastify                            |
-| When two routes match  | the first declared                                       | the first declared                               | the static one                                             |
-| `HEAD` without `@Head` | `@Get`, without the body                                 | `@Get`, without the body                         | `@Get`, without the body                                   |
-| No route matches       | the `notFound` option; `404`                             | `notFound` of the Hono application               | the not-found handler of the Fastify application           |
-| A route rejects        | logged with `console.error`; `500`                       | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`        |
-| Its own middlewares    | `@chojs/vendor-cho` (`cors`)                             | `fromHono(middleware)`                           | `fromFastify(hook)`                                        |
+|                          | `ChoLinker` (built in)                                   | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                          |
+| ------------------------ | -------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------- |
+| Linker                   | `new ChoLinker(options?)`                                | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                                    |
+| Runs on                  | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                                     |
+| `app.linked.instance`    | a `ChoRouter`                                            | the `Hono` application                           | the Fastify application                                          |
+| Served with              | `app.handler`                                            | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()`       |
+| `ctx.native`             | `undefined`                                              | Hono's `Context`                                 | `{ request, reply }` of Fastify                                  |
+| When two routes match    | the first declared                                       | the first declared                               | the static one                                                   |
+| `HEAD` without `@Head`   | `@Get`, without the body                                 | `@Get`, without the body                         | `@Get`, without the body                                         |
+| No route matches         | the `notFound` option; `404`                             | `notFound` of the Hono application               | the not-found handler of the Fastify application                 |
+| A route rejects          | logged with `console.error`; `500`                       | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`              |
+| An event stream (`@Sse`) | streamed by the server that runs `app.handler`           | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end |
+| Its own middlewares      | `@chojs/vendor-cho` (`cors`)                             | `fromHono(middleware)`                           | `fromFastify(hook)`                                              |
 
 **The middlewares of the built-in router.** `new ChoLinker({ middlewares })`
 takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
@@ -719,8 +933,10 @@ takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
 
 `@chojs/vendor-cho` has middlewares written for it (`vendor/cho/README.md`):
 `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId`, `etag`,
-`basicAuth`, `bearerAuth` and `compress`. On the other adapters, what wraps
-every request goes on the library's own application.
+`basicAuth`, `bearerAuth` and `compress`. None of them reads the body of an
+event stream (section 3.4): `etag` and `compress` pass a `text/event-stream`
+response on as it is. On the other adapters, what wraps every request goes on
+the library's own application.
 
 An adapter implements `Linker` (`@chojs/web/linker`): it receives the
 application's routes and returns a `Linked`, the runtime's application object
@@ -766,24 +982,24 @@ it.
 The tree behind the routes is on `app.graph` (`@chojs/web/graph`), with every
 instance, middleware and error handler already created:
 
-| Node            | Holds                                                                                                        |
-| --------------- | ------------------------------------------------------------------------------------------------------------ |
-| `AppRef`        | `route` (the global prefix), `errorHandler` (the application's), `features`                                  |
-| `FeatureRef`    | `route`, `middlewares`, `errorHandler`, `doc`, `controllers`                                                 |
-| `ControllerRef` | `route`, `middlewares`, `errorHandler`, `doc`, `instance`, `methods`                                         |
-| `MethodRef`     | `route`, `middlewares`, `errorHandler`, `doc`, `name`, `method` (`"GET"`, …), `handler`, `args`, `validated` |
+| Node            | Holds                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `AppRef`        | `route` (the global prefix), `errorHandler` (the application's), `features`                                         |
+| `FeatureRef`    | `route`, `middlewares`, `errorHandler`, `doc`, `controllers`                                                        |
+| `ControllerRef` | `route`, `middlewares`, `errorHandler`, `doc`, `instance`, `methods`                                                |
+| `MethodRef`     | `route`, `middlewares`, `errorHandler`, `doc`, `name`, `method` (`"GET"`, …), `handler`, `args`, `validated`, `sse` |
 
 ## 8. Public API
 
-| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, the types `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidator`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Sse`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, the types `ChoWebSseEvent`, `ChoWebSseOptions`, `ChoWebSseMethod`, `ChoWebSseResult`, `ChoWebSseDecorator`, `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidator`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 
@@ -808,6 +1024,9 @@ not match on their text.
 | Something after a validator                    | `TypeError: Body(): a validator is the last argument, got <v> after it`                                                             |
 | A second `@Doc` on a class or a method         | `Cannot add @Doc() to class <Name>: it already has one.` (and `… to method <name> …`)                                               |
 | A handler option of `@Doc` on a class          | `@Doc(): option "summary" is for a handler, not for a class (class <Name>)`                                                         |
+| An unknown option of `@Sse`                    | `@Sse(): unknown option "keepalive". Known options: keepAlive, method`                                                              |
+| A `method` a stream cannot answer              | `TypeError: @Sse(): method must be one of GET, POST, PUT, PATCH, DELETE, got <v>`                                                   |
+| A `keepAlive` that is not a time               | `TypeError: @Sse(): keepAlive must be a positive whole number of milliseconds, got <v>`                                             |
 
 **Rejected by `ChoWeb.create`**: any module graph error of the core
 (`core/specs.md`, section 2.8), and:
@@ -832,13 +1051,24 @@ not match on their text.
 
 **Failing a request** (given to the route's error handler, section 5):
 
-| Mistake                                               | Message                                                                        |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------ |
-| A middleware calls `next()` twice                     | `middleware <name>: next() called more than once`                              |
-| A middleware returns nothing without calling `next()` | `middleware <name> returned no response: return a Response or call next()`     |
-| A middleware returns something else                   | `TypeError: middleware <name> must return a Response or nothing, got <typeof>` |
+| Mistake                                               | Message                                                                                                   |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| A middleware calls `next()` twice                     | `middleware <name>: next() called more than once`                                                         |
+| A middleware returns nothing without calling `next()` | `middleware <name> returned no response: return a Response or call next()`                                |
+| A middleware returns something else                   | `TypeError: middleware <name> must return a Response or nothing, got <typeof>`                            |
+| An `@Sse` handler returns something else              | `TypeError: @Sse() handler <Controller.method> must return an async iterable or a Response, got <typeof>` |
 
 A middleware class is named `<Class>.handle`.
+
+**Cutting an event stream** (no error handler is called: section 3.4), besides
+what the iteration itself throws:
+
+| Mistake                                   | Message                                                                                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Something that is not an event is yielded | `TypeError: @Sse() handler <Controller.method>: an event must be a string or an object with data, got <v>`                            |
+| An `event` or an `id` that cannot be sent | `TypeError: @Sse() handler <Controller.method>: "event" must be a string with no line break, got <v>` (and `"id"`)                    |
+| A `retry` that is not a time              | `TypeError: @Sse() handler <Controller.method>: "retry" must be a whole number of milliseconds, got <v>`                              |
+| `data` that cannot be serialized as JSON  | the `TypeError` of `JSON.stringify`, or `TypeError: @Sse() handler <Controller.method>: "data" cannot be serialized as JSON, got <v>` |
 
 An argument of `@Args` that throws fails the request with its own error,
 unchanged. An argument that is not valid is answered by the validation
@@ -861,6 +1091,13 @@ middleware, when it is on the route (section 3.2).
   the request, calls `next()`, and answers when the evaluation of an argument
   reports it invalid. The arguments of a marked request go through their
   validators.
+- **Event streams** (`web/sse.ts`). `@Sse` writes the same record as `@Get`,
+  with its method and its options. When the routes are compiled, the result of
+  such a handler becomes the body of a `text/event-stream` response: a
+  `ReadableStream`, with no queue of its own, that asks the iterator for one
+  event each time the connection can take one, writes it in the format of the
+  events, ends the iterator when it is cancelled, and fails with the error of
+  the iteration.
 - **Building the graph** (`web/build-graph.ts`): for each module of the injector
   with a controller that has handlers, the routes are read and checked, the
   controllers are resolved in that module's scope, and middleware and error

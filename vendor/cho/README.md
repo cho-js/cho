@@ -260,6 +260,8 @@ etag(); // or etag({ weak: true })
 
 - It applies to `GET` and `HEAD` requests answered `200`.
 - The body is read whole to be hashed: keep it off the routes that stream.
+- A stream of server-sent events (an `@Sse` handler) is passed on as it is: its
+  body is not read.
 - A response that already has an `ETag` keeps it.
 
 ## `basicAuth`
@@ -315,6 +317,8 @@ compress(); // or compress({ threshold: 4096 })
   `Cache-Control: no-transform`, and is not smaller than `threshold` (1024 bytes
   by default).
 - The body is compressed as a stream, so a streamed response stays streamed.
+- A stream of server-sent events (an `@Sse` handler) is never compressed: its
+  events go out as they come.
 - `Vary: Accept-Encoding` is added, and a strong `ETag` becomes a weak one.
 - It uses the standard `CompressionStream`; on a runtime without it, the
   middleware changes nothing. There is no Brotli.

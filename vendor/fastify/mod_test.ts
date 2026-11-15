@@ -30,6 +30,7 @@ import {
   Param,
   Post,
   Query,
+  Sse,
 } from "@chojs/web";
 import type { Route } from "@chojs/web/linker";
 import { engine } from "@chojs/core/utils";
@@ -835,5 +836,105 @@ suite("fromFastify", () => {
       await (await send(app, "/x")).text(),
       "fromFastify(): a Fastify hook runs on the Fastify adapter only: create the application with a FastifyLinker",
     );
+  });
+});
+
+/** Read the events of a stream, one at a time, as they were written. */
+function events_of(response: Response) {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  return async (): Promise<string | undefined> => {
+    while (!text.includes("\n\n")) {
+      const { done, value } = await reader.read();
+      if (done) {
+        return undefined;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    const end = text.indexOf("\n\n") + 2;
+    const event = text.slice(0, end);
+    text = text.slice(end);
+    return event;
+  };
+}
+
+/**
+ * An application with `GET feed/events`, a stream that sends one event, then
+ * waits for the client to go away. `ended` resolves, when the iteration is
+ * ended, to whether the signal of the request was aborted.
+ */
+function feed_app() {
+  const ended = Promise.withResolvers<boolean>();
+  let started = 0;
+  class Feed {
+    async *events(ctx: ChoWebContext) {
+      started++;
+      try {
+        yield { event: "first", data: { n: 1 } };
+        await new Promise((resolve) =>
+          ctx.req.signal.addEventListener("abort", resolve)
+        );
+      } finally {
+        ended.resolve(ctx.req.signal.aborted);
+      }
+    }
+    async *short() {
+      yield "one";
+      yield "two";
+    }
+  }
+  legacy(loose(Sse("events")), Feed, "events");
+  legacy(loose(Sse("short")), Feed, "short");
+  Controller({ route: "feed" })(Feed);
+  class App {}
+  Module({ controllers: [Feed] })(App);
+  return { App, ended: ended.promise, started: () => started };
+}
+
+suite("FastifyLinker, server-sent events", () => {
+  it("sends the events of an @Sse handler as they come, over a connection", async () => {
+    const { App, ended, started } = feed_app();
+    const app = await ChoWeb.create(App, { linker: new FastifyLinker() });
+    const address = await app.linked.instance.listen({
+      port: 0,
+      host: "127.0.0.1",
+    });
+    try {
+      const url = `${address}/feed/events`;
+      // a HEAD request gets the headers, and reads no event
+      const head = await fetch(url, { method: "HEAD" });
+      assert.equal(head.headers.get("content-type"), "text/event-stream");
+      assert.equal(await head.text(), "");
+      assert.equal(started(), 0);
+
+      const client = new AbortController();
+      const response = await fetch(url, { signal: client.signal });
+      assert.equal(response.headers.get("content-type"), "text/event-stream");
+      assert.equal(
+        response.headers.get("cache-control"),
+        "no-cache, no-transform",
+      );
+      // read while the handler is still waiting: nothing is held back
+      assert.equal(
+        await events_of(response)(),
+        'event: first\ndata: {"n":1}\n\n',
+      );
+      // the client goes away: the iteration is ended, the signal aborted
+      client.abort();
+      assert.equal(await ended, true);
+    } finally {
+      await app.linked.instance.close();
+    }
+  });
+
+  it("collects a stream that ends, through app.handler and inject()", async () => {
+    const app = await ChoWeb.create(feed_app().App, {
+      linker: new FastifyLinker(),
+    });
+    const response = await send(app, "/feed/short");
+    assert.equal(response.headers.get("content-type"), "text/event-stream");
+    assert.equal(await response.text(), "data: one\n\ndata: two\n\n");
+    await app.linked.instance.close();
   });
 });

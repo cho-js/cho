@@ -5,6 +5,19 @@
  */
 
 /**
+ * Whether a response is a stream of server-sent events (`text/event-stream`,
+ * what an `@Sse` handler answers): its body has no end to wait for, and its
+ * events must go out as they come, so a middleware leaves it as it is.
+ *
+ * @param response The response.
+ */
+export function is_event_stream(response: Response): boolean {
+  return /^text\/event-stream\b/i.test(
+    response.headers.get("content-type") ?? "",
+  );
+}
+
+/**
  * Change the headers of a response. The headers of some responses cannot be
  * changed (`Response.redirect()`, a response of `fetch`): those are copied
  * first.

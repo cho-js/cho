@@ -64,3 +64,34 @@ export async function run(
   }
   return { response, called, ctx };
 }
+
+/**
+ * A stream of server-sent events that never ends, as an `@Sse` handler
+ * answers: a middleware that waits for the end of its body never returns.
+ *
+ * @param headers Headers of the response, besides its content type.
+ * @returns The response.
+ */
+export function event_stream(headers: Record<string, string> = {}): Response {
+  return new Response(
+    new ReadableStream({
+      pull(controller) {
+        controller.enqueue(new TextEncoder().encode("data: tick\n\n"));
+      },
+    }, { highWaterMark: 0 }),
+    { headers: { "content-type": "text/event-stream", ...headers } },
+  );
+}
+
+/**
+ * Read the first chunk of a response as text, then drop the rest.
+ *
+ * @param response The response.
+ * @returns The text of the chunk.
+ */
+export async function first_chunk(response: Response): Promise<string> {
+  const reader = response.body!.getReader();
+  const { value } = await reader.read();
+  await reader.cancel();
+  return new TextDecoder().decode(value);
+}
