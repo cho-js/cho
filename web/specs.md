@@ -842,7 +842,9 @@ package. It resolves, once the server is listening, to
 - On Deno, a request that arrives while a server with a `closeTimeout` is
   closing is answered `503`: `Deno.serve` cannot both wait for its requests and
   then cut them, so the requests in flight are counted by `serve`, which keeps
-  the server listening until it cuts.
+  the server listening until they have ended, or until it cuts them. A server
+  whose requests end in time is closed without cutting anything, so the last
+  response is sent whole.
 - It is a separate entry point, so that an application that does not call it
   loads nothing of it. On Cloudflare Workers and the other runtimes that serve
   an exported handler, the entry module is
