@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.2.0](https://github.com/cho-js/cho/compare/web-v3.1.0...web-v3.2.0) (2026-11-15)
+
+
+### Features
+
+* messaging consuming support ([#18](https://github.com/cho-js/cho/issues/18)) ([61db079](https://github.com/cho-js/cho/commit/61db079b954662d8fd5f3e2c2f663e06fa2166c5))
+* sse support ([#15](https://github.com/cho-js/cho/issues/15)) ([0926278](https://github.com/cho-js/cho/commit/09262783accf50501a851a1c376ae7d0c156d58a))
+
+
+### Bug Fixes
+
+* fetch breaks in node and bun fixed ([#17](https://github.com/cho-js/cho/issues/17)) ([773d55a](https://github.com/cho-js/cho/commit/773d55a42f3e25e45e9c2602b37907f28f2c82ca))
+
 ## [3.1.0](https://github.com/cho-js/cho/compare/web-v3.0.0...web-v3.1.0) (2026-11-15)
 
 
