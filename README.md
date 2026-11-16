@@ -1,5 +1,3 @@
-
-
 <p align="center">
   <a href="https://nestjs.com/" target="_blank"><img src="./assets/butterfly.svg" width="120" alt="Nest Logo" /></a>
 </p>
@@ -16,14 +14,14 @@ TypeScript.
 
 # CHO
 
-| Package                                               | Version                                                                                     | For                                                                        |
-|-------------------------------------------------------|---------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
-| [`@chojs/web`](./web/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/web)](https://jsr.io/@chojs/web)                       | HTTP applications                                                          |
-| [`@chojs/command`](./command/README.md)               | [![JSR](https://jsr.io/badges/@chojs/command)](https://jsr.io/@chojs/command)               | Command-line applications                                                  |
-| [`@chojs/vendor-cho`](./vendor/cho/README.md)         | [![JSR](https://jsr.io/badges/@chojs/vendor-cho)](https://jsr.io/@chojs/vendor-cho)         | Middlewares for the built-in router of `@chojs/web`, such as CORS |
-| [`@chojs/vendor-hono`](./vendor/hono/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-hono)](https://jsr.io/@chojs/vendor-hono)       | Running `@chojs/web` on [Hono](https://hono.dev)                           |
-| [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | [![JSR](https://jsr.io/badges/@chojs/vendor-fastify)](https://jsr.io/@chojs/vendor-fastify) | Running `@chojs/web` on [Fastify](https://fastify.dev) (Node.js only)      |
-| [`@chojs/core`](./core/README.md)                     | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)                     | The dependency injection engine underneath                                 |
+| Package                                               | Version                                                                                     | For                                                                   |
+|-------------------------------------------------------|---------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
+| [`@chojs/web`](./web/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/web)](https://jsr.io/@chojs/web)                       | HTTP applications                                                     |
+| [`@chojs/command`](./command/README.md)               | [![JSR](https://jsr.io/badges/@chojs/command)](https://jsr.io/@chojs/command)               | Command-line applications                                             |
+| [`@chojs/vendor-cho`](./vendor/cho/README.md)         | [![JSR](https://jsr.io/badges/@chojs/vendor-cho)](https://jsr.io/@chojs/vendor-cho)         | Middlewares for the built-in router of `@chojs/web`, such as CORS     |
+| [`@chojs/vendor-hono`](./vendor/hono/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-hono)](https://jsr.io/@chojs/vendor-hono)       | Running `@chojs/web` on [Hono](https://hono.dev)                      |
+| [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | [![JSR](https://jsr.io/badges/@chojs/vendor-fastify)](https://jsr.io/@chojs/vendor-fastify) | Running `@chojs/web` on [Fastify](https://fastify.dev) (Node.js only) |
+| [`@chojs/core`](./core/README.md)                     | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)                     | The dependency injection engine underneath                            |
 
 CHO is a tiny decorator-based framework for building modular applications. It
 uses modern JavaScript decorators (see
@@ -42,6 +40,13 @@ different runtimes such as **Node.js**, **Deno**, **Bun**, **Cloudflare
 Workers**, **AWS Lambda** and more. Each of these runtimes has its own set of
 features, performance characteristics and limitations, making it difficult to
 write code that is truly portable.
+
+<p align="center">
+  <img src="./assets/node.svg" width="60" alt="Node.js Logo" />
+  <img src="./assets/deno.svg" width="60" alt="Deno Logo" />
+  <img src="./assets/bun.svg" width="60" alt="Bun Logo" />
+  <img src="./assets/cloudflare-workers.svg" width="60" alt="Cloudflare Workers Logo" />
+</p>
 
 CHO keeps application code away from all of that. A web handler receives the
 standard `Request` and answers with a standard `Response`; the HTTP library
@@ -167,7 +172,7 @@ application needs nothing else. To match requests with another HTTP library,
 give `ChoWeb.create` the linker of an adapter:
 
 | Router                                                | Runs on                                                                     |
-| ----------------------------------------------------- | --------------------------------------------------------------------------- |
+|-------------------------------------------------------|-----------------------------------------------------------------------------|
 | [Built in](./web/README.md#the-built-in-router)       | Runtimes with `URLPattern`: Deno, Node.js 24, Bun 1.3.4, Cloudflare Workers |
 | [`@chojs/vendor-hono`](./vendor/hono/README.md)       | Deno, Node.js, Bun and edge runtimes                                        |
 | [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | Node.js only                                                                |
