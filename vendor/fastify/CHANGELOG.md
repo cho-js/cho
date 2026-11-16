@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.2.0](https://github.com/cho-js/cho/compare/vendor-fastify-v3.1.0...vendor-fastify-v3.2.0) (2026-11-15)
+
+
+### Features
+
+* sse support ([#15](https://github.com/cho-js/cho/issues/15)) ([0926278](https://github.com/cho-js/cho/commit/09262783accf50501a851a1c376ae7d0c156d58a))
+
 ## [3.1.0](https://github.com/cho-js/cho/compare/vendor-fastify-v3.0.0...vendor-fastify-v3.1.0) (2026-11-15)
 
 
