@@ -15,7 +15,8 @@
         "message",
         "vendor-hono",
         "vendor-fastify",
-        "vendor-cho"
+        "vendor-cho",
+        "vendor-kafka"
       ]
     }
   ],
@@ -95,6 +96,18 @@
     "vendor/cho": {
       "component": "vendor-cho",
       "package-name": "@chojs/vendor-cho",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    },
+    "vendor/kafka": {
+      "component": "vendor-kafka",
+      "package-name": "@chojs/vendor-kafka",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {

@@ -11,7 +11,8 @@
     "./message",
     "./vendor/hono",
     "./vendor/cho",
-    "./vendor/fastify"
+    "./vendor/fastify",
+    "./vendor/kafka"
   ],
   "fmt": {
     "lineWidth": 80,

@@ -11,8 +11,8 @@ It is the sibling of [`@chojs/web`](../web/README.md): the same modules,
 controllers, middlewares and error handlers, with a topic where `@chojs/web` has
 a route.
 
-> **No broker adapter is published yet.** `@chojs/vendor-kafka`, which the
-> examples below name, is planned. Until then an application delivers its
+> **Broker adapters:** [`@chojs/vendor-kafka`](../vendor/kafka/README.md), for
+> Apache Kafka, on Node.js. Without an adapter, an application delivers its
 > messages [by hand](#delivering-a-message-by-hand), or with a
 > [linker of its own](#broker-adapters).
 
@@ -386,9 +386,14 @@ with the name of its handler), `graph` (the same topics as a tree), `linked`
 
 ## Broker adapters
 
-An adapter is a package of its own, named after its broker. It implements
-`Linker`, from `@chojs/message/linker`: it receives the topics of the
-application, and returns what connects them to the broker.
+An adapter is a package of its own, named after its broker:
+
+| Adapter                                            | Broker       | Runs on      |
+| -------------------------------------------------- | ------------ | ------------ |
+| [`@chojs/vendor-kafka`](../vendor/kafka/README.md) | Apache Kafka | Node.js only |
+
+An adapter implements `Linker`, from `@chojs/message/linker`: it receives the
+topics of the application, and returns what connects them to the broker.
 
 ```ts
 import type { Linked, Linker, Route } from "@chojs/message/linker";
