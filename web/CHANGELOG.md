@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.0](https://github.com/cho-js/cho/compare/web-v3.2.0...web-v3.3.0) (2026-11-17)
+
+
+### Miscellaneous Chores
+
+* **web:** Synchronize cho versions
+
 ## [3.2.0](https://github.com/cho-js/cho/compare/web-v3.1.0...web-v3.2.0) (2026-11-15)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.0](https://github.com/cho-js/cho/compare/vendor-fastify-v3.2.0...vendor-fastify-v3.3.0) (2026-11-17)
+
+
+### Miscellaneous Chores
+
+* **vendor-fastify:** Synchronize cho versions
+
 ## [3.2.0](https://github.com/cho-js/cho/compare/vendor-fastify-v3.1.0...vendor-fastify-v3.2.0) (2026-11-15)
 
 
