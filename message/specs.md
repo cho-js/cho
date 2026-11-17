@@ -1,12 +1,13 @@
 # @chojs/message
 
-> **Status: the package is implemented, and no broker adapter is yet.**
+> **Status: the package is implemented, with one broker adapter.**
 > `@chojs/message` does what this document says, and `message/tasks.md` lists
 > what was done and what is left. `@chojs/vendor-kafka`, which the examples
-> name, does not exist: until it does, an application delivers its messages with
-> `app.handle`, or with a linker of its own (`examples/hello-world-message.ts`).
-> Section 11 lists every decision this document makes, with the alternative that
-> was not chosen, and section 12 what it changed in the other packages.
+> name, is the adapter of Apache Kafka, on Node.js (`vendor/kafka/specs.md`).
+> Without an adapter, an application delivers its messages with `app.handle`, or
+> with a linker of its own (`examples/hello-world-message.ts`). Section 11 lists
+> every decision this document makes, with the alternative that was not chosen,
+> and section 12 what it changed in the other packages.
 
 Applications that handle messages from a broker, such as Kafka, built with
 decorators: controllers declare message handlers, and `ChoMessage` subscribes
@@ -630,10 +631,11 @@ class MyLinker implements Linker<MyClient> {
 | How a topic is named              | as it is; or mapped to the names its broker allows           |
 | Which runtimes it runs on         | Node.js only                                                 |
 
-`@chojs/vendor-kafka` gets a spec of its own. Two of its decisions are known to
-be hard, and are not made here: the client library, and what a failed message
-leads to, since Kafka cannot refuse one message without holding back the ones
-after it in its partition.
+`@chojs/vendor-kafka` has a spec of its own, `vendor/kafka/specs.md`. Two of its
+decisions were hard: the client library, which is `@platformatic/kafka`, and
+what a failed message leads to, since Kafka cannot refuse one message without
+holding back the ones after it in its partition. It is tried again in place,
+then sent to a dead-letter topic.
 
 The tree behind the topics is on `app.graph` (`@chojs/message/graph`), with
 every instance, middleware and error handler already created: `AppRef`,
@@ -647,7 +649,7 @@ in place of `route`.
 | `@chojs/message`        | `ChoMessage`, `ChoMessageOptions`, `ChoMessageFromOptions`, `Subscribe`, `Middlewares`, `Catch`, the types `ChoMessageContext`, `ChoMessageHandler`, `ChoMessageNext`, `ChoMessageMiddlewareFn`, `ChoMessageMiddleware`, `ChoMessageErrorHandlerFn`, `ChoMessageErrorHandler`, `Module`, `Controller` (the core's, with the `topic` option), `MessageModuleOptions`, `MessageControllerOptions`, `TopicOption`, the types of the two other entry points, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
 | `@chojs/message/linker` | `Linker`, `Linked`, `Route`, `Delivery`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `@chojs/message/graph`  | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `@chojs/vendor-kafka`   | not written yet: `KafkaLinker`, and its option types (its own spec)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `@chojs/vendor-kafka`   | `KafkaLinker`, `KafkaLinked`, and their types (`vendor/kafka/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for
 `@chojs/message`.
