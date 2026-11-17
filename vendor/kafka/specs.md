@@ -1,0 +1,97 @@
+# @chojs/vendor-kafka
+
+The Apache Kafka adapter of `@chojs/message`. `message/specs.md`, section 7,
+says what an adapter is and what it decides; this document makes those decisions
+for Kafka. The guide is the [README](./README.md).
+
+## 1. What it is
+
+`KafkaLinker` implements `Linker` of `@chojs/message/linker`. `link(routes)`
+creates a consumer and a producer of the client library, connects nothing, and
+returns a `KafkaLinked`:
+
+| Member     | Does                                                                         |
+| ---------- | ---------------------------------------------------------------------------- |
+| `instance` | `{ consumer, producer }`: the clients of the client library                  |
+| `start()`  | joins the consumer group, and reads the topic of each route                  |
+| `stop()`   | stops reading, waits for the messages in hand, leaves the group, disconnects |
+
+The adapter is two files. `mod.ts` has the public API and the options.
+`consume.ts` has what is done with a message (`Pump`): it knows the client
+library through three small interfaces, so its tests need no broker.
+
+## 2. Decisions
+
+`→` marks the choice.
+
+| #  | Question                             | → Chosen                                                           | Alternative                                           |
+| -- | ------------------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------- |
+| 1  | The client library                   | `@platformatic/kafka`: JavaScript only, typed, maintained          | `@confluentinc/kafka-javascript` (native), `kafkajs`  |
+| 2  | The runtimes                         | Node.js only (22.22, 24.6 and later), as the client library        | none                                                  |
+| 3  | How the application is identified    | one consumer group, the required `groupId` option                  | a group for each controller or topic                  |
+| 4  | How a topic is named                 | as it is: the syntax of a CHO topic is one of Kafka                | a mapping of names                                    |
+| 5  | Who creates the topics               | not the adapter                                                    | the adapter creates what is missing                   |
+| 6  | Where a new group starts             | `from: "latest"`, the default of Kafka                             | `"earliest"` by default                               |
+| 7  | When an offset is committed          | after the message is settled, each message by itself               | autocommit on a timer                                 |
+| 8  | A failed message, first              | tried again in place: `retries` (3), `retryDelay` (1000 ms)        | a retry topic, which loses the order of the partition |
+| 9  | A failed message, after the retries  | sent to the `deadLetter` topic, and committed                      | logged and passed over                                |
+| 10 | The same, with no `deadLetter`       | the consumer stops, the offset is not committed, `onFatal`         | passed over: a message would be lost silently         |
+| 11 | A dead letter that cannot be sent    | the consumer stops, as in 10                                       | passed over                                           |
+| 12 | How the application learns of a stop | `onFatal(error)`; by default the error is thrown, uncaught         | an event emitter; a rejected promise nobody holds     |
+| 13 | How many messages run at once        | one for each partition, `concurrency` (1) partitions together      | unbounded; or a pool that ignores the partitions      |
+| 14 | What `ctx.native` is                 | `{ message, attempt }`: the message of the client, and the attempt | the message alone                                     |
+| 15 | The value, the key and the headers   | the value as bytes; the key and the headers decoded as UTF-8       | deserializers chosen by the application               |
+| 16 | A commit that fails                  | logged; the consumer goes on (at least once)                       | the consumer stops                                    |
+| 17 | A stream of messages that fails      | read again after `retryDelay`; if that fails, the consumer stops   | the consumer stops at once                            |
+| 18 | A message in hand at `stop()`        | awaited; one that waits for a retry is left uncommitted            | every retry is finished first                         |
+| 19 | Sending messages                     | the producer of the adapter is on `instance`, as it is             | a `publish` API in `@chojs/message`                   |
+
+## 3. A message, step by step
+
+1. The stream gives a message. It waits for the message before it in its
+   partition, and for a free place when `concurrency` messages are in hand.
+2. `route.handle(delivery, { message, attempt })` is called.
+3. It resolves: the offset is committed.
+4. It rejects, and `attempt <= retries`: the adapter waits `retryDelay(attempt)`
+   and goes to 2.
+5. It rejects, and the retries are used: with `deadLetter`, the dead letter is
+   sent, then the offset is committed. Without, or when sending fails, the
+   adapter stops (section 4).
+
+A message of a topic that has no route is committed and skipped. It can only
+happen for a topic the group read before.
+
+## 4. Stopping
+
+`stop()`, which `app.close()` calls, closes the stream, ends the waits between
+retries, waits for the messages in hand, then closes the consumer and the
+producer. It returns the same promise every time, and rejects when a client
+fails to close, after it tried to close the other.
+
+A fatal error does the same by itself, then calls `onFatal` once. The messages
+that are in hand then are not committed. After it, `stop()` resolves.
+
+## 5. Errors
+
+| Situation                                 | Message                                                                                                  |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| An option is missing                      | `KafkaLinker: the "brokers" option is required: a list of "host:port", such as ["localhost:9092"]`       |
+| An option is unknown                      | `KafkaLinker: unknown option "group". Known options: brokers, client, clientId, …`                       |
+| `link()` is called twice                  | `KafkaLinker.link() was already called: use one linker for one application`                              |
+| A topic is too long                       | `KafkaLinker: the topic of OrdersController.created has 250 characters: Kafka accepts 249 ("…")`         |
+| The dead-letter topic is the topic itself | `KafkaLinker: the dead-letter topic of "orders" is "orders" itself: a dead message would be handled …`   |
+| A dead message, and no dead-letter topic  | `KafkaLinker: OrdersController.created failed 4 time(s) for orders[0]@42, and there is no dead-letter …` |
+| A dead letter cannot be sent              | `KafkaLinker: cannot send orders[0]@42 to the dead-letter topic "orders.dead": the consumer stopped, …`  |
+| The topics cannot be read again           | `KafkaLinker: cannot read the topics again`                                                              |
+
+The first two are `TypeError`s of the constructor. The last three reach
+`onFatal`, with the original error as `cause`.
+
+## 6. Not in this version
+
+- **A retry topic**, or a delay that does not hold the partition.
+- **Batches**: a handler that receives several messages.
+- **Transactions**, and exactly-once delivery.
+- **The schema registry** of the client library.
+- **Static membership and the new group protocol**, except through `consume`.
+- **Deno and Bun.**
