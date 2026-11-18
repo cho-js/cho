@@ -63,7 +63,7 @@ describe("secureHeaders", () => {
 
   it("rejects a value that is not a string or false", () => {
     assert.throws(() => secureHeaders(loose({ "x-frame-options": true })), {
-      name: "TypeError",
+      code: "CHO_VENDOR_INVALID_OPTION",
       message:
         'secureHeaders(): the value of "x-frame-options" must be a string or false',
     });

@@ -9,6 +9,7 @@
  * @module
  */
 
+import { core_error } from "../errors.ts";
 import type { Injector } from "./injector.ts";
 import type { Ctr } from "./types.ts";
 import { describe } from "../utils/describe.ts";
@@ -34,19 +35,26 @@ export function is_handle_class<F>(
  * @param value The declared value.
  * @param what What it is, capitalized, for the message: `"Middleware"`,
  *   `"Error handler"`.
- * @throws {Error} When it is a class without a `handle` method
+ * @throws {ChoError} `CHO_CORE_INVALID_ERROR_HANDLER` for an `"Error handler"`
+ *   and `CHO_CORE_INVALID_MIDDLEWARE` for anything else, when it is a class
+ *   without a `handle` method
  *   (`<what> class X must implement 'handle' method.`), or not a function at
  *   all (`Invalid <what> <v>: must be a function or a class with a 'handle'
  *   method.`).
  */
 export function assert_handle(value: unknown, what: string): void {
+  const code = what === "Error handler"
+    ? "CHO_CORE_INVALID_ERROR_HANDLER"
+    : "CHO_CORE_INVALID_MIDDLEWARE";
   if (is_class(value) && !is_handle_class(value)) {
-    throw new Error(
+    throw core_error(
+      code,
       `${what} class ${describe(value)} must implement 'handle' method.`,
     );
   }
   if (typeof value !== "function") {
-    throw new Error(
+    throw core_error(
+      code,
       `Invalid ${what.toLowerCase()} ${
         describe(value)
       }: must be a function or a class with a 'handle' method.`,

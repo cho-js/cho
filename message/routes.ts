@@ -9,6 +9,7 @@
  * @module
  */
 
+import { message_error } from "./errors.ts";
 import { type Debuglog, debuglog, describe } from "@chojs/core/utils";
 import { compose } from "./compose.ts";
 import { create_context } from "./context.ts";
@@ -20,14 +21,15 @@ import { join_topic } from "./topic.ts";
  * Throw if two routes handle the same topic.
  *
  * @param routes The routes of the application.
- * @throws {Error} On two routes with the same topic.
+ * @throws {ChoError} On two routes with the same topic.
  */
 export function assert_no_duplicate_topics(routes: readonly Route[]): void {
   const seen = new Map<string, Route>();
   for (const route of routes) {
     const previous = seen.get(route.topic);
     if (previous) {
-      throw new Error(
+      throw message_error(
+        "CHO_MESSAGE_DUPLICATE_TOPIC",
         `Duplicate topic ${
           describe(route.topic)
         }: declared by ${previous.name} and ${route.name}` +
@@ -60,7 +62,7 @@ export function assert_no_duplicate_topics(routes: readonly Route[]): void {
  * @param log The `cho:message` debug logger: each message that fails is
  *   logged to it.
  * @returns The routes.
- * @throws {Error} When the topic of a handler is empty, or when two routes
+ * @throws {ChoError} When the topic of a handler is empty, or when two routes
  *   handle the same topic.
  */
 export function compile_routes(
@@ -81,7 +83,8 @@ export function compile_routes(
           method.topic,
         ]);
         if (topic === "") {
-          throw new Error(
+          throw message_error(
+            "CHO_MESSAGE_INVALID_TOPIC",
             `Invalid topic of ${name}: it is empty. Give @Subscribe(), its controller or its module a topic`,
           );
         }

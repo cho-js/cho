@@ -30,7 +30,7 @@ describe("assert_route", () => {
   ) {
     it(`rejects ${JSON.stringify(route)}`, () => {
       assert.throws(() => assert_route(route, "test"), {
-        name: "Error",
+        code: "CHO_WEB_INVALID_ROUTE",
         message: `Invalid route ${JSON.stringify(route)} of test: ${reason}`,
       });
     });
@@ -38,7 +38,7 @@ describe("assert_route", () => {
 
   it("rejects a route that is not a string, with a TypeError", () => {
     assert.throws(() => assert_route(42, "the global prefix"), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_ROUTE",
       message: "Invalid route of the global prefix: expected a string, got 42",
     });
   });
@@ -48,6 +48,7 @@ describe("assert_route, the route syntax", () => {
   it("has no wildcards", () => {
     for (const route of ["*", "files/*", "a*b"]) {
       assert.throws(() => assert_route(route, "test"), {
+        code: "CHO_WEB_INVALID_ROUTE",
         message: new RegExp(
           'has a "\\*": wildcards are not part of the route syntax$',
         ),
@@ -61,6 +62,7 @@ describe("assert_route, the route syntax", () => {
     }
     for (const route of [":", ":1id", ":a:b", ":id.json", "users/:"]) {
       assert.throws(() => assert_route(route, "test"), {
+        code: "CHO_WEB_INVALID_ROUTE",
         message:
           /is not a valid parameter: write ":name", with letters, digits and "_"$/,
       });
@@ -74,6 +76,7 @@ describe("normalize_route", () => {
   it("trims the route, then validates it", () => {
     assert.equal(normalize_route(" users/:id ", "test"), "users/:id");
     assert.throws(() => normalize_route(" /users ", "test"), {
+      code: "CHO_WEB_INVALID_ROUTE",
       message:
         'Invalid route "/users" of test: it must not start or end with "/"',
     });

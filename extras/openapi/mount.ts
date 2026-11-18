@@ -77,7 +77,7 @@ const OPTIONS = [
  * @param app The application, created.
  * @param options The options of the document (`info` is required), and
  *   `route`, `ui`, `assets` and `middlewares`.
- * @throws {Error} When `info` has no title or no version, when an option or
+ * @throws {ChoError} When `info` has no title or no version, when an option or
  *   the `ui` is unknown, when the document cannot be made (two operations
  *   with one `operationId`, a security scheme the document has not), when the
  *   route is invalid or taken, or when the application can no longer take a

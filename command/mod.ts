@@ -57,4 +57,7 @@ export {
 export { ChoCommand, type ChoCommandOptions } from "./command.ts";
 export type { ChoArgs, CommandFlags, ParserOptions } from "./args.ts";
 export type { ChoCommandContext } from "./context.ts";
+// The errors of the framework, with their codes.
+export { type ChoCoreErrorCode, ChoError, isChoError } from "@chojs/core";
+export type { ChoCommandErrorCode } from "./errors.ts";
 export type * from "./types.ts";

@@ -10,6 +10,7 @@
  * @module
  */
 
+import { web_error } from "./errors.ts";
 import { describe } from "@chojs/core/utils";
 
 /** The headers of an event stream. */
@@ -68,7 +69,7 @@ export function is_async_iterable(
  * @param value Its value.
  * @param name The handler, for the error message.
  * @returns The line of the field.
- * @throws {TypeError} When the value is not a string, or has a line break (or
+ * @throws {ChoError} When the value is not a string, or has a line break (or
  *   a NUL, which makes a client ignore an `id`).
  */
 function single_line(field: "event" | "id", value: unknown, name: string) {
@@ -76,7 +77,8 @@ function single_line(field: "event" | "id", value: unknown, name: string) {
     typeof value !== "string" || LINE_BREAK.test(value) ||
     (field === "id" && value.includes("\0"))
   ) {
-    throw new TypeError(
+    throw web_error(
+      "CHO_WEB_INVALID_EVENT",
       `@Sse() handler ${name}: ${
         JSON.stringify(field)
       } must be a string with no line break, got ${describe(value)}`,
@@ -96,7 +98,7 @@ function single_line(field: "event" | "id", value: unknown, name: string) {
  * @param value What the handler yielded.
  * @param name The handler, `Controller.method`, for the error messages.
  * @returns The text of the event, with the empty line that ends it.
- * @throws {TypeError} When the value is not an event, when a field is
+ * @throws {ChoError} When the value is not an event, when a field is
  *   invalid, or when the data cannot be serialized as JSON.
  *
  * @example
@@ -112,7 +114,8 @@ export function format_event(value: unknown, name: string): string {
     typeof event !== "object" || event === null ||
     (event as { data?: unknown }).data === undefined
   ) {
-    throw new TypeError(
+    throw web_error(
+      "CHO_WEB_INVALID_EVENT",
       `@Sse() handler ${name}: an event must be a string or an object with data, got ${
         describe(value)
       }`,
@@ -128,7 +131,8 @@ export function format_event(value: unknown, name: string): string {
   }
   if (retry !== undefined) {
     if (!(Number.isInteger(retry) && (retry as number) >= 0)) {
-      throw new TypeError(
+      throw web_error(
+        "CHO_WEB_INVALID_EVENT",
         `@Sse() handler ${name}: "retry" must be a whole number of milliseconds, got ${
           describe(retry)
         }`,
@@ -143,7 +147,8 @@ export function format_event(value: unknown, name: string): string {
     // JSON has no line break of its own: it is one line.
     const json = JSON.stringify(data) as string | undefined;
     if (json === undefined) { // a function, a symbol
-      throw new TypeError(
+      throw web_error(
+        "CHO_WEB_INVALID_EVENT",
         `@Sse() handler ${name}: "data" cannot be serialized as JSON, got ${
           describe(data)
         }`,

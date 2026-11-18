@@ -54,6 +54,7 @@
  * @module
  */
 
+import { type ChoCoreErrorCode, core_error } from "../errors.ts";
 import {
   add_to_metadata_object,
   type MetaTarget,
@@ -187,7 +188,7 @@ export type NoExtraOptions = Record<never, never>;
  *   (`"@Controller()"`).
  * @param options The options given to the decorator.
  * @param known The keys the decorator accepts.
- * @throws {Error} On the first unknown key, e.g.
+ * @throws {ChoError} On the first unknown key, e.g.
  *   `@Controller(): unknown option "deps". Known options: dependencies, route`.
  */
 export function assert_known_options(
@@ -197,7 +198,8 @@ export function assert_known_options(
 ): void {
   for (const key of Object.keys(options)) {
     if (!known.includes(key)) {
-      throw new Error(
+      throw core_error(
+        "CHO_CORE_UNKNOWN_OPTION",
         `${decorator}: unknown option ${JSON.stringify(key)}. Known options: ${
           known.join(", ")
         }`,
@@ -219,13 +221,14 @@ export function assert_known_options(
  * @param target The class, or its decorator metadata object.
  * @param name The class's name, for the message, when the target is its
  *   metadata object. A class target names itself.
- * @throws {Error} When the target is already decorated with `@Injectable`,
+ * @throws {ChoError} When the target is already decorated with `@Injectable`,
  *   `@Module` or `@Controller`.
  */
 function assert_decorated(target: MetaTarget, name?: string): void {
   if (read_metadata_object<Partial<InjectableRecord>>(target)?.[INJECTABLE]) {
     const of = name ?? (typeof target === "function" ? describe(target) : "");
-    throw new Error(
+    throw core_error(
+      "CHO_CORE_ALREADY_DECORATED",
       `class${
         of && ` ${of}`
       } is already decorated with @Injectable, @Module or @Controller`,
@@ -278,14 +281,17 @@ function describe_value(value: unknown): string {
  *
  * @param name The option name, for the message.
  * @param value The option value.
- * @throws {Error} When the value is not an array.
+ * @throws {ChoError} When the value is not an array.
  */
 function assert_array(
   name: string,
   value: unknown,
 ): asserts value is unknown[] {
   if (!Array.isArray(value)) {
-    throw new Error(`${name} must be an array, got ${describe_value(value)}`);
+    throw core_error(
+      "CHO_CORE_INVALID_OPTION",
+      `${name} must be an array, got ${describe_value(value)}`,
+    );
   }
 }
 
@@ -298,6 +304,8 @@ function assert_array(
  *
  * @param msg The start of the error message. The bad value is appended as
  *   `<msg>: <value>`.
+ * @param code The code of the error: the one of an option, unless the token
+ *   is a dependency of a provider object.
  * @returns The assertion.
  *
  * @example
@@ -306,10 +314,13 @@ function assert_array(
  * // throws: all deps must be tokens: "Logger"
  * ```
  */
-function assert_dependency(msg: string) {
+function assert_dependency(
+  msg: string,
+  code: ChoCoreErrorCode = "CHO_CORE_INVALID_OPTION",
+) {
   return function (token: unknown): asserts token is Token {
     if (!is_token(token)) {
-      throw new Error(`${msg}: ${describe_value(token)}`);
+      throw core_error(code, `${msg}: ${describe_value(token)}`);
     }
   };
 }
@@ -327,7 +338,10 @@ function assert_dependency(msg: string) {
 function assert_ctr(msg: string) {
   return function (ctr: unknown): asserts ctr is Ctr {
     if (typeof ctr !== "function") {
-      throw new Error(`${msg}: ${describe_value(ctr)}`);
+      throw core_error(
+        "CHO_CORE_INVALID_OPTION",
+        `${msg}: ${describe_value(ctr)}`,
+      );
     }
   };
 }
@@ -343,7 +357,10 @@ function assert_function(msg: string) {
   // deno-lint-ignore ban-types
   return function (fn: unknown): asserts fn is Function {
     if (typeof fn !== "function") {
-      throw new Error(`${msg}: ${describe_value(fn)}`);
+      throw core_error(
+        "CHO_CORE_INVALID_MIDDLEWARE",
+        `${msg}: ${describe_value(fn)}`,
+      );
     }
   };
 }
@@ -380,7 +397,7 @@ function describe_provider(provider: unknown): string {
  * `provide` is valid, messages name the provider by its token.
  *
  * @param provider The entry, of any type.
- * @throws {Error} When the entry is neither a class nor a well-formed
+ * @throws {ChoError} When the entry is neither a class nor a well-formed
  *   provider object, for example:
  *   `provider for InjectionToken(URL): "factory" must be a function, got 1`.
  */
@@ -392,23 +409,31 @@ function assert_provider(provider: unknown): asserts provider is Provider {
   const name = `provider ${describe_provider(provider)}`;
 
   if (typeof provider !== "object" || provider === null) {
-    throw new Error(`${name} is not an object`);
+    throw core_error("CHO_CORE_INVALID_PROVIDER", `${name} is not an object`);
   }
   if (!("provide" in provider)) {
-    throw new Error(`${name} is missing the "provide" property`);
+    throw core_error(
+      "CHO_CORE_INVALID_PROVIDER",
+      `${name} is missing the "provide" property`,
+    );
   }
   if (!is_token(provider.provide)) {
-    throw new Error(
+    throw core_error(
+      "CHO_CORE_INVALID_PROVIDER",
       `${name}: "provide" must be a class, symbol or injection token, got ${
         describe_value(provider.provide)
       }`,
     );
   }
   if (!("factory" in provider)) {
-    throw new Error(`${name} is missing the "factory" property`);
+    throw core_error(
+      "CHO_CORE_INVALID_PROVIDER",
+      `${name} is missing the "factory" property`,
+    );
   }
   if (typeof provider.factory !== "function") {
-    throw new Error(
+    throw core_error(
+      "CHO_CORE_INVALID_PROVIDER",
       `${name}: "factory" must be a function, got ${
         describe_value(provider.factory)
       }`,
@@ -416,13 +441,15 @@ function assert_provider(provider: unknown): asserts provider is Provider {
   }
   const deps = ("deps" in provider ? provider.deps : undefined) ?? [];
   if (!Array.isArray(deps)) {
-    throw new Error(
+    throw core_error(
+      "CHO_CORE_INVALID_PROVIDER",
       `${name}: "deps" must be an array, got ${describe_value(deps)}`,
     );
   }
   deps.forEach(
     assert_dependency(
       `${name}: all deps must be classes, symbols or injection tokens`,
+      "CHO_CORE_INVALID_PROVIDER",
     ),
   );
 }
@@ -442,10 +469,10 @@ function assert_provider(provider: unknown): asserts provider is Provider {
  * @param options The constructor's dependencies, in argument order.
  * @param name The class's name, for the error message, when `target` is its
  *   metadata object.
- * @throws {Error} When the target already has a DI decorator
+ * @throws {ChoError} When the target already has a DI decorator
  *   (`class X is already decorated with …`). This is checked first, before
  *   the dependencies.
- * @throws {Error} When `dependencies` is not an array, or a dependency is not
+ * @throws {ChoError} When `dependencies` is not an array, or a dependency is not
  *   a class, symbol or injection token.
  *   Nothing is written.
  *
@@ -486,7 +513,7 @@ export function set_injectable(
  *
  * @param options The module's options.
  * @returns The lists and the extra options.
- * @throws {Error} When a list is not an array, or holds an invalid entry (see
+ * @throws {ChoError} When a list is not an array, or holds an invalid entry (see
  *   {@link set_module}).
  */
 function module_options(options: Partial<ModuleOptions> & ExtraOptions) {
@@ -527,7 +554,7 @@ function module_options(options: Partial<ModuleOptions> & ExtraOptions) {
  * leaves the class undecorated.
  *
  * @param options The module's options.
- * @throws {Error} When a list is not an array, or holds an invalid entry (see
+ * @throws {ChoError} When a list is not an array, or holds an invalid entry (see
  *   {@link set_module}).
  *
  * @internal
@@ -561,11 +588,11 @@ export function assert_module_options(
  *
  * @param target The class, or its decorator metadata object.
  * @param options The module's options. Every field is optional.
- * @throws {Error} When `imports`, `controllers`, `exports` or `providers` is
+ * @throws {ChoError} When `imports`, `controllers`, `exports` or `providers` is
  *   not an array.
- * @throws {Error} When an import or a controller is not a class.
- * @throws {Error} When an export is not a class, symbol or injection token.
- * @throws {Error} When a provider is neither a class nor a well-formed
+ * @throws {ChoError} When an import or a controller is not a class.
+ * @throws {ChoError} When an export is not a class, symbol or injection token.
+ * @throws {ChoError} When a provider is neither a class nor a well-formed
  *   provider object (see `assert_provider`).
  *
  * Nothing is written when any of these throws.
@@ -692,7 +719,7 @@ export type DecoratedMethod = {
  * @param descriptor The decorator's third argument (legacy / Bun only).
  * @returns Where to write the method's record, the method function, its
  *   name, and whether it is static or private.
- * @throws {TypeError} When the decorated member is not a method (a field, an
+ * @throws {ChoError} When the decorated member is not a method (a field, an
  *   accessor, a class).
  *
  * @example
@@ -738,7 +765,10 @@ export function decorated_method(
       private: false,
     };
   }
-  throw new TypeError(`${decorator} can only decorate a method`);
+  throw core_error(
+    "CHO_CORE_INVALID_TARGET",
+    `${decorator} can only decorate a method`,
+  );
 }
 
 /**
@@ -760,7 +790,7 @@ export function decorated_method(
  * @param context The decorator's second argument.
  * @param descriptor The decorator's third argument (legacy / Bun methods only).
  * @returns Where to write the record, for `add_to_metadata_object`.
- * @throws {TypeError} When the decorated member is neither a class nor a
+ * @throws {ChoError} When the decorated member is neither a class nor a
  *   method, or is a static, private or symbol-named method.
  *
  * @example
@@ -804,7 +834,8 @@ export function decorated_target(
       ? "symbol-named"
       : undefined;
     if (kind) {
-      throw new TypeError(
+      throw core_error(
+        "CHO_CORE_INVALID_TARGET",
         `${decorator} cannot decorate ${kind} method ${
           String(method.name)
         }: only public, non-static methods with a string name are supported`,
@@ -812,7 +843,10 @@ export function decorated_target(
     }
     return method.meta;
   }
-  throw new TypeError(`${decorator} can only decorate a class or a method`);
+  throw core_error(
+    "CHO_CORE_INVALID_TARGET",
+    `${decorator} can only decorate a class or a method`,
+  );
 }
 
 // Middlewares and error handlers
@@ -838,7 +872,7 @@ export function decorated_target(
  *
  * @param target The class, the method, or a decorator metadata object.
  * @param middlewares The middlewares, in the order they run.
- * @throws {Error} When `middlewares` is not an array, or a middleware is not
+ * @throws {ChoError} When `middlewares` is not an array, or a middleware is not
  *   a function. Nothing is written.
  *
  * @example
@@ -871,8 +905,8 @@ export function set_middlewares(
  * @param errorHandler A function called with the error, or an injectable
  *   class that handles it. Only its type is checked: whether a class is
  *   `@Injectable` is up to the application module that uses it.
- * @throws {Error} When `errorHandler` is not a function or a class.
- * @throws {Error} When the target already has an error handler. Nothing is
+ * @throws {ChoError} When `errorHandler` is not a function or a class.
+ * @throws {ChoError} When the target already has an error handler. Nothing is
  *   written.
  *
  * @example
@@ -885,14 +919,18 @@ export function set_error_handler(
   errorHandler: ChoErrorHandler,
 ): void {
   if (typeof errorHandler !== "function") {
-    throw new Error(
+    throw core_error(
+      "CHO_CORE_INVALID_ERROR_HANDLER",
       `the error handler must be a function or a class: ${
         describe_value(errorHandler)
       }`,
     );
   }
   if (read_metadata_object<HandlersRecord>(target)?.[ERROR_HANDLER]) {
-    throw new Error("an error handler is already set (one @Catch per target)");
+    throw core_error(
+      "CHO_CORE_DUPLICATE_CATCH",
+      "an error handler is already set (one @Catch per target)",
+    );
   }
   add_to_metadata_object(target, { [ERROR_HANDLER]: errorHandler });
 }

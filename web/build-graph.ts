@@ -6,6 +6,7 @@
  * @module
  */
 
+import { web_error } from "./errors.ts";
 import {
   assert_handle,
   type ControllerMetadata,
@@ -88,7 +89,8 @@ function error_handler_factory(
     try {
       return await resolve_handle<ChoWebErrorHandlerFn>(injector, handler, mdl);
     } catch (error) {
-      throw new Error(
+      throw web_error(
+        "CHO_WEB_CREATE_FAILED",
         `Failed to create error handler ${describe(handler)} in module ${
           describe(mdl)
         }`,
@@ -116,7 +118,8 @@ function create_middleware_factory(
       try {
         fns.push(await resolve_handle<ChoWebMiddlewareFn>(injector, mw, mdl));
       } catch (error) {
-        throw new Error(
+        throw web_error(
+          "CHO_WEB_CREATE_FAILED",
           `Failed to create middleware ${describe(mw)} in module ${
             describe(mdl)
           }`,
@@ -148,7 +151,7 @@ function create_middleware_factory(
  *   or a class with a `handle` method, created by the injector in the scope
  *   of the root module.
  * @returns The HTTP graph.
- * @throws {Error} When a route is invalid, or when a middleware or an error
+ * @throws {ChoError} When a route is invalid, or when a middleware or an error
  *   handler is invalid or cannot be created.
  */
 /**
@@ -177,7 +180,7 @@ function create_handler(
  * @param levels The routes of the application, the feature, the controller
  *   and the handler.
  * @param name Where the handler is declared, for the error message.
- * @throws {Error} When a name is not a parameter of the path.
+ * @throws {ChoError} When a name is not a parameter of the path.
  */
 function assert_param_args(
   args: readonly ChoWebArg[],
@@ -195,7 +198,8 @@ function assert_param_args(
       info?.source === "param" && info.key !== undefined &&
       !params.has(info.key)
     ) {
-      throw new Error(
+      throw web_error(
+        "CHO_WEB_UNKNOWN_PARAM",
         `@Args() of ${name}: Param(${
           JSON.stringify(info.key)
         }) is not a parameter of the route ${JSON.stringify(path)}`,

@@ -47,11 +47,11 @@ describe("@Main", () => {
     const message =
       "@Main() cannot decorate static method 'run': a command method must not be static";
     assert.throws(() => tc39(Main(), Cli.run, "run", { isStatic: true }), {
-      name: "TypeError",
+      code: "CHO_COMMAND_INVALID_TARGET",
       message,
     });
     assert.throws(() => legacy(Main(), Cli, "run", { isStatic: true }), {
-      name: "TypeError",
+      code: "CHO_COMMAND_INVALID_TARGET",
       message,
     });
   });
@@ -59,7 +59,10 @@ describe("@Main", () => {
   it("rejects a member that is not a method", () => {
     assert.throws(
       () => Main()(loose({}), loose({ kind: "field", name: "x" })),
-      { name: "TypeError", message: "@Main() can only decorate a method" },
+      {
+        code: "CHO_CORE_INVALID_TARGET",
+        message: "@Main() can only decorate a method",
+      },
     );
   });
 });
@@ -100,7 +103,7 @@ describe("@Action", () => {
     for (const name of ["", undefined, 1]) {
       const run = function run() {};
       assert.throws(() => tc39(Action(loose(name)), run, "run"), {
-        name: "TypeError",
+        code: "CHO_COMMAND_INVALID_ARGUMENT",
         message: "Action must be a non-empty string",
       });
     }
@@ -110,7 +113,7 @@ describe("@Action", () => {
     for (const name of ["a b", "a\tb", " a", "a\n"]) {
       const run = function run() {};
       assert.throws(() => tc39(Action(name), run, "run"), {
-        name: "TypeError",
+        code: "CHO_COMMAND_INVALID_ARGUMENT",
         message: `@Action(${
           JSON.stringify(name)
         }): the name must not contain whitespace`,
@@ -122,7 +125,7 @@ describe("@Action", () => {
     for (const name of ["-x", "--x"]) {
       const run = function run() {};
       assert.throws(() => tc39(Action(name), run, "run"), {
-        name: "TypeError",
+        code: "CHO_COMMAND_INVALID_ARGUMENT",
         message: `@Action(${
           JSON.stringify(name)
         }): the name must not start with "-"`,
@@ -133,7 +136,7 @@ describe("@Action", () => {
   it("rejects a private method", () => {
     function run() {}
     assert.throws(() => tc39(Action("p"), run, "#p", { isPrivate: true }), {
-      name: "TypeError",
+      code: "CHO_COMMAND_INVALID_TARGET",
       message:
         `@Action("p") cannot decorate private method '#p': a command method must be public`,
     });
@@ -147,10 +150,10 @@ describe("@Action", () => {
       `@Action("s") cannot decorate static method 'run': a command method must not be static`;
     assert.throws(
       () => tc39(Action("s"), Cli.run, "run", { isStatic: true }),
-      { name: "TypeError", message },
+      { code: "CHO_COMMAND_INVALID_TARGET", message },
     );
     assert.throws(() => legacy(Action("s"), Cli, "run", { isStatic: true }), {
-      name: "TypeError",
+      code: "CHO_COMMAND_INVALID_TARGET",
       message,
     });
   });
@@ -158,7 +161,7 @@ describe("@Action", () => {
   it("rejects a symbol-named method", () => {
     function run() {}
     assert.throws(() => tc39(Action("y"), run, Symbol("s")), {
-      name: "TypeError",
+      code: "CHO_COMMAND_INVALID_TARGET",
       message:
         `@Action("y") cannot decorate method Symbol(s): a command method must have a string name`,
     });
@@ -166,7 +169,9 @@ describe("@Action", () => {
 
   it("does not write anything when it throws", () => {
     function run() {}
-    assert.throws(() => tc39(Action("-x"), run, "run"));
+    assert.throws(() => tc39(Action("-x"), run, "run"), {
+      code: "CHO_COMMAND_INVALID_ARGUMENT",
+    });
     assert.equal(tc39_record(run), undefined);
   });
 });
@@ -176,6 +181,7 @@ describe("one command per method", () => {
     function run() {}
     tc39(Main(), run, "run");
     assert.throws(() => tc39(Action("x"), run, "run"), {
+      code: "CHO_COMMAND_DUPLICATE_DECORATOR",
       message:
         `Cannot add @Action("x") to method 'run': it already has @Main(). ${ONE_COMMAND}`,
     });
@@ -187,6 +193,7 @@ describe("one command per method", () => {
     }
     legacy(Action("x"), Cli, "run");
     assert.throws(() => legacy(Main(), Cli, "run"), {
+      code: "CHO_COMMAND_DUPLICATE_DECORATOR",
       message:
         `Cannot add @Main() to method 'run': it already has @Action("x"). ${ONE_COMMAND}`,
     });
@@ -196,6 +203,7 @@ describe("one command per method", () => {
     function run() {}
     tc39(Action("y"), run, "run");
     assert.throws(() => tc39(Action("x"), run, "run"), {
+      code: "CHO_COMMAND_DUPLICATE_DECORATOR",
       message:
         `Cannot add @Action("x") to method 'run': it already has @Action("y"). ${ONE_COMMAND}`,
     });
@@ -264,16 +272,16 @@ describe("@Help", () => {
   it("rejects a static, private or symbol-named method: its help is never read", () => {
     function run() {}
     assert.throws(() => tc39(Help("s"), run, "run", { isStatic: true }), {
-      name: "TypeError",
+      code: "CHO_CORE_INVALID_TARGET",
       message:
         "@Help() cannot decorate static method run: only public, non-static methods with a string name are supported",
     });
     assert.throws(() => tc39(Help("p"), run, "#run", { isPrivate: true }), {
-      name: "TypeError",
+      code: "CHO_CORE_INVALID_TARGET",
       message: /^@Help\(\) cannot decorate private method #run:/,
     });
     assert.throws(() => tc39(Help("y"), run, Symbol("run")), {
-      name: "TypeError",
+      code: "CHO_CORE_INVALID_TARGET",
       message: /^@Help\(\) cannot decorate symbol-named method Symbol\(run\):/,
     });
     assert.equal(read_metadata_object(run), undefined);
@@ -282,7 +290,7 @@ describe("@Help", () => {
   it("rejects an empty text", () => {
     class Cli {}
     assert.throws(() => Help("")(Cli), {
-      name: "TypeError",
+      code: "CHO_COMMAND_INVALID_ARGUMENT",
       message: "Help must be a non-empty string",
     });
   });
@@ -306,6 +314,7 @@ describe("@Module and @Controller", () => {
       // @ts-expect-error `deps` is not an option: it is `dependencies`
       () => Controller({ deps: [] })(class {}),
       {
+        code: "CHO_CORE_UNKNOWN_OPTION",
         message:
           '@Controller(): unknown option "deps". Known options: dependencies',
       },
@@ -313,7 +322,10 @@ describe("@Module and @Controller", () => {
     assert.throws(
       // @ts-expect-error a command module has no route
       () => Module({ route: "x" })(class {}),
-      { message: /^@Module\(\): unknown option "route"/ },
+      {
+        code: "CHO_CORE_UNKNOWN_OPTION",
+        message: /^@Module\(\): unknown option "route"/,
+      },
     );
   });
 
@@ -357,42 +369,55 @@ describe("command flags", () => {
 
   for (
     const [flags, error] of [
-      ["force", { name: "TypeError", message: /the flags must be an object/ }],
+      ["force", {
+        code: "CHO_COMMAND_INVALID_FLAGS",
+        message: /the flags must be an object/,
+      }],
       [["force"], {
-        name: "TypeError",
+        code: "CHO_COMMAND_INVALID_FLAGS",
         message: /the flags must be an object/,
       }],
       [
         { booleans: ["force"] },
         {
+          code: "CHO_CORE_UNKNOWN_OPTION",
           message: /unknown option "booleans"\. Known options: boolean, string/,
         },
       ],
       [
         { boolean: "force" },
         {
-          name: "TypeError",
+          code: "CHO_COMMAND_INVALID_FLAGS",
           message: /"boolean" must be an array of flag names/,
         },
       ],
       [
         { string: ["mode", ""] },
         {
-          name: "TypeError",
+          code: "CHO_COMMAND_INVALID_FLAGS",
           message: /"string" must be an array of flag names/,
         },
       ],
       [
         { alias: ["f"] },
-        { name: "TypeError", message: /"alias" must be an object/ },
+        {
+          code: "CHO_COMMAND_INVALID_FLAGS",
+          message: /"alias" must be an object/,
+        },
       ],
       [
         { boolean: ["help"] },
-        { message: /the flag "help" is reserved by the application/ },
+        {
+          code: "CHO_COMMAND_RESERVED_FLAG",
+          message: /the flag "help" is reserved by the application/,
+        },
       ],
       [
         { alias: { v: "version" } },
-        { message: /the flag "version" is reserved by the application/ },
+        {
+          code: "CHO_COMMAND_RESERVED_FLAG",
+          message: /the flag "version" is reserved by the application/,
+        },
       ],
     ] as const
   ) {
@@ -407,7 +432,10 @@ describe("command flags", () => {
   it("name the decorator in the message", () => {
     assert.throws(
       () => tc39(Action("copy", loose(1)), () => {}, "run"),
-      { message: '@Action("copy"): the flags must be an object' },
+      {
+        code: "CHO_COMMAND_INVALID_FLAGS",
+        message: '@Action("copy"): the flags must be an object',
+      },
     );
   });
 });

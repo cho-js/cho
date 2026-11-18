@@ -225,6 +225,7 @@ describe("build_dependency_graph", () => {
       Module({ providers: [Logger, Service] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_UNRESOLVED_DEPENDENCY",
         message:
           "Cannot resolve Missing (argument #1) of Service in module App. " +
           "Provide it there or import a module that exports it.",
@@ -241,6 +242,7 @@ describe("build_dependency_graph", () => {
       Module({ imports: [Child], providers: [value(T)] })(Parent);
 
       assert.throws(() => graph(Parent), {
+        code: "CHO_CORE_UNRESOLVED_DEPENDENCY",
         message:
           "Cannot resolve InjectionToken(t) (argument #0) of NeedsT in module Child. " +
           "Provide it there or import a module that exports it.",
@@ -280,6 +282,7 @@ describe("build_dependency_graph", () => {
       Module({ imports: [Lib] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_INVALID_EXPORT",
         message:
           "Module Lib exports InjectionToken(t), which it neither provides nor imports.",
       });
@@ -291,6 +294,7 @@ describe("build_dependency_graph", () => {
       Module({ exports: [Db] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_INVALID_EXPORT",
         message:
           "Module App exports Db, which it neither provides nor imports.",
       });
@@ -303,6 +307,7 @@ describe("build_dependency_graph", () => {
       Module({ imports: [Lib], exports: [Lib] })(Facade);
 
       assert.throws(() => graph(Facade), {
+        code: "CHO_CORE_INVALID_EXPORT",
         message: "Module Facade exports the imported module Lib. " +
           "Re-exporting a module is not supported; export the tokens you need instead.",
       });
@@ -328,6 +333,7 @@ describe("build_dependency_graph", () => {
       Module({ imports: [X1, X2], providers: [NeedsT] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_AMBIGUOUS_TOKEN",
         message:
           "InjectionToken(t) is ambiguous in module App: X1, X2 export different instances of it. " +
           "Provide InjectionToken(t) in App to choose which one to use.",
@@ -340,6 +346,7 @@ describe("build_dependency_graph", () => {
       Module({ imports: [X1, X2], exports: [T] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_AMBIGUOUS_TOKEN",
         message: /^InjectionToken\(t\) is ambiguous in module App: X1, X2 /,
       });
     });
@@ -352,6 +359,7 @@ describe("build_dependency_graph", () => {
       Module({ imports: [X1, X2, X3], exports: [T] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_AMBIGUOUS_TOKEN",
         message: /ambiguous in module App: X1, X2, X3 export/,
       });
     });
@@ -411,6 +419,7 @@ describe("build_dependency_graph", () => {
       Module({ providers: [value(T, 1), value(T, 2)] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_DUPLICATE_TOKEN",
         message: "InjectionToken(t) is declared more than once in module App " +
           "(as a provider and as a provider). Declare each token once.",
       });
@@ -423,6 +432,7 @@ describe("build_dependency_graph", () => {
       Module({ providers: [value(Cli)], controllers: [Cli] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_DUPLICATE_TOKEN",
         message: "Cli is declared more than once in module App " +
           "(as a provider and as a controller). Declare each token once.",
       });
@@ -435,6 +445,7 @@ describe("build_dependency_graph", () => {
       Module({ controllers: [Cli, Cli] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_DUPLICATE_TOKEN",
         message: "Cli is declared more than once in module App " +
           "(as a controller and as a controller). Declare each token once.",
       });
@@ -445,6 +456,7 @@ describe("build_dependency_graph", () => {
       Module({ providers: [value(App)] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_DUPLICATE_TOKEN",
         message: "App is declared more than once in module App " +
           "(as a provider and as the module itself). Declare each token once.",
       });
@@ -463,6 +475,7 @@ describe("build_dependency_graph", () => {
       Module({ providers: [A, B, C] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_CIRCULAR_DEPENDENCY",
         message: "Circular dependency detected in module App: A → B → C → A",
       });
     });
@@ -472,6 +485,7 @@ describe("build_dependency_graph", () => {
       Module({ dependencies: [App] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_CIRCULAR_DEPENDENCY",
         message: "Circular dependency detected in module App: App → App",
       });
     });
@@ -483,6 +497,7 @@ describe("build_dependency_graph", () => {
       Module({ providers: [NeedsModule], dependencies: [NeedsModule] })(App);
 
       assert.throws(() => graph(App), {
+        code: "CHO_CORE_CIRCULAR_DEPENDENCY",
         message:
           "Circular dependency detected in module App: NeedsModule → App → NeedsModule",
       });
@@ -516,7 +531,10 @@ describe("build_dependency_graph", () => {
 
       assert.throws(
         () => build_dependency_graph({ root: a, modules: new Map() }),
-        { message: "Circular dependency detected: A → B → A" },
+        {
+          code: "CHO_CORE_CIRCULAR_DEPENDENCY",
+          message: "Circular dependency detected: A → B → A",
+        },
       );
     });
   });
@@ -534,6 +552,7 @@ describe("build_dependency_graph, anonymous modules", () => {
     Injectable([T])(NeedsT);
     Module({ providers: [NeedsT] })(Missing);
     assert.throws(() => graph(Missing), {
+      code: "CHO_CORE_UNRESOLVED_DEPENDENCY",
       message:
         "Cannot resolve InjectionToken(t) (argument #0) of NeedsT in module <anonymous>. " +
         "Provide it there or import a module that exports it.",
@@ -542,6 +561,7 @@ describe("build_dependency_graph, anonymous modules", () => {
     const Twice = anonymous();
     Module({ providers: [value(T), value(T)] })(Twice);
     assert.throws(() => graph(Twice), {
+      code: "CHO_CORE_DUPLICATE_TOKEN",
       message:
         "InjectionToken(t) is declared more than once in module <anonymous> " +
         "(as a provider and as a provider). Declare each token once.",
@@ -550,6 +570,7 @@ describe("build_dependency_graph, anonymous modules", () => {
     const Exports = anonymous();
     Module({ exports: [T] })(Exports);
     assert.throws(() => graph(Exports), {
+      code: "CHO_CORE_INVALID_EXPORT",
       message:
         "Module <anonymous> exports InjectionToken(t), which it neither provides nor imports.",
     });
@@ -559,6 +580,7 @@ describe("build_dependency_graph, anonymous modules", () => {
     const ReExports = anonymous();
     Module({ imports: [Lib], exports: [Lib] })(ReExports);
     assert.throws(() => graph(ReExports), {
+      code: "CHO_CORE_INVALID_EXPORT",
       message: "Module <anonymous> exports the imported module <anonymous>. " +
         "Re-exporting a module is not supported; export the tokens you need instead.",
     });
@@ -570,6 +592,7 @@ describe("build_dependency_graph, anonymous modules", () => {
     const Ambiguous = anonymous();
     Module({ imports: [X1, X2], exports: [T] })(Ambiguous);
     assert.throws(() => graph(Ambiguous), {
+      code: "CHO_CORE_AMBIGUOUS_TOKEN",
       message:
         "InjectionToken(t) is ambiguous in module <anonymous>: <anonymous>, <anonymous> " +
         "export different instances of it. Provide InjectionToken(t) in <anonymous> to choose which one to use.",

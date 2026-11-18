@@ -34,6 +34,7 @@ describe("command_graph, a controller declared by two modules", () => {
     Module({ imports: [Feature], controllers: [Files] })(App);
 
     assert.throws(() => command_graph(new Injector(App)), {
+      code: "CHO_COMMAND_DUPLICATE_ACTION",
       message:
         'Duplicate @Action("copy"): declared on Files.copy and Files.copy. ' +
         "Controller Files is declared in modules Feature and App: declare it in one.",
@@ -130,6 +131,7 @@ describe("command_graph", () => {
     Module({ controllers: [Web] })(App);
 
     assert.throws(() => command_graph(new Injector(App)), {
+      code: "CHO_COMMAND_NO_COMMANDS",
       message: "No @Main or @Action methods found in the application",
     });
   });
@@ -146,6 +148,7 @@ describe("command_graph", () => {
     Module({ controllers: [Cli] })(App);
 
     assert.throws(() => command_graph(new Injector(App)), {
+      code: "CHO_COMMAND_MIXED_COMMANDS",
       message:
         "Mixing @Main and @Action methods in the same application is not allowed",
     });
@@ -166,6 +169,7 @@ describe("command_graph", () => {
     Module({ controllers: [A, B] })(App);
 
     assert.throws(() => command_graph(new Injector(App)), {
+      code: "CHO_COMMAND_DUPLICATE_MAIN",
       message: "Multiple @Main methods in the same application is not allowed",
     });
   });
@@ -182,6 +186,7 @@ describe("command_graph", () => {
     Module({ controllers: [Cli] })(App);
 
     assert.throws(() => command_graph(new Injector(App)), {
+      code: "CHO_COMMAND_DUPLICATE_ACTION",
       message: 'Duplicate @Action("x"): declared on Cli.a and Cli.b',
     });
   });
@@ -203,6 +208,7 @@ describe("command_graph", () => {
     Module({ imports: [AModule], controllers: [B] })(App);
 
     assert.throws(() => command_graph(new Injector(App)), {
+      code: "CHO_COMMAND_DUPLICATE_ACTION",
       message:
         /^Duplicate @Action\("x"\): declared on [AB]\.run and [AB]\.run$/,
     });

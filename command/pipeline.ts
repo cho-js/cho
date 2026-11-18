@@ -13,6 +13,7 @@
  * @module
  */
 
+import { command_error } from "./errors.ts";
 import {
   assert_handle,
   type Ctr,
@@ -76,7 +77,7 @@ type Declared = {
  * @param declared The declared value, and the module whose scope creates a
  *   class.
  * @param what `"Middleware"` or `"Error handler"`, for the message.
- * @throws {Error} When it is a class without a `handle` method, not a
+ * @throws {ChoError} When it is a class without a `handle` method, not a
  *   function at all, or a class that is not visible, or ambiguous, in the
  *   module.
  */
@@ -91,14 +92,16 @@ function assert_usable(
   if (is_handle_class(value)) {
     const module = injector.graph.modules.get(scope)!;
     if (module.ambiguous.has(value)) {
-      throw new Error(
+      throw command_error(
+        "CHO_COMMAND_AMBIGUOUS_CLASS",
         `${what} class ${describe(value)} is ambiguous in module ${
           describe(scope)
         }: several of its imports export it. Provide it there to choose one.`,
       );
     }
     if (!module.visible.has(value)) {
-      throw new Error(
+      throw command_error(
+        "CHO_COMMAND_NOT_VISIBLE",
         `${what} class ${describe(value)} is not visible in module ${
           describe(scope)
         }. Provide it there or import a module that exports it.`,
@@ -145,7 +148,7 @@ export type CommandPipeline = {
  *   any.
  * @param log The `cho:command` debug logger.
  * @returns The pipeline.
- * @throws {Error} When a middleware or an error handler is not a function or
+ * @throws {ChoError} When a middleware or an error handler is not a function or
  *   a class with a `handle` method, or is a class the injector cannot find
  *   in its module.
  */
@@ -189,7 +192,8 @@ export function command_pipeline(
     >;
     const command = controller[method.name];
     if (typeof command !== "function") {
-      throw new TypeError(
+      throw command_error(
+        "CHO_COMMAND_INVALID_METHOD",
         `Method '${method.name}' is not a function on controller '${
           describe(node.token)
         }'.`,

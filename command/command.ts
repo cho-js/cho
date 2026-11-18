@@ -106,7 +106,7 @@ export class ChoCommand {
    * @param app The root module.
    * @param options The application options; every option is optional.
    * @returns The application.
-   * @throws {Error} When the module graph is invalid (see `Injector`), or when
+   * @throws {ChoError} When the module graph is invalid (see `Injector`), or when
    *   its command methods are: none, `@Main` mixed with `@Action`, more than
    *   one `@Main`, or a duplicate action name.
    *

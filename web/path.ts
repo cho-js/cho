@@ -4,6 +4,7 @@
  * @module
  */
 
+import { web_error } from "./errors.ts";
 import { describe } from "@chojs/core/utils";
 
 /** A parameter segment: `:` and a name (letters, digits, `_`; no leading digit). */
@@ -30,15 +31,16 @@ const ROUTE_SEGMENT = /^(?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2})+$/;
  *
  * @param route The route to check.
  * @param where Where the route is declared, for the error message.
- * @throws {TypeError} When the route is not a string.
- * @throws {Error} When the route is not valid.
+ * @throws {ChoError} When the route is not a string.
+ * @throws {ChoError} When the route is not valid.
  */
 export function assert_route(
   route: unknown,
   where: string,
 ): asserts route is string {
   if (typeof route !== "string") {
-    throw new TypeError(
+    throw web_error(
+      "CHO_WEB_INVALID_ROUTE",
       `Invalid route of ${where}: expected a string, got ${describe(route)}`,
     );
   }
@@ -46,7 +48,10 @@ export function assert_route(
     return;
   }
   const invalid = (reason: string) =>
-    new Error(`Invalid route ${describe(route)} of ${where}: ${reason}`);
+    web_error(
+      "CHO_WEB_INVALID_ROUTE",
+      `Invalid route ${describe(route)} of ${where}: ${reason}`,
+    );
   if (route.startsWith("/") || route.endsWith("/")) {
     throw invalid('it must not start or end with "/"');
   }

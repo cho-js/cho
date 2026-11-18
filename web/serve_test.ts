@@ -294,7 +294,7 @@ for (const [name, start] of starts) {
           // deno-lint-ignore no-explicit-any
           start(() => new Response(""), { closeTimeout } as any),
           {
-            name: "TypeError",
+            code: "CHO_WEB_INVALID_OPTION",
             message:
               `serve(): closeTimeout must be a whole number of milliseconds, got ${closeTimeout}`,
           },
@@ -478,6 +478,7 @@ describe("serve", () => {
 
   it("rejects on a runtime it has no server for", async () => {
     await assert.rejects(serve_on("workerd", () => new Response("")), {
+      code: "CHO_WEB_NO_SERVER",
       message:
         "serve() has no server for this runtime (workerd): give app.handler to the runtime's own entry point",
     });
@@ -488,7 +489,7 @@ describe("serve", () => {
       // deno-lint-ignore no-explicit-any
       serve({ handler: () => new Response("") } as any),
       {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_HANDLER",
         message: "serve() expects a request handler, such as app.handler",
       },
     );

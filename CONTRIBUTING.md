@@ -16,6 +16,7 @@ everyone who contributes is expected to follow it.
   - [Tests](#tests)
   - [Documentation](#documentation)
   - [Naming](#naming)
+  - [Errors](#errors)
   - [Adding a runtime adapter](#adding-a-runtime-adapter)
 - [Pull requests](#pull-requests)
 - [Commit messages](#commit-messages)
@@ -168,6 +169,40 @@ The name of a function says who it is for.
   `PascalCase` (`ChoWebContext`), constants are `UPPER_SNAKE_CASE`
   (`METADATA_FORMAT`).
 
+### Errors
+
+A mistake the framework finds is thrown as a `ChoError` with a code
+(`core/specs.md`, section 2.8). A plain `Error` or `TypeError` is not thrown:
+the code is how an application, a test and the documentation name the mistake.
+
+- **Throw with the function of the package**: `core_error`, `web_error`,
+  `command_error`, … in its `errors.ts`. It takes a code of the package, a
+  message and, when another error led to this one, its `cause`:
+
+  ```ts
+  throw web_error(
+    "CHO_WEB_INVALID_ROUTE",
+    `Invalid route ${describe(route)} of ${where}: ${reason}`,
+  );
+  ```
+
+- **A new mistake is three changes**: a code in the union of `errors.ts` (and in
+  the list of `errors_test.ts`, which the compiler asks for), a row in the table
+  of the document (`specs.md`, or the `README.md` of a package that has none),
+  and a test that names the code. `errors_test.ts` fails when one of the three
+  is missing.
+- **One code is one mistake**, not one `throw`. Reuse a code when the fix is the
+  same; add one when it is not. A code that was released is never renamed, and
+  never used again for something else.
+- **The message is for a person**: it names what is wrong, where, and what to
+  do. It can be reworded at any time, so a test asserts the code, and the
+  message only where the test is about what it names.
+- **An error that is not ours stays what it is**: what a handler, a factory or a
+  validator throws is passed on unchanged, or kept as the `cause`.
+- **`HttpError` is not a `ChoError`**: it is what an application throws to
+  answer a request (`web/specs.md`, section 5.1), and it has a status, not a
+  code.
+
 ### Adding a runtime adapter
 
 A web adapter connects `@chojs/web` to an HTTP library. It lives in
@@ -177,7 +212,8 @@ A web adapter connects `@chojs/web` to an HTTP library. It lives in
   from `@chojs/web/linker`, and is passed to `ChoWeb.create`. See
   [the web specification](./web/specs.md), section 7.
 - It only matches requests to routes. Middlewares, error handling and the
-  conversion of results belong to `@chojs/web`.
+  conversion of results belong to `@chojs/web`. An `HttpError` is answered by
+  the route: an adapter does nothing for it.
 - It does not have to support every runtime, as long as its README says which
   ones it supports.
 - Add the package to the `workspace` of the root `deno.json`, to

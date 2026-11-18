@@ -40,6 +40,7 @@
  * @module
  */
 
+import { type ChoCoreErrorCode, type ChoError, core_error } from "../errors.ts";
 import type { Ctr, Token } from "./types.ts";
 import type {
   ControllerMetadata,
@@ -166,13 +167,14 @@ export class ModuleScope {
 export function ambiguity_error(
   scope: ModuleScope,
   token: Token,
-): Error | undefined {
+): ChoError<ChoCoreErrorCode> | undefined {
   const exporters = scope.ambiguous.get(token);
   if (!exporters) {
     return undefined;
   }
   const name = describe(token);
-  return new Error(
+  return core_error(
+    "CHO_CORE_AMBIGUOUS_TOKEN",
     `${name} is ambiguous in module ${describe(scope.ctr)}: ` +
       `${
         exporters.map(describe).join(", ")
@@ -203,7 +205,7 @@ export type DependencyGraph = {
  *
  * @param nodes The nodes to start from. Every node reachable from them is
  *   checked.
- * @throws {Error} On a cycle, e.g.
+ * @throws {ChoError} On a cycle, e.g.
  *   `Circular dependency detected in module M: A → B → A`.
  */
 function assert_acyclic(nodes: Iterable<DependencyNode>): void {
@@ -216,7 +218,8 @@ function assert_acyclic(nodes: Iterable<DependencyNode>): void {
       const cycle = [...path.slice(at), n].map((x) => describe(x.token)).join(
         " → ",
       );
-      throw new Error(
+      throw core_error(
+        "CHO_CORE_CIRCULAR_DEPENDENCY",
         `Circular dependency detected in module ${describe(n.owner)}: ${cycle}`,
       );
     }
@@ -247,7 +250,7 @@ function assert_acyclic(nodes: Iterable<DependencyNode>): void {
  * @param path The chain of imports that led to this module, from the root,
  *   used to detect circular imports.
  * @returns The module's scope.
- * @throws {Error} On any failed check (see the module documentation).
+ * @throws {ChoError} On any failed check (see the module documentation).
  */
 function build_module_scope(
   meta: ModuleMetadata,
@@ -261,7 +264,10 @@ function build_module_scope(
   // built, so it is not in `scopes` yet: check the path first.
   if (path.includes(ctr)) {
     const cycle = [...path, ctr].map(describe).join(" → ");
-    throw new Error(`Circular dependency detected: ${cycle}`);
+    throw core_error(
+      "CHO_CORE_CIRCULAR_DEPENDENCY",
+      `Circular dependency detected: ${cycle}`,
+    );
   }
 
   const built = scopes.get(ctr);
@@ -325,7 +331,8 @@ function build_module_scope(
   const declare_node = (node: DependencyNode, as: string): void => {
     const previous = declaredAs.get(node.token);
     if (previous) {
-      throw new Error(
+      throw core_error(
+        "CHO_CORE_DUPLICATE_TOKEN",
         `${describe(node.token)} is declared more than once in module ${
           describe(ctr)
         } ` +
@@ -373,7 +380,8 @@ function build_module_scope(
       continue;
     }
     const isImportedModule = imports.some((imp) => imp.ctr === token);
-    throw new Error(
+    throw core_error(
+      "CHO_CORE_INVALID_EXPORT",
       isImportedModule
         ? `Module ${describe(ctr)} exports the imported module ${
           describe(token)
@@ -399,7 +407,8 @@ function build_module_scope(
     ).map((dep, i) => {
       const resolved = lookup(dep);
       if (!resolved) {
-        throw new Error(
+        throw core_error(
+          "CHO_CORE_UNRESOLVED_DEPENDENCY",
           `Cannot resolve ${describe(dep)} (argument #${i}) of ${
             describe(node.token)
           } ` +
@@ -428,7 +437,7 @@ function build_module_scope(
  * @param metaGraph The metadata graph, from `build_meta_graph`.
  * @returns The dependency graph: one scope per module, every dependency linked
  *   to the node that provides it.
- * @throws {Error} When a check fails (see the module documentation).
+ * @throws {ChoError} When a check fails (see the module documentation).
  *
  * @example
  * ```ts

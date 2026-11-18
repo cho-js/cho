@@ -4,6 +4,7 @@
  * @module
  */
 
+import { vendor_error } from "./errors.ts";
 import type { ChoWebContext, ChoWebMiddlewareFn } from "@chojs/web";
 import { safe_equal } from "./auth.ts";
 
@@ -65,7 +66,7 @@ function credentials(header: string | null): [string, string] | undefined {
  * @param options One user (`username` and `password`), or a `verify`
  *   function; and the realm.
  * @returns A CHO middleware function.
- * @throws {TypeError} When neither a user nor a `verify` function is given.
+ * @throws {ChoError} When neither a user nor a `verify` function is given.
  *
  * @example One user
  * ```ts
@@ -116,7 +117,8 @@ export function basicAuth(options: BasicAuthOptions): ChoWebMiddlewareFn {
       return same_name && same_word;
     };
   } else {
-    throw new TypeError(
+    throw vendor_error(
+      "CHO_VENDOR_INVALID_OPTION",
       "basicAuth(): give a username and a password, or a verify function",
     );
   }

@@ -4,6 +4,7 @@
  * @module
  */
 
+import { message_error } from "./errors.ts";
 import { describe } from "@chojs/core/utils";
 
 /** One segment of a topic: letters, digits, `_` and `-`. */
@@ -25,15 +26,16 @@ const WILDCARD = /[*>#]/;
  *
  * @param topic The topic to check.
  * @param where Where the topic is declared, for the error message.
- * @throws {TypeError} When the topic is not a string.
- * @throws {Error} When the topic is not valid.
+ * @throws {ChoError} When the topic is not a string.
+ * @throws {ChoError} When the topic is not valid.
  */
 export function assert_topic(
   topic: unknown,
   where: string,
 ): asserts topic is string {
   if (typeof topic !== "string") {
-    throw new TypeError(
+    throw message_error(
+      "CHO_MESSAGE_INVALID_TOPIC",
       `Invalid topic of ${where}: expected a string, got ${describe(topic)}`,
     );
   }
@@ -41,7 +43,10 @@ export function assert_topic(
     return;
   }
   const invalid = (reason: string) =>
-    new Error(`Invalid topic ${describe(topic)} of ${where}: ${reason}`);
+    message_error(
+      "CHO_MESSAGE_INVALID_TOPIC",
+      `Invalid topic ${describe(topic)} of ${where}: ${reason}`,
+    );
   if (topic.startsWith(".") || topic.endsWith(".")) {
     throw invalid('it must not start or end with "."');
   }

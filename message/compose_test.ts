@@ -193,7 +193,10 @@ describe("compose", () => {
         runs++;
         return Promise.resolve();
       })(ctx()),
-      { message: "middleware twice: next() called more than once" },
+      {
+        code: "CHO_CORE_NEXT_CALLED_TWICE",
+        message: "middleware twice: next() called more than once",
+      },
     );
     assert.equal(runs, 1);
   });

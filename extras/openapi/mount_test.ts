@@ -261,6 +261,7 @@ describe("openApi", () => {
     const app = await create(users_app());
     openApi(app, { info: INFO });
     assert.throws(() => openApi(app, { info: INFO }), {
+      code: "CHO_WEB_DUPLICATE_ROUTE",
       message:
         'Duplicate route "GET /docs": mounted as openApi page and mounted as openApi page',
     });
@@ -280,31 +281,36 @@ describe("openApi", () => {
     const call = (options: unknown) => () => openApi(app, loose(options));
 
     assert.throws(call({}), {
+      code: "CHO_OPENAPI_INVALID_OPTION",
       message:
         'openApi(): the "info" option is required: { title: "My API", version: "1.0.0" }',
     });
     assert.throws(call({ info: INFO, path: "docs" }), {
+      code: "CHO_CORE_UNKNOWN_OPTION",
       message:
         'openApi(): unknown option "path". Known options: assets, externalDocs, info, middlewares, route, security, securitySchemes, servers, tags, toJsonSchema, ui',
     });
     assert.throws(call({ info: INFO, ui: "rapidoc" }), {
+      code: "CHO_OPENAPI_UNKNOWN_UI",
       message:
         'openApi(): unknown ui "rapidoc". Known: redoc, scalar, swagger, false, or a function that returns the HTML',
     });
     assert.throws(call({ info: INFO, route: "/docs" }), {
+      code: "CHO_WEB_INVALID_ROUTE",
       message:
         'Invalid route "/docs" of ChoWeb.mount(): it must not start or end with "/"',
     });
     assert.throws(call({ info: INFO, route: 7 }), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_ROUTE",
       message: "Invalid route of ChoWeb.mount(): expected a string, got 7",
     });
     assert.throws(call({ info: INFO, middlewares: ["auth"] }), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_MIDDLEWARE",
       message:
         /^ChoWeb\.mount\(\): middleware 1 of GET \/docs must be a function/,
     });
     assert.throws(call({ info: INFO, route: "users" }), {
+      code: "CHO_WEB_DUPLICATE_ROUTE",
       message:
         'Duplicate route "GET /users": declared by Users.list and mounted as openApi page',
     });
@@ -326,6 +332,7 @@ describe("openApi", () => {
     const app = await create(App);
 
     assert.throws(() => openApi(app, { info: INFO }), {
+      code: "CHO_OPENAPI_DUPLICATE_OPERATION_ID",
       message:
         'openApiDocument(): the operationId "users" is used by Users.a and Users.b',
     });
@@ -334,6 +341,7 @@ describe("openApi", () => {
     assert.throws(
       () => openApi(fine, { info: INFO, security: [{ bearer: [] }] }),
       {
+        code: "CHO_OPENAPI_UNKNOWN_SECURITY_SCHEME",
         message:
           'openApiDocument(): the "security" option requires the security scheme "bearer", which is not in the "securitySchemes" option',
       },

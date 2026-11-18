@@ -14,6 +14,7 @@ export {
   type VoidMiddlewareFn,
 } from "./compose.ts";
 export { describe } from "./describe.ts";
+export { make_error } from "../errors.ts";
 export { debuglog } from "./debuglog.ts";
 export { is_class, is_class_implement } from "./is.ts";
 export type { Debuglog } from "./debuglog.ts";

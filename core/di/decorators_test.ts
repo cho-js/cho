@@ -89,18 +89,21 @@ describe("@Injectable", () => {
     class A {}
     Injectable()(A);
     assert.throws(() => Injectable()(A), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
 
     class B {}
     Module()(B);
     assert.throws(() => Injectable()(B), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
 
     class C {}
     Controller()(C);
     assert.throws(() => Injectable()(C), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
   });
@@ -110,6 +113,7 @@ describe("@Injectable", () => {
     const context = tc39_context();
     Injectable()(Foo, context);
     assert.throws(() => Injectable()(Foo, context), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
   });
@@ -201,12 +205,14 @@ describe("@Module", () => {
     class A {}
     Injectable()(A);
     assert.throws(() => Module()(A), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
 
     class B {}
     Module()(B);
     assert.throws(() => Module()(B), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
   });
@@ -258,6 +264,7 @@ describe("@Controller", () => {
     class A {}
     Injectable()(A);
     assert.throws(() => Controller()(A), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
   });
@@ -355,6 +362,7 @@ describe("@Middlewares", () => {
   it("rejects a middleware that is not a function", () => {
     class Cli {}
     assert.throws(() => Middlewares(a, loose("auth"))(Cli), {
+      code: "CHO_CORE_INVALID_MIDDLEWARE",
       message: 'all middlewares must be functions: "auth"',
     });
   });
@@ -363,7 +371,7 @@ describe("@Middlewares", () => {
     assert.throws(
       () => Middlewares(a)(loose(undefined), loose({ kind: "field" })),
       {
-        name: "TypeError",
+        code: "CHO_CORE_INVALID_TARGET",
         message: "@Middlewares() can only decorate a method",
       },
     );
@@ -430,6 +438,7 @@ describe("@Catch", () => {
     function run() {}
     tc39(Catch(handler), run, "run");
     assert.throws(() => tc39(Catch(() => 3), run, "run"), {
+      code: "CHO_CORE_DUPLICATE_CATCH",
       message: "an error handler is already set (one @Catch per target)",
     });
   });
@@ -455,6 +464,7 @@ describe("@Catch", () => {
   it("rejects a handler that is not a function or a class", () => {
     class Cli {}
     assert.throws(() => Catch(loose("handler"))(Cli), {
+      code: "CHO_CORE_INVALID_ERROR_HANDLER",
       message: 'the error handler must be a function or a class: "handler"',
     });
     assert.equal(read_metadata_object(Cli), undefined);
@@ -490,6 +500,7 @@ describe("TC39 decorators without context.metadata", () => {
     class Cli {}
     Injectable()(Cli, context());
     assert.throws(() => Module()(Cli, context()), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
   });
@@ -499,6 +510,7 @@ describe("@Module, invalid options", () => {
   it("leaves the class undecorated", () => {
     class App {}
     assert.throws(() => Module({ imports: loose("Db") })(App), {
+      code: "CHO_CORE_INVALID_OPTION",
       message: 'imports must be an array, got "Db"',
     });
     assert.equal(read_metadata_object(App), undefined);
@@ -535,13 +547,16 @@ describe("@Middlewares and @Catch, on a method whose record is never read", () =
     assert.throws(
       () => legacy(Middlewares(mw), Cli, "build", { isStatic: true }),
       {
-        name: "TypeError",
+        code: "CHO_CORE_INVALID_TARGET",
         message: /^@Middlewares\(\) cannot decorate static/,
       },
     );
     assert.throws(
       () => tc39(Catch(mw), () => {}, "#run", { isPrivate: true }),
-      { name: "TypeError", message: /^@Catch\(\) cannot decorate private/ },
+      {
+        code: "CHO_CORE_INVALID_TARGET",
+        message: /^@Catch\(\) cannot decorate private/,
+      },
     );
   });
 
@@ -549,6 +564,7 @@ describe("@Middlewares and @Catch, on a method whose record is never read", () =
     class Twice {}
     Injectable()(Twice);
     assert.throws(() => Controller()(Twice), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message:
         "class Twice is already decorated with @Injectable, @Module or @Controller",
     });
@@ -557,6 +573,7 @@ describe("@Middlewares and @Catch, on a method whose record is never read", () =
     const context = tc39_context();
     Injectable()(Tc39, context);
     assert.throws(() => Module()(Tc39, context), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message:
         "class Tc39 is already decorated with @Injectable, @Module or @Controller",
     });

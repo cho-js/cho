@@ -10,6 +10,7 @@
  * @module
  */
 
+import { kafka_error } from "./errors.ts";
 import { Buffer } from "node:buffer";
 import type { Message, MessageToProduce } from "@platformatic/kafka";
 import type { Debuglog } from "@chojs/core/utils";
@@ -296,9 +297,13 @@ export class Pump {
         this.#stream = stream = await this.#subscribe();
       } catch (error) {
         this.#fail(
-          new Error("KafkaLinker: cannot read the topics again", {
-            cause: error,
-          }),
+          kafka_error(
+            "CHO_KAFKA_CONSUME_FAILED",
+            "KafkaLinker: cannot read the topics again",
+            {
+              cause: error,
+            },
+          ),
         );
         return;
       }
@@ -355,7 +360,8 @@ export class Pump {
           continue;
         }
         if (!deadLetter) {
-          throw new Error(
+          throw kafka_error(
+            "CHO_KAFKA_NO_DEAD_LETTER",
             `KafkaLinker: ${route.name} failed ${attempt} time(s) for ${
               where(message)
             }, and there is no dead-letter topic: the consumer stopped, and the offset is not committed. Set the "deadLetter" option to go on after such a message`,
@@ -370,7 +376,8 @@ export class Pump {
             ],
           });
         } catch (cause) {
-          throw new Error(
+          throw kafka_error(
+            "CHO_KAFKA_DEAD_LETTER_FAILED",
             `KafkaLinker: cannot send ${
               where(message)
             } to the dead-letter topic "${topic}": the consumer stopped, and the offset is not committed`,

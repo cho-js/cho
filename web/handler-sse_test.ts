@@ -247,7 +247,10 @@ describe("@Sse", () => {
   it("rejects a result that is not a stream, without an error handler", async () => {
     const { app, linker } = await create(feed(() => "text"));
     assert.equal((await send(app, "/feed/events")).status, 500);
-    assert.equal((linker.errors[0] as Error).name, "TypeError");
+    assert.equal(
+      (linker.errors[0] as { code?: string }).code,
+      "CHO_WEB_INVALID_SSE_RESULT",
+    );
   });
 });
 
@@ -423,7 +426,7 @@ describe("@Sse, the end of the stream", () => {
       await assert.rejects(
         events_of(await send(app, "/feed/events")).next(),
         {
-          name: "TypeError",
+          code: "CHO_WEB_INVALID_EVENT",
           message:
             "@Sse() handler Feed.events: an event must be a string or an object with data, got 42",
         },

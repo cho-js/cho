@@ -6,6 +6,7 @@
  * @module
  */
 
+import { message_error } from "./errors.ts";
 import {
   assert_handle,
   type ControllerMetadata,
@@ -88,7 +89,8 @@ function error_handler_factory(
         mdl,
       );
     } catch (error) {
-      throw new Error(
+      throw message_error(
+        "CHO_MESSAGE_CREATE_FAILED",
         `Failed to create error handler ${describe(handler)} in module ${
           describe(mdl)
         }`,
@@ -118,7 +120,8 @@ function create_middleware_factory(
           await resolve_handle<ChoMessageMiddlewareFn>(injector, mw, mdl),
         );
       } catch (error) {
-        throw new Error(
+        throw message_error(
+          "CHO_MESSAGE_CREATE_FAILED",
           `Failed to create middleware ${describe(mw)} in module ${
             describe(mdl)
           }`,
@@ -152,7 +155,7 @@ function create_middleware_factory(
  *   or a class with a `handle` method, created by the injector in the scope
  *   of the root module.
  * @returns The message graph.
- * @throws {Error} When a topic is invalid, or when a middleware or an error
+ * @throws {ChoError} When a topic is invalid, or when a middleware or an error
  *   handler is invalid or cannot be created.
  */
 export async function build_message_graph(

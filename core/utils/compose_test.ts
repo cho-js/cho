@@ -70,6 +70,7 @@ describe("compose", () => {
   it("rejects when a middleware returns nothing without calling next", async () => {
     const lost: Mw = function lost() {};
     await assert.rejects(run([lost]), {
+      code: "CHO_CORE_MISSING_MIDDLEWARE_RESULT",
       message:
         "middleware lost returned no exit code: return an exit code or call next()",
     });
@@ -80,7 +81,7 @@ describe("compose", () => {
       return "1";
     });
     await assert.rejects(run([wrong]), {
-      name: "TypeError",
+      code: "CHO_CORE_INVALID_MIDDLEWARE_RESULT",
       message:
         "middleware wrong must return an exit code or nothing, got string",
     });
@@ -92,6 +93,7 @@ describe("compose", () => {
       return next();
     };
     await assert.rejects(run([twice]), {
+      code: "CHO_CORE_NEXT_CALLED_TWICE",
       message: "middleware twice: next() called more than once",
     });
   });
@@ -219,6 +221,7 @@ describe("compose, without a result", () => {
     }
     const c = ctx();
     await assert.rejects(go([twice], c), {
+      code: "CHO_CORE_NEXT_CALLED_TWICE",
       message: "middleware twice: next() called more than once",
     });
     assert.deepEqual(c.log, ["end"]);

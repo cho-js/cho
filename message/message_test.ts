@@ -171,6 +171,7 @@ describe("ChoMessage.create", () => {
     await assert.rejects(
       ChoMessage.create(orders_app().App, loose({ linkers: [] })),
       {
+        code: "CHO_CORE_UNKNOWN_OPTION",
         message:
           'ChoMessage.create(): unknown option "linkers". Known options: linker, onError, overrides, prefix',
       },
@@ -180,7 +181,9 @@ describe("ChoMessage.create", () => {
   it("disposes what was created when the application cannot be created", async () => {
     const log: string[] = [];
     const { App } = orders_app(log);
-    await assert.rejects(ChoMessage.create(App, { prefix: "staging." }));
+    await assert.rejects(ChoMessage.create(App, { prefix: "staging." }), {
+      code: "CHO_MESSAGE_INVALID_TOPIC",
+    });
     assert.ok(log.includes("Db created"));
     assert.ok(log.includes("Db disposed"));
   });
@@ -246,6 +249,7 @@ describe("start", () => {
   it("rejects without a linker", async () => {
     const app = await ChoMessage.create(orders_app().App);
     await assert.rejects(app.start(), {
+      code: "CHO_MESSAGE_NO_LINKER",
       message:
         "ChoMessage.start(): the application has no linker. Give ChoMessage.create or ChoMessage.from a linker, such as KafkaLinker",
     });
@@ -296,6 +300,7 @@ describe("handle", () => {
       prefix: "staging",
     });
     await assert.rejects(app.handle("orders.created"), {
+      code: "CHO_MESSAGE_UNKNOWN_TOPIC",
       message: 'ChoMessage.handle(): no handler for the topic "orders.created"',
     });
   });
@@ -411,6 +416,7 @@ describe("close", () => {
     stopped.resolve();
     await closing;
     await assert.rejects(route.handle({ value: "too late" }), {
+      code: "CHO_MESSAGE_CLOSED",
       message: "The application is closed",
     });
     assert.deepEqual(seen, ["late"]);
@@ -420,12 +426,17 @@ describe("close", () => {
     const linker = new FakeLinker();
     const app = await ChoMessage.create(orders_app().App, { linker });
     const closing = app.close();
-    await assert.rejects(app.start(), { message: "The application is closed" });
+    await assert.rejects(app.start(), {
+      code: "CHO_MESSAGE_CLOSED",
+      message: "The application is closed",
+    });
     await assert.rejects(app.handle("orders.created"), {
+      code: "CHO_MESSAGE_CLOSED",
       message: "The application is closed",
     });
     await closing;
     await assert.rejects(app.handle("orders.created"), {
+      code: "CHO_MESSAGE_CLOSED",
       message: "The application is closed",
     });
     assert.deepEqual(linker.log, []);
@@ -496,6 +507,7 @@ describe("ChoMessage.from", () => {
     assert.ok(!log.includes("Db disposed"));
     assert.ok(await injector.resolve(Db) instanceof Db); // still usable
     await assert.rejects(app.handle("orders.created"), {
+      code: "CHO_MESSAGE_CLOSED",
       message: "The application is closed",
     });
 
@@ -506,7 +518,9 @@ describe("ChoMessage.from", () => {
   it("disposes nothing when the application cannot be created", async () => {
     const log: string[] = [];
     const injector = await ready(orders_app(log).App);
-    await assert.rejects(ChoMessage.from(injector, { prefix: "staging." }));
+    await assert.rejects(ChoMessage.from(injector, { prefix: "staging." }), {
+      code: "CHO_MESSAGE_INVALID_TOPIC",
+    });
     assert.ok(!log.includes("Db disposed"));
     await injector.dispose();
   });
@@ -532,6 +546,7 @@ describe("ChoMessage.from", () => {
     await assert.rejects(
       ChoMessage.from(injector, loose({ overrides: [] })),
       {
+        code: "CHO_CORE_UNKNOWN_OPTION",
         message:
           'ChoMessage.from(): unknown option "overrides". Known options: linker, onError, prefix',
       },
@@ -542,11 +557,10 @@ describe("ChoMessage.from", () => {
     for (const value of [undefined, null, {}, orders_app().App]) {
       await assert.rejects(
         ChoMessage.from(loose(value)),
-        (error: unknown) =>
-          error instanceof TypeError &&
-          error.message.startsWith(
-            "ChoMessage.from(): expected an injector, got ",
-          ),
+        {
+          code: "CHO_MESSAGE_INVALID_INJECTOR",
+          message: /^ChoMessage\.from\(\):\ expected\ an\ injector,\ got\ /,
+        },
       );
     }
   });
@@ -555,6 +569,7 @@ describe("ChoMessage.from", () => {
     const injector = await ready(orders_app().App);
     await injector.dispose();
     await assert.rejects(ChoMessage.from(injector), {
+      code: "CHO_CORE_DISPOSED",
       message: "The injector is disposed",
     });
   });

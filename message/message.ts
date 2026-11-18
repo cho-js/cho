@@ -10,6 +10,7 @@
  * @module
  */
 
+import { message_error } from "./errors.ts";
 import {
   assert_known_options,
   type Ctr,
@@ -95,7 +96,8 @@ const NOT_LINKED: Linked<undefined> = {
   instance: undefined,
   start: () =>
     Promise.reject(
-      new Error(
+      message_error(
+        "CHO_MESSAGE_NO_LINKER",
         "ChoMessage.start(): the application has no linker. Give ChoMessage.create or ChoMessage.from a linker, such as KafkaLinker",
       ),
     ),
@@ -104,7 +106,9 @@ const NOT_LINKED: Linked<undefined> = {
 
 /** What every call gets once the application is closed. */
 function closed(): Promise<never> {
-  return Promise.reject(new Error("The application is closed"));
+  return Promise.reject(
+    message_error("CHO_MESSAGE_CLOSED", "The application is closed"),
+  );
 }
 
 /**
@@ -201,7 +205,7 @@ export class ChoMessage<T = unknown> {
    * @param options The application options: the linker, and optionally the
    *   global prefix, the error handler and the overrides.
    * @returns The application.
-   * @throws {Error} When the module graph is invalid (see `Injector`), when a
+   * @throws {ChoError} When the module graph is invalid (see `Injector`), when a
    *   topic is invalid or declared twice, when a middleware or an error
    *   handler is invalid or cannot be created, or when an option is unknown.
    *   What was created until then is disposed.
@@ -224,7 +228,7 @@ export class ChoMessage<T = unknown> {
    * @param app The root module.
    * @param options The application options, such as the global prefix.
    * @returns The application.
-   * @throws {Error} As above.
+   * @throws {ChoError} As above.
    *
    * @example
    * ```ts
@@ -289,8 +293,8 @@ export class ChoMessage<T = unknown> {
    *   global prefix and the error handler. There is no `overrides`: they are
    *   given to whoever creates the injector.
    * @returns The application.
-   * @throws {TypeError} When `injector` is not an injector.
-   * @throws {Error} When a topic is invalid or declared twice, when a
+   * @throws {ChoError} When `injector` is not an injector.
+   * @throws {ChoError} When a topic is invalid or declared twice, when a
    *   middleware or an error handler is invalid or cannot be created, when an
    *   option is unknown, or when the injector is disposed.
    *
@@ -317,7 +321,7 @@ export class ChoMessage<T = unknown> {
    * @param injector The injector of the other application.
    * @param options The application options, such as the global prefix.
    * @returns The application.
-   * @throws {Error} As above.
+   * @throws {ChoError} As above.
    */
   static from(
     injector: Injector,
@@ -335,7 +339,8 @@ export class ChoMessage<T = unknown> {
         typeof given?.modules !== "function" ||
         typeof given.resolve !== "function"
       ) {
-        throw new TypeError(
+        throw message_error(
+          "CHO_MESSAGE_INVALID_INJECTOR",
           `ChoMessage.from(): expected an injector, got ${describe(injector)}`,
         );
       }
@@ -495,7 +500,8 @@ export class ChoMessage<T = unknown> {
     const route = this.#topics.get(topic);
     if (!route) {
       return Promise.reject(
-        new Error(
+        message_error(
+          "CHO_MESSAGE_UNKNOWN_TOPIC",
           `ChoMessage.handle(): no handler for the topic ${describe(topic)}`,
         ),
       );

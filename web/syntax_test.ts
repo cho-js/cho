@@ -342,7 +342,10 @@ describe("decorator syntax", () => {
         run() {}
       }
       return Twice;
-    }, { message: /A method can have one HTTP method decorator/ });
+    }, {
+      code: "CHO_WEB_DUPLICATE_DECORATOR",
+      message: /A method can have one HTTP method decorator/,
+    });
   });
 });
 

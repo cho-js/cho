@@ -445,13 +445,45 @@ const injector = new Injector(App, {
 
 ### 2.8 Errors
 
-**Error messages are for people, not for code.** Every error is a plain `Error`
-(or `TypeError`, `AggregateError`) with a message, and the messages listed here
+**An error of the framework is a `ChoError`: an `Error` with a `code`.** The
+code says which mistake it is, and it is part of the API:
+
+- a code is not renamed, and not used again for another mistake;
+- removing a code is a breaking change; adding one is not;
+- **one code is one mistake**, not one `throw`: the same mistake found in two
+  places has one code, and two messages with one fix can share one.
+
+```ts
+import { isChoError } from "@chojs/core";
+
+try {
+  new Injector(App);
+} catch (error) {
+  if (isChoError(error, "CHO_CORE_CIRCULAR_DEPENDENCY")) {
+    // ...
+  }
+  throw error;
+}
+```
+
+**Error messages are for people, not for code.** The messages listed here
 describe the current wording: they are not part of the API, and can be reworded
-in any release. Do not match on their text. What is stable is when an error
-happens (which mistake, at which step) and, where it is documented, its `cause`.
-Error types with stable codes may be added later; that will not be a breaking
-change.
+in any release. Do not match on their text. What is stable is the code, when an
+error happens (which mistake, at which step) and, where it is documented, its
+`cause`.
+
+A code starts with the package that throws: `CHO_CORE_` here. A mistake the core
+finds for another package has a code of the core: an unknown option of
+`@Controller()` is `CHO_CORE_UNKNOWN_OPTION` in a `@chojs/web` application too.
+
+**What has no code.** An error that is not the framework's own is never turned
+into a `ChoError`: what a factory, a handler, a middleware or a validator throws
+is passed on as it is, or kept as the `cause` of a `ChoError`. `dispose()`
+rejects with a native `AggregateError`, whose `errors` are `ChoError`s.
+
+**A `ChoError` is recognized with `isChoError`, not with `instanceof`.** Two
+versions of `@chojs/core` in one process have a class each, and `instanceof` is
+false for the error of the other one (section 4.4).
 
 Values are named in messages by class name (`<anonymous>` for an anonymous
 class), quoted string, `InjectionToken(<description>)` or
@@ -460,19 +492,21 @@ class), quoted string, `InjectionToken(<description>)` or
 
 **Thrown by the decorators**, when the class is defined:
 
-| Mistake                                                               | Message                                                                                                                            |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| A second DI decorator on a class                                      | `class X is already decorated with @Injectable, @Module or @Controller`                                                            |
-| A list option is not an array                                         | `<option> must be an array, got <v>` (`dependencies`, `imports`, `controllers`, `exports`, `providers`, `middlewares`)             |
-| A dependency is not a token                                           | `all dependencies must be classes, symbols or injection tokens: <v>`                                                               |
-| An import is not a class                                              | `all imports must be classes: <v>`                                                                                                 |
-| A controller is not a class                                           | `all controllers must be classes: <v>`                                                                                             |
-| An export is not a token                                              | `all exports must be classes, symbols or injection tokens: <v>`                                                                    |
-| A provider object is malformed                                        | `provider <name> …` (see below)                                                                                                    |
-| A middleware is not a function                                        | `all middlewares must be functions: <v>`                                                                                           |
-| An error handler is not a function                                    | `the error handler must be a function or a class: <v>`                                                                             |
-| A second `@Catch` on a class or method                                | `an error handler is already set (one @Catch per target)`                                                                          |
-| `@Middlewares` / `@Catch` on a static, private or symbol-named method | `TypeError: @Middlewares() cannot decorate static method <name>: only public, non-static methods with a string name are supported` |
+| Mistake                                                               | Code                             | Message                                                                                                                 |
+| --------------------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| A second DI decorator on a class                                      | `CHO_CORE_ALREADY_DECORATED`     | `class X is already decorated with @Injectable, @Module or @Controller`                                                 |
+| An unknown option                                                     | `CHO_CORE_UNKNOWN_OPTION`        | `@Controller(): unknown option "deps". Known options: dependencies, route`                                              |
+| A list option is not an array                                         | `CHO_CORE_INVALID_OPTION`        | `<option> must be an array, got <v>` (`dependencies`, `imports`, `controllers`, `exports`, `providers`, `middlewares`)  |
+| A dependency is not a token                                           | `CHO_CORE_INVALID_OPTION`        | `all dependencies must be classes, symbols or injection tokens: <v>`                                                    |
+| An import is not a class                                              | `CHO_CORE_INVALID_OPTION`        | `all imports must be classes: <v>`                                                                                      |
+| A controller is not a class                                           | `CHO_CORE_INVALID_OPTION`        | `all controllers must be classes: <v>`                                                                                  |
+| An export is not a token                                              | `CHO_CORE_INVALID_OPTION`        | `all exports must be classes, symbols or injection tokens: <v>`                                                         |
+| A provider object is malformed                                        | `CHO_CORE_INVALID_PROVIDER`      | `provider <name> …` (see below)                                                                                         |
+| A middleware is not a function                                        | `CHO_CORE_INVALID_MIDDLEWARE`    | `all middlewares must be functions: <v>`                                                                                |
+| An error handler is not a function                                    | `CHO_CORE_INVALID_ERROR_HANDLER` | `the error handler must be a function or a class: <v>`                                                                  |
+| A second `@Catch` on a class or method                                | `CHO_CORE_DUPLICATE_CATCH`       | `an error handler is already set (one @Catch per target)`                                                               |
+| `@Middlewares` / `@Catch` on a static, private or symbol-named method | `CHO_CORE_INVALID_TARGET`        | `@Middlewares() cannot decorate static method <name>: only public, non-static methods with a string name are supported` |
+| A decorator on something it cannot decorate                           | `CHO_CORE_INVALID_TARGET`        | `<decorator> can only decorate a class or a method` (or `… a method`)                                                   |
 
 A malformed provider object gives one of these messages, checked in this order.
 `<name>` is `for X` once `provide` is a valid token, otherwise `<v>`:
@@ -487,43 +521,60 @@ A malformed provider object gives one of these messages, checked in this order.
 
 **Thrown by `new Injector()`**, before anything is created:
 
-| Mistake                                 | Message                                                                                                                                        |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| The root is not a class                 | `TypeError: Expected a module class, got <typeof>`                                                                                             |
-| Circular imports                        | `Circular dependency detected: A → B → A`                                                                                                      |
-| An import is not a `@Module`            | `Class X is not a module. Did you forget @Module?`                                                                                             |
-| A provider is not `@Injectable`         | `Class X is not injectable. Did you forget @Injectable?`                                                                                       |
-| A controller is not a `@Controller`     | `Class X is not a controller. Did you forget @Controller?`                                                                                     |
-| A controller or a module in `providers` | `Class X is a controller: declare it in "controllers", not in "providers".` / `Class X is a module: list it in "imports", not in "providers".` |
-| A token declared twice                  | `X is declared more than once in module M (as <kind> and as <kind>). Declare each token once.`                                                 |
-| An ambiguous token is used              | `X is ambiguous in module M: A, B export different instances of it. Provide X in M to choose which one to use.`                                |
-| A module re-exported                    | `Module M exports the imported module X. Re-exporting a module is not supported; export the tokens you need instead.`                          |
-| An export not in scope                  | `Module M exports X, which it neither provides nor imports.`                                                                                   |
-| A missing dependency                    | `Cannot resolve X (argument #i) of Y in module M. Provide it there or import a module that exports it.`                                        |
-| Circular dependencies                   | `Circular dependency detected in module M: A → B → A`                                                                                          |
+| Mistake                                 | Code                             | Message                                                                                                                                        |
+| --------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| The root is not a class                 | `CHO_CORE_NOT_A_CLASS`           | `Expected a module class, got <typeof>` (and `Expected a controller class, …` for an entry of `controllers`)                                   |
+| Circular imports                        | `CHO_CORE_CIRCULAR_DEPENDENCY`   | `Circular dependency detected: A → B → A`                                                                                                      |
+| An import is not a `@Module`            | `CHO_CORE_NOT_A_MODULE`          | `Class X is not a module. Did you forget @Module?`                                                                                             |
+| A provider is not `@Injectable`         | `CHO_CORE_NOT_INJECTABLE`        | `Class X is not injectable. Did you forget @Injectable?`                                                                                       |
+| A controller is not a `@Controller`     | `CHO_CORE_NOT_A_CONTROLLER`      | `Class X is not a controller. Did you forget @Controller?`                                                                                     |
+| A controller or a module in `providers` | `CHO_CORE_MISPLACED_PROVIDER`    | `Class X is a controller: declare it in "controllers", not in "providers".` / `Class X is a module: list it in "imports", not in "providers".` |
+| A token declared twice                  | `CHO_CORE_DUPLICATE_TOKEN`       | `X is declared more than once in module M (as <kind> and as <kind>). Declare each token once.`                                                 |
+| An ambiguous token is used              | `CHO_CORE_AMBIGUOUS_TOKEN`       | `X is ambiguous in module M: A, B export different instances of it. Provide X in M to choose which one to use.`                                |
+| A module re-exported                    | `CHO_CORE_INVALID_EXPORT`        | `Module M exports the imported module X. Re-exporting a module is not supported; export the tokens you need instead.`                          |
+| An export not in scope                  | `CHO_CORE_INVALID_EXPORT`        | `Module M exports X, which it neither provides nor imports.`                                                                                   |
+| A missing dependency                    | `CHO_CORE_UNRESOLVED_DEPENDENCY` | `Cannot resolve X (argument #i) of Y in module M. Provide it there or import a module that exports it.`                                        |
+| Circular dependencies                   | `CHO_CORE_CIRCULAR_DEPENDENCY`   | `Circular dependency detected in module M: A → B → A`                                                                                          |
+| Metadata of another version of the core | `CHO_CORE_METADATA_FORMAT`       | `The CHO metadata of X was written in format <n>, but this copy of @chojs/core reads format <m>. …`                                            |
 
 `<kind>` is `a provider`, `a controller` or `the module itself`; `#i` counts
-from zero.
+from zero. `CHO_CORE_METADATA_FORMAT` is thrown wherever a record is read or
+written: by a decorator too.
 
 **Rejected by `resolve()` and `init()`:**
 
-| Problem                            | Message                                                                                                         |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| The module is not in the graph     | `M is not part of this application`                                                                             |
-| The token is not in module's scope | `X is not visible in module M`                                                                                  |
-| The token is ambiguous there       | `X is ambiguous in module M: A, B export different instances of it. Provide X in M to choose which one to use.` |
-| A factory or constructor failed    | `Failed to create X in module M`, with `cause`                                                                  |
-| The injector is disposed           | `The injector is disposed`                                                                                      |
+| Problem                            | Code                       | Message                                                                                                         |
+| ---------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| The module is not in the graph     | `CHO_CORE_UNKNOWN_MODULE`  | `M is not part of this application`                                                                             |
+| The token is not in module's scope | `CHO_CORE_NOT_VISIBLE`     | `X is not visible in module M`                                                                                  |
+| The token is ambiguous there       | `CHO_CORE_AMBIGUOUS_TOKEN` | `X is ambiguous in module M: A, B export different instances of it. Provide X in M to choose which one to use.` |
+| A factory or constructor failed    | `CHO_CORE_CREATE_FAILED`   | `Failed to create X in module M`, with `cause`                                                                  |
+| The injector is disposed           | `CHO_CORE_DISPOSED`        | `The injector is disposed`                                                                                      |
 
 **Thrown by `new Injector(root, { overrides })`:**
 
-- `An override must be a provider object, built with provider()`
-- `X is overridden more than once`
-- `Cannot override X: no module of the application provides it`
+| Mistake                              | Code                          | Message                                                        |
+| ------------------------------------ | ----------------------------- | -------------------------------------------------------------- |
+| An override is not a provider object | `CHO_CORE_INVALID_OVERRIDE`   | `An override must be a provider object, built with provider()` |
+| Two overrides of one token           | `CHO_CORE_DUPLICATE_OVERRIDE` | `X is overridden more than once`                               |
+| An override nothing provides         | `CHO_CORE_UNKNOWN_OVERRIDE`   | `Cannot override X: no module of the application provides it`  |
 
 **Rejected by `dispose()`:** an `AggregateError`,
 `Failed to dispose N of the injector's instances`, whose `errors` are
-`Failed to dispose X in module M`, each with its `cause`.
+`Failed to dispose X in module M` (`CHO_CORE_DISPOSE_FAILED`), each with its
+`cause`.
+
+**Thrown for the CHO modules**, by what they share (sections 3.2 and 3.3):
+
+| Mistake                                               | Code                                 | Message                                                                            |
+| ----------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
+| A middleware class without a `handle` method          | `CHO_CORE_INVALID_MIDDLEWARE`        | `Middleware class X must implement 'handle' method.`                               |
+| A middleware that is not a function or a class        | `CHO_CORE_INVALID_MIDDLEWARE`        | `Invalid middleware <v>: must be a function or a class with a 'handle' method.`    |
+| An error handler class without a `handle` method      | `CHO_CORE_INVALID_ERROR_HANDLER`     | `Error handler class X must implement 'handle' method.`                            |
+| An error handler that is not a function or a class    | `CHO_CORE_INVALID_ERROR_HANDLER`     | `Invalid error handler <v>: must be a function or a class with a 'handle' method.` |
+| A middleware calls `next()` twice                     | `CHO_CORE_NEXT_CALLED_TWICE`         | `middleware <name>: next() called more than once`                                  |
+| A middleware returns nothing without calling `next()` | `CHO_CORE_MISSING_MIDDLEWARE_RESULT` | `middleware <name> returned no <result>: return <a result> or call next()`         |
+| A middleware returns something else                   | `CHO_CORE_INVALID_MIDDLEWARE_RESULT` | `middleware <name> must return <a result> or nothing, got <typeof>`                |
 
 ### 2.9 Debug logging
 
@@ -567,6 +618,9 @@ The DI essentials:
 
 - decorators: `Injectable`, `Module`, `Controller`, `Middlewares`, `Catch`;
 - `Injector`, `token`, `provider`;
+- errors: `ChoError`, `isChoError`, and the type `ChoCoreErrorCode` (section
+  2.8). These three are for applications: their names are those of a public API,
+  and each CHO module gives them again;
 - types: `ModuleOptions`, `ControllerOptions`, `Dependency`, `Ctr`, `Target`,
   `Any`, and the graph types `MetadataGraph`, `DependencyGraph`,
   `DependencyNode`, `ModuleScope`.
@@ -668,6 +722,9 @@ Runtime helpers that work on every runtime:
   chain rejects, even when the middleware catches the error. `@chojs/message`
   uses it: a message is handled, or it fails.
 - `describe(value)`: a readable name for error messages.
+- `make_error(code, message, options, above)`: a `ChoError` whose stack starts
+  where the mistake was found. Each package has a function of its own that calls
+  it with its codes (section 4.4).
 - `is_class(value)`, `is_class_implement(value, method)`: whether a value is a
   class, and whether its prototype has a given method.
 
@@ -684,7 +741,9 @@ decorator syntax itself):
 - `capture()` records what a function writes to `console.log` and
   `console.error`;
 - `with_env()` runs a function with environment variables set;
-- `loose()` bypasses parameter types.
+- `loose()` bypasses parameter types;
+- `check_codes()` compares the error codes of a package with the table of its
+  document and with its tests (section 4.4).
 
 ## 4. Internals
 
@@ -772,3 +831,25 @@ creating an instance needs no lookup.
   record is in dependency order; `dispose()` walks it backwards.
 - Overrides are applied when the metadata graph is read: a `providers` entry
   whose token has an override is normalized from the override instead.
+
+### 4.4 Errors
+
+- **One class.** `ChoError` is the only error class of the framework: a
+  `TypeError` says less than a code does. Its `name` is on the prototype, as the
+  name of a native error is, so `code` is its only own property (besides
+  `cause`).
+- **Recognized by a registered symbol.** The prototype has a property keyed by
+  `Symbol.for("cho.error")`. Two copies of the package share the symbol, where
+  each has a class of its own: `isChoError` checks the symbol and that `code` is
+  a string, and never uses `instanceof`.
+- **A function for each package.** `core_error(code, message, options)` makes
+  the errors of the core; `web_error`, `command_error`, … are the same in the
+  other packages. Each one takes the union of the codes of its package, so a
+  code that is not in the union does not compile, and calls `make_error` with
+  itself, which leaves it out of the stack.
+- **The codes are checked.** A test of each package (`errors_test.ts`) holds the
+  codes as the keys of a `Record` of the union, so that the compiler wants all
+  of them and no other, and gives them to `check_codes`: every code is in a
+  table of the document, the document has no other code of the package, and
+  every code is named by a test. The check reads files: it is skipped where that
+  is not permitted (Deno without `--allow-read`), and runs on Node.js and Bun.

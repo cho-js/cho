@@ -11,6 +11,7 @@
  * @module
  */
 
+import { web_error } from "./errors.ts";
 import type { Ctr, Provider } from "@chojs/core/di";
 import { Injector } from "@chojs/core/di";
 import { assert_known_options } from "@chojs/core/di";
@@ -209,7 +210,7 @@ export class ChoWeb<T = unknown> {
    * @param options The application options: the linker, and optionally the
    *   global prefix and the others.
    * @returns The application.
-   * @throws {Error} When the module graph is invalid (see `Injector`), when a
+   * @throws {ChoError} When the module graph is invalid (see `Injector`), when a
    *   route is invalid or declared twice, or when a middleware or an error
    *   handler is invalid.
    *
@@ -235,7 +236,7 @@ export class ChoWeb<T = unknown> {
    * @param options The application options, such as the global prefix.
    *   Default: none.
    * @returns The application.
-   * @throws {Error} As above, and on a runtime that has no URL Pattern API.
+   * @throws {ChoError} As above, and on a runtime that has no URL Pattern API.
    *
    * @example
    * ```ts
@@ -351,9 +352,9 @@ export class ChoWeb<T = unknown> {
    * @param route The whole route, without leading or trailing `/`.
    * @param handler The handler: a function of the context.
    * @param options The options: `middlewares` and `name`.
-   * @throws {TypeError} When the method is not an HTTP method, or when the
+   * @throws {ChoError} When the method is not an HTTP method, or when the
    *   handler or a middleware is not a function.
-   * @throws {Error} When the route is invalid, when a route of the
+   * @throws {ChoError} When the route is invalid, when a route of the
    *   application already has that method and path, when an option is
    *   unknown, when the application is closed, or when the HTTP runtime can
    *   no longer take a route.
@@ -372,10 +373,11 @@ export class ChoWeb<T = unknown> {
     options: ChoWebMountOptions = {},
   ): void {
     if (this.#closed) {
-      throw new Error("The application is closed");
+      throw web_error("CHO_WEB_CLOSED", "The application is closed");
     }
     if (!(MOUNT_METHODS as readonly unknown[]).includes(method)) {
-      throw new TypeError(
+      throw web_error(
+        "CHO_WEB_INVALID_METHOD",
         `ChoWeb.mount(): method must be one of ${
           MOUNT_METHODS.join(", ")
         }, got ${describe(method)}`,
@@ -384,7 +386,8 @@ export class ChoWeb<T = unknown> {
     const path = "/" + normalize_route(route, "ChoWeb.mount()");
     const where = `${method} ${path}`;
     if (typeof handler !== "function") {
-      throw new TypeError(
+      throw web_error(
+        "CHO_WEB_INVALID_HANDLER",
         `ChoWeb.mount(): the handler of ${where} must be a function, got ${
           describe(handler)
         }`,
@@ -394,7 +397,8 @@ export class ChoWeb<T = unknown> {
     const middlewares = options.middlewares ?? [];
     middlewares.forEach((middleware, index) => {
       if (typeof middleware !== "function") {
-        throw new TypeError(
+        throw web_error(
+          "CHO_WEB_INVALID_MIDDLEWARE",
           `ChoWeb.mount(): middleware ${
             index + 1
           } of ${where} must be a function, got ${describe(middleware)}`,
@@ -405,7 +409,8 @@ export class ChoWeb<T = unknown> {
     const key = route_key({ method, path });
     const taken = this.#routes.find((existing) => route_key(existing) === key);
     if (taken) {
-      throw new Error(
+      throw web_error(
+        "CHO_WEB_DUPLICATE_ROUTE",
         `Duplicate route ${describe(`${taken.method} ${taken.path}`)}: ${
           this.#mounted.has(taken) ? "mounted as" : "declared by"
         } ${taken.name} and mounted as ${name}`,

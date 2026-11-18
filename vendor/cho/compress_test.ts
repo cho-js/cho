@@ -185,7 +185,7 @@ suite("compress", () => {
   it("needs a whole number of bytes as threshold", () => {
     for (const threshold of [-1, 1.5, "1"]) {
       assert.throws(() => compress(loose({ threshold })), {
-        name: "TypeError",
+        code: "CHO_VENDOR_INVALID_OPTION",
         message: "compress(): threshold must be a whole number of bytes",
       });
     }

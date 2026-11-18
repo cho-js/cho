@@ -13,6 +13,7 @@
  * @module
  */
 
+import { message_error } from "./errors.ts";
 import {
   add_to_metadata_object,
   assert_known_options,
@@ -70,7 +71,7 @@ export type MessageControllerOptions<
  * @param options What the module imports, declares and exports, and its
  *   `topic`.
  * @returns The class decorator.
- * @throws {Error} When an option is unknown or invalid, or when the class
+ * @throws {ChoError} When an option is unknown or invalid, or when the class
  *   already has a DI decorator.
  *
  * @example
@@ -99,7 +100,7 @@ export function Module<const D extends readonly Dependency[] = []>(
  *
  * @param options The controller's `dependencies` and its `topic`.
  * @returns The class decorator.
- * @throws {Error} When an option is unknown or invalid, or when the class
+ * @throws {ChoError} When an option is unknown or invalid, or when the class
  *   already has a DI decorator.
  *
  * @example
@@ -137,9 +138,9 @@ export function Controller<const D extends readonly Dependency[] = []>(
  *   segments of letters, digits, `_` and `-`, separated by `.`. `""` is the
  *   controller's own topic. There are no wildcards.
  * @returns A method decorator.
- * @throws {Error} When the topic is invalid, or when the method already has a
+ * @throws {ChoError} When the topic is invalid, or when the method already has a
  *   `@Subscribe`.
- * @throws {TypeError} When the decorated member is not a public, non-static,
+ * @throws {ChoError} When the decorated member is not a public, non-static,
  *   string-named method.
  *
  * @example
@@ -160,24 +161,28 @@ export function Subscribe(topic: string): ChoMethodDecorator {
     const decorated = decorated_method(decorator, target, context, descriptor);
     const of = `method ${String(decorated.name)}`;
     if (typeof decorated.name !== "string") {
-      throw new TypeError(
+      throw message_error(
+        "CHO_MESSAGE_INVALID_TARGET",
         `${decorator} cannot decorate ${of}: a handler must have a string name`,
       );
     }
     if (decorated.private) {
-      throw new TypeError(
+      throw message_error(
+        "CHO_MESSAGE_INVALID_TARGET",
         `${decorator} cannot decorate private ${of}: a handler must be public`,
       );
     }
     if (decorated.static) {
-      throw new TypeError(
+      throw message_error(
+        "CHO_MESSAGE_INVALID_TARGET",
         `${decorator} cannot decorate static ${of}: a handler must not be static`,
       );
     }
     normalize_topic(topic, `${decorator} on ${of}`);
     const previous = subscription(read_metadata_object(decorated.meta) ?? {});
     if (previous) {
-      throw new Error(
+      throw message_error(
+        "CHO_MESSAGE_DUPLICATE_DECORATOR",
         `Cannot add ${decorator} to ${of}: it already handles ${
           JSON.stringify(previous.topic)
         }. A method can have one ${decorator}.`,
@@ -200,8 +205,8 @@ export function Subscribe(topic: string): ChoMethodDecorator {
  *   `(ctx, next)`, or classes with a `handle(ctx, next)` method, created by
  *   the injector in the feature module's scope.
  * @returns A class or method decorator.
- * @throws {TypeError} When applied to anything other than a class or a method.
- * @throws {Error} When a middleware is not a function or a class.
+ * @throws {ChoError} When applied to anything other than a class or a method.
+ * @throws {ChoError} When a middleware is not a function or a class.
  *
  * @example
  * ```ts
@@ -245,8 +250,8 @@ export function Middlewares(
  *   `handle(error, ctx)` method, created by the injector in the feature
  *   module's scope.
  * @returns A class or method decorator.
- * @throws {TypeError} When applied to anything other than a class or a method.
- * @throws {Error} When `handler` is not a function or a class, or when the
+ * @throws {ChoError} When applied to anything other than a class or a method.
+ * @throws {ChoError} When `handler` is not a function or a class, or when the
  *   class or method already has an error handler.
  *
  * @example

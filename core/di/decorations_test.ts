@@ -6,6 +6,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  assert_known_options,
   decorated_method,
   decorated_target,
   set_controller,
@@ -41,6 +42,23 @@ const BAD_DEPENDENCY =
 
 /** Bypass the option types, to pass the invalid values JS callers can. */
 const loose = (value: unknown): Any => value;
+
+describe("assert_known_options", () => {
+  it("accepts the known options, and no options at all", () => {
+    assert_known_options("@X()", { a: 1, b: 2 }, ["a", "b"]);
+    assert_known_options("@X()", {}, ["a"]);
+  });
+
+  it("throws on the first unknown option, naming the known ones", () => {
+    assert.throws(
+      () => assert_known_options("@X()", loose({ a: 1, c: 3 }), ["a", "b"]),
+      {
+        code: "CHO_CORE_UNKNOWN_OPTION",
+        message: '@X(): unknown option "c". Known options: a, b',
+      },
+    );
+  });
+});
 
 describe("set_injectable", () => {
   it("writes an injectable record with the dependencies", () => {
@@ -103,7 +121,10 @@ describe("set_injectable", () => {
       class Foo {}
       assert.throws(
         () => set_injectable(Foo, { dependencies: [loose(value)] }),
-        { message: `${BAD_DEPENDENCY}: ${shown}` },
+        {
+          code: "CHO_CORE_INVALID_OPTION",
+          message: `${BAD_DEPENDENCY}: ${shown}`,
+        },
       );
     });
   }
@@ -112,9 +133,11 @@ describe("set_injectable", () => {
     class Logger {}
     class Foo {}
     assert.throws(() => set_injectable(Foo, { dependencies: loose(Logger) }), {
+      code: "CHO_CORE_INVALID_OPTION",
       message: "dependencies must be an array, got Logger",
     });
     assert.throws(() => set_injectable(Foo, { dependencies: loose(null) }), {
+      code: "CHO_CORE_INVALID_OPTION",
       message: "dependencies must be an array, got null",
     });
     assert.equal(read_metadata_object(Foo), undefined);
@@ -123,8 +146,9 @@ describe("set_injectable", () => {
   it("writes nothing when a dependency is invalid", () => {
     class Logger {}
     class Foo {}
-    assert.throws(() =>
-      set_injectable(Foo, { dependencies: [Logger, loose("x")] })
+    assert.throws(
+      () => set_injectable(Foo, { dependencies: [Logger, loose("x")] }),
+      { code: "CHO_CORE_INVALID_OPTION" },
     );
     assert.equal(read_metadata_object(Foo), undefined);
   });
@@ -133,6 +157,7 @@ describe("set_injectable", () => {
     class Foo {}
     set_injectable(Foo, { dependencies: [] });
     assert.throws(() => set_injectable(Foo, { dependencies: [] }), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
   });
@@ -141,6 +166,7 @@ describe("set_injectable", () => {
     const metadata = {};
     set_injectable(metadata, { dependencies: [] });
     assert.throws(() => set_injectable(metadata, { dependencies: [] }), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
   });
@@ -149,6 +175,7 @@ describe("set_injectable", () => {
     class Foo {}
     set_injectable(Foo, { dependencies: [] });
     assert.throws(() => set_injectable(Foo, { dependencies: [loose("x")] }), {
+      code: "CHO_CORE_ALREADY_DECORATED",
       message: ALREADY_DECORATED,
     });
   });
@@ -253,6 +280,7 @@ describe("set_module", () => {
     it(`throws when ${option} is not an array`, () => {
       class App {}
       assert.throws(() => set_module(App, loose({ [option]: value })), {
+        code: "CHO_CORE_INVALID_OPTION",
         message: `${option} must be an array, got ${got}`,
       });
       assert.equal(read_metadata_object(App), undefined);
@@ -262,6 +290,7 @@ describe("set_module", () => {
   it("throws on an import that is not a class", () => {
     class App {}
     assert.throws(() => set_module(App, { imports: [loose("Db")] }), {
+      code: "CHO_CORE_INVALID_OPTION",
       message: 'all imports must be classes: "Db"',
     });
   });
@@ -269,6 +298,7 @@ describe("set_module", () => {
   it("throws on a controller that is not a class", () => {
     class App {}
     assert.throws(() => set_module(App, { controllers: [loose(1)] }), {
+      code: "CHO_CORE_INVALID_OPTION",
       message: "all controllers must be classes: 1",
     });
   });
@@ -277,11 +307,17 @@ describe("set_module", () => {
     class App {}
     assert.throws(
       () => set_module(App, { imports: [loose(Object.create(null))] }),
-      { message: "all imports must be classes: {}" },
+      {
+        code: "CHO_CORE_INVALID_OPTION",
+        message: "all imports must be classes: {}",
+      },
     );
     assert.throws(
       () => set_module(App, { controllers: [loose({ a: 1 })] }),
-      { message: "all controllers must be classes: { a }" },
+      {
+        code: "CHO_CORE_INVALID_OPTION",
+        message: "all controllers must be classes: { a }",
+      },
     );
   });
 
@@ -300,13 +336,16 @@ describe("set_module", () => {
   it("throws on an export that is not a token", () => {
     class App {}
     assert.throws(() => set_module(App, { exports: [loose("Db")] }), {
+      code: "CHO_CORE_INVALID_OPTION",
       message: 'all exports must be classes, symbols or injection tokens: "Db"',
     });
   });
 
   it("writes nothing when an option is invalid", () => {
     class App {}
-    assert.throws(() => set_module(App, { imports: [loose(null)] }));
+    assert.throws(() => set_module(App, { imports: [loose(null)] }), {
+      code: "CHO_CORE_INVALID_OPTION",
+    });
     assert.equal(read_metadata_object(App), undefined);
   });
 
@@ -423,6 +462,7 @@ describe("set_module", () => {
       it(`throws on a provider that is ${name}`, () => {
         class App {}
         assert.throws(() => set_module(App, { providers: [loose(value)] }), {
+          code: "CHO_CORE_INVALID_PROVIDER",
           message,
         });
       });
@@ -615,7 +655,10 @@ describe("decorated_method", () => {
     for (const kind of ["class", "field", "getter"] as const) {
       assert.throws(
         () => decorated_method("@X()", loose(() => {}), context_of(kind)),
-        { name: "TypeError", message: "@X() can only decorate a method" },
+        {
+          code: "CHO_CORE_INVALID_TARGET",
+          message: "@X() can only decorate a method",
+        },
       );
     }
   });
@@ -628,11 +671,17 @@ describe("decorated_method", () => {
     }
     assert.throws(
       () => decorated_method("@X()", ...legacy_args(Cli, "value")),
-      { name: "TypeError", message: "@X() can only decorate a method" },
+      {
+        code: "CHO_CORE_INVALID_TARGET",
+        message: "@X() can only decorate a method",
+      },
     );
     assert.throws(
       () => decorated_method("@X()", Cli.prototype, "field", undefined),
-      { name: "TypeError", message: "@X() can only decorate a method" },
+      {
+        code: "CHO_CORE_INVALID_TARGET",
+        message: "@X() can only decorate a method",
+      },
     );
   });
 });
@@ -709,7 +758,7 @@ describe("decorated_target", () => {
       assert.throws(
         () => decorated_target("@X()", ...loose(args) as [object, string]),
         {
-          name: "TypeError",
+          code: "CHO_CORE_INVALID_TARGET",
           message:
             `@X() cannot decorate ${kind} method ${name}: ${unsupported}`,
         },
@@ -729,12 +778,15 @@ describe("decorated_target", () => {
 
   it("rejects anything else", () => {
     assert.throws(() => decorated_target("@X()", {}), {
-      name: "TypeError",
+      code: "CHO_CORE_INVALID_TARGET",
       message: "@X() can only decorate a class or a method",
     });
     assert.throws(
       () => decorated_target("@X()", loose(undefined), context_of("field")),
-      { name: "TypeError", message: "@X() can only decorate a method" },
+      {
+        code: "CHO_CORE_INVALID_TARGET",
+        message: "@X() can only decorate a method",
+      },
     );
   });
 });
@@ -801,6 +853,7 @@ describe("set_middlewares", () => {
     ) {
       const run = function run() {};
       assert.throws(() => set_middlewares(run, [a, loose(value)]), {
+        code: "CHO_CORE_INVALID_MIDDLEWARE",
         message: `all middlewares must be functions: ${shown}`,
       });
       assert.equal(read_metadata_object(run), undefined);
@@ -810,6 +863,7 @@ describe("set_middlewares", () => {
   it("rejects a list that is not an array", () => {
     function run() {}
     assert.throws(() => set_middlewares(run, loose(a)), {
+      code: "CHO_CORE_INVALID_OPTION",
       message: /^middlewares must be an array, got /,
     });
     assert.equal(read_metadata_object(run), undefined);
@@ -862,6 +916,7 @@ describe("set_error_handler", () => {
     ) {
       const run = function run() {};
       assert.throws(() => set_error_handler(run, loose(value)), {
+        code: "CHO_CORE_INVALID_ERROR_HANDLER",
         message: `the error handler must be a function or a class: ${shown}`,
       });
       assert.equal(read_metadata_object(run), undefined);
@@ -873,6 +928,7 @@ describe("set_error_handler", () => {
     function run() {}
     set_error_handler(run, first);
     assert.throws(() => set_error_handler(run, () => 2), {
+      code: "CHO_CORE_DUPLICATE_CATCH",
       message: "an error handler is already set (one @Catch per target)",
     });
     assert.deepEqual(read_metadata_object(run), { [ERROR_HANDLER]: first });

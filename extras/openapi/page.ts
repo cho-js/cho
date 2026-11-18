@@ -5,6 +5,8 @@
  * @module
  */
 
+import { openapi_error } from "./errors.ts";
+
 /**
  * The version of each client {@link docsPage} loads. They are exact: a page
  * does not change until the package does.
@@ -145,7 +147,7 @@ const PAGES: Readonly<
  * @param caller The function that was given it, for the message.
  * @param ui The value of the option.
  * @param or_false Whether `false` is a value the caller takes.
- * @throws {Error} When it is neither a ready client nor a function.
+ * @throws {ChoError} When it is neither a ready client nor a function.
  */
 export function assert_ui(caller: string, ui: unknown, or_false = false): void {
   if (
@@ -154,7 +156,8 @@ export function assert_ui(caller: string, ui: unknown, or_false = false): void {
   ) {
     return;
   }
-  throw new Error(
+  throw openapi_error(
+    "CHO_OPENAPI_UNKNOWN_UI",
     `${caller}: unknown ui ${
       typeof ui === "string" ? JSON.stringify(ui) : String(ui)
     }. Known: ${UI_NAMES.join(", ")},${
@@ -176,7 +179,7 @@ export function assert_ui(caller: string, ui: unknown, or_false = false): void {
  *
  * @param options The options: `url`, and `ui`, `title` and `assets`.
  * @returns The HTML of the page.
- * @throws {Error} When there is no `url`, or when the `ui` is not known.
+ * @throws {ChoError} When there is no `url`, or when the `ui` is not known.
  *
  * @example
  * ```ts
@@ -189,7 +192,8 @@ export function assert_ui(caller: string, ui: unknown, or_false = false): void {
 export function docsPage(options: DocsPageOptions): string {
   const { url, ui = "swagger", title = "API", assets } = options ?? {};
   if (typeof url !== "string" || url === "") {
-    throw new Error(
+    throw openapi_error(
+      "CHO_OPENAPI_INVALID_OPTION",
       'docsPage(): the "url" option is required: where the OpenAPI document is',
     );
   }

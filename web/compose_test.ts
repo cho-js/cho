@@ -78,6 +78,7 @@ describe("compose", () => {
   it("rejects when a middleware returns nothing without calling next", async () => {
     const lost: ChoWebMiddlewareFn = function lost() {};
     await assert.rejects(compose([lost], endpoint)(ctx()), {
+      code: "CHO_CORE_MISSING_MIDDLEWARE_RESULT",
       message:
         "middleware lost returned no response: return a Response or call next()",
     });
@@ -88,7 +89,7 @@ describe("compose", () => {
       return { ok: true };
     });
     await assert.rejects(compose([wrong], endpoint)(ctx()), {
-      name: "TypeError",
+      code: "CHO_CORE_INVALID_MIDDLEWARE_RESULT",
       message: "middleware wrong must return a Response or nothing, got object",
     });
   });
@@ -99,6 +100,7 @@ describe("compose", () => {
       return next();
     };
     await assert.rejects(compose([twice], endpoint)(ctx()), {
+      code: "CHO_CORE_NEXT_CALLED_TWICE",
       message: "middleware twice: next() called more than once",
     });
   });

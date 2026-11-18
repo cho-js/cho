@@ -32,6 +32,7 @@ a route.
   - [With a web application](#with-a-web-application)
   - [Testing](#testing)
 - [Options](#options)
+- [Errors](#errors)
 - [Broker adapters](#broker-adapters)
 - [Runtime support](#runtime-support)
 - [Documentation](#documentation)
@@ -383,6 +384,36 @@ await assert.rejects(app.handle("orders.created", { value: "not json" }));
 The application exposes `start()`, `handle()`, `close()`, `routes` (every topic,
 with the name of its handler), `graph` (the same topics as a tree), `linked`
 (the adapter's own object) and `injector`.
+
+## Errors
+
+A mistake the framework finds is a `ChoError`: an `Error` with a `code`. The
+code is stable: it is part of the API, where the message is for people and can
+change in any release.
+
+```ts
+import { ChoMessage, isChoError } from "@chojs/message";
+
+try {
+  await ChoMessage.create(App, { linker });
+} catch (error) {
+  if (isChoError(error, "CHO_MESSAGE_DUPLICATE_TOPIC")) {
+    // ...
+  }
+  throw error;
+}
+```
+
+The codes of this package start with `CHO_MESSAGE_` (type
+`ChoMessageErrorCode`), and those of the core with `CHO_CORE_` (type
+`ChoCoreErrorCode`). Use `isChoError`, and not `instanceof`: two versions of a
+package in one process have a class each.
+
+The error a handler throws is the application's: it is given to the error
+handler as it is, and a message that fails rejects with it.
+
+Every code is listed with its mistake in the
+[specification](./specs.md#9-errors).
 
 ## Broker adapters
 

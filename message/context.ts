@@ -6,6 +6,7 @@
  * @module
  */
 
+import { message_error } from "./errors.ts";
 import { describe } from "@chojs/core/utils";
 import type { Delivery } from "./linker.ts";
 
@@ -72,7 +73,7 @@ const decoder = new TextDecoder();
  * @param value The value as the adapter gave it.
  * @returns The bytes: those of a string, encoded as UTF-8; none for a message
  *   without a value.
- * @throws {TypeError} When the value is neither bytes nor a string.
+ * @throws {ChoError} When the value is neither bytes nor a string.
  */
 function to_bytes(value: unknown): Uint8Array {
   if (value === undefined || value === null) {
@@ -84,7 +85,8 @@ function to_bytes(value: unknown): Uint8Array {
   if (value instanceof Uint8Array) {
     return value;
   }
-  throw new TypeError(
+  throw message_error(
+    "CHO_MESSAGE_INVALID_VALUE",
     `Invalid value of a message: expected bytes (a Uint8Array) or a string, got ${
       describe(value)
     }`,
@@ -126,7 +128,7 @@ class Context implements ChoMessageContext {
  *   with no value, no key and no headers.
  * @param native The adapter's own message, if any.
  * @returns The context.
- * @throws {TypeError} When the value of the message is neither bytes nor a
+ * @throws {ChoError} When the value of the message is neither bytes nor a
  *   string.
  */
 export function create_context(

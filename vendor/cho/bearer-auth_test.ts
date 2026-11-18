@@ -79,7 +79,7 @@ describe("bearerAuth", () => {
   it("needs a token or a verify function", () => {
     for (const options of [{}, { token: "" }, { token: [] }, { token: [1] }]) {
       assert.throws(() => bearerAuth(loose(options)), {
-        name: "TypeError",
+        code: "CHO_VENDOR_INVALID_OPTION",
         message:
           "bearerAuth(): give a token, a list of tokens, or a verify function",
       });

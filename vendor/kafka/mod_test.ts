@@ -47,15 +47,18 @@ const route = (topic: string): Route => ({
 const close = (linked: Linked) => linked.stop();
 
 suite("KafkaLinker options", () => {
-  const rejects = (options: unknown, message: RegExp) =>
-    assert.throws(() => new KafkaLinker(loose(options)), message);
+  const rejects = (
+    options: unknown,
+    message: RegExp,
+    code = "CHO_KAFKA_INVALID_OPTION",
+  ) => assert.throws(() => new KafkaLinker(loose(options)), { code, message });
 
   it("needs options", () => {
-    rejects(undefined, /^TypeError: KafkaLinker: expected options/);
+    rejects(undefined, /^KafkaLinker: expected options/);
   });
 
   it("needs brokers", () => {
-    const message = /^TypeError: KafkaLinker: the "brokers" option is required/;
+    const message = /^KafkaLinker: the "brokers" option is required/;
     rejects({ groupId: "g" }, message);
     rejects({ brokers: [], groupId: "g" }, message);
     rejects({ brokers: "localhost:9092", groupId: "g" }, message);
@@ -63,7 +66,7 @@ suite("KafkaLinker options", () => {
   });
 
   it("needs a group", () => {
-    const message = /^TypeError: KafkaLinker: the "groupId" option is required/;
+    const message = /^KafkaLinker: the "groupId" option is required/;
     rejects({ brokers: ["a:1"] }, message);
     rejects({ brokers: ["a:1"], groupId: "" }, message);
   });
@@ -72,6 +75,7 @@ suite("KafkaLinker options", () => {
     rejects(
       { ...OPTIONS, group: "g" },
       /unknown option "group"\. Known options: brokers, client, clientId, concurrency, consume, deadLetter, from, groupId, onFatal, retries, retryDelay$/,
+      "CHO_CORE_UNKNOWN_OPTION",
     );
   });
 
@@ -119,7 +123,11 @@ suite("KafkaLinker.link", () => {
     const linked = linker.link([]);
     assert.throws(
       () => linker.link([]),
-      /^Error: KafkaLinker\.link\(\) was already called: use one linker for one application$/,
+      {
+        code: "CHO_KAFKA_ALREADY_LINKED",
+        message:
+          "KafkaLinker.link() was already called: use one linker for one application",
+      },
     );
     await close(linked);
   });
@@ -129,7 +137,10 @@ suite("KafkaLinker.link", () => {
     const topic = "a".repeat(250);
     assert.throws(
       () => linker.link([route(topic)]),
-      /the topic of Test\.a+ has 250 characters: Kafka accepts 249/,
+      {
+        code: "CHO_KAFKA_INVALID_TOPIC",
+        message: /the topic of Test\.a+ has 250 characters: Kafka accepts 249/,
+      },
     );
     // Nothing was linked: the linker can still be used.
     return close(linker.link([route("a".repeat(249))]));
@@ -141,14 +152,20 @@ suite("KafkaLinker.link", () => {
         new KafkaLinker({ ...OPTIONS, deadLetter: "orders" }).link([
           route("orders"),
         ]),
-      /the dead-letter topic of "orders" is "orders" itself/,
+      {
+        code: "CHO_KAFKA_INVALID_DEAD_LETTER",
+        message: /the dead-letter topic of "orders" is "orders" itself/,
+      },
     );
     assert.throws(
       () =>
         new KafkaLinker({ ...OPTIONS, deadLetter: (topic) => topic }).link([
           route("orders"),
         ]),
-      /the dead-letter topic of "orders" is "orders" itself/,
+      {
+        code: "CHO_KAFKA_INVALID_DEAD_LETTER",
+        message: /the dead-letter topic of "orders" is "orders" itself/,
+      },
     );
   });
 

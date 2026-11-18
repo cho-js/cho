@@ -438,7 +438,9 @@ class FileSystem {
 ```
 
 A handler is called with the error, as thrown, and the context of the run, and
-awaited. Its result gives the exit code (section 4.2).
+awaited. Its result gives the exit code (section 4.2). The error is the
+command's own, or a `ChoError` with a code for a mistake the framework found
+while it ran the command (section 7).
 
 - **A function** is called as `(error, ctx)`.
 - **A class** is created by the injector when it first has an error to handle,
@@ -558,84 +560,116 @@ Run 'fs <command> --help' for help on a command.
 
 ## 6. Public API
 
-| Export                                                                                                          | Kind     | Section  |
-| --------------------------------------------------------------------------------------------------------------- | -------- | -------- |
-| `ChoCommand`, `ChoCommandOptions`                                                                               | class    | 4        |
-| `Main`, `Action`, `Help`                                                                                        | function | 2        |
-| `Middlewares`, `Catch` (the core's, typed for `@chojs/command`)                                                 | function | 4.3, 4.4 |
-| `ChoCommandContext`                                                                                             | type     | 3.1      |
-| `ChoArgs`, `CommandFlags`, `ParserOptions`                                                                      | type     | 3        |
-| `ChoCommandHandler`, `ChoCommandNext`, `ChoCommandMiddlewareFn`, `ChoCommandMiddleware`                         | type     | 4.3      |
-| `ChoCommandErrorHandlerFn`, `ChoCommandErrorHandler`                                                            | type     | 4.4      |
-| `Controller`, `Module` (the core's, with no extra option)                                                       | function | 2.1      |
-| `Injectable`, `token`, `provider` (re-exported from `@chojs/core`)                                              | function | 2.1      |
-| `ControllerOptions`, `ModuleOptions`, `InjectableOptions`, `InjectionToken`, `Provider` (re-exported, see core) | type     | 2.1      |
+| Export                                                                                                          | Kind            | Section  |
+| --------------------------------------------------------------------------------------------------------------- | --------------- | -------- |
+| `ChoCommand`, `ChoCommandOptions`                                                                               | class           | 4        |
+| `Main`, `Action`, `Help`                                                                                        | function        | 2        |
+| `Middlewares`, `Catch` (the core's, typed for `@chojs/command`)                                                 | function        | 4.3, 4.4 |
+| `ChoCommandContext`                                                                                             | type            | 3.1      |
+| `ChoArgs`, `CommandFlags`, `ParserOptions`                                                                      | type            | 3        |
+| `ChoCommandHandler`, `ChoCommandNext`, `ChoCommandMiddlewareFn`, `ChoCommandMiddleware`                         | type            | 4.3      |
+| `ChoCommandErrorHandlerFn`, `ChoCommandErrorHandler`                                                            | type            | 4.4      |
+| `Controller`, `Module` (the core's, with no extra option)                                                       | function        | 2.1      |
+| `Injectable`, `token`, `provider` (re-exported from `@chojs/core`)                                              | function        | 2.1      |
+| `ControllerOptions`, `ModuleOptions`, `InjectableOptions`, `InjectionToken`, `Provider` (re-exported, see core) | type            | 2.1      |
+| `ChoError`, `isChoError` (re-exported from `@chojs/core`)                                                       | class, function | 7        |
+| `ChoCommandErrorCode`, `ChoCoreErrorCode`                                                                       | type            | 7        |
 
 ## 7. Errors
 
-The messages below are the current wording, for people to read: they are not
-part of the API and can change in any release (`core/specs.md`, section 2.8). Do
-not match on their text. Exit codes are part of the API (section 4.2).
+Every mistake the framework finds is a `ChoError` with a `code`
+(`core/specs.md`, section 2.8). The code is part of the API, and so are the exit
+codes (section 4.2). The messages below are the current wording, for people to
+read: they are not part of the API and can change in any release. Do not match
+on their text.
+
+```ts
+import { ChoCommand, isChoError } from "@chojs/command";
+
+try {
+  ChoCommand.create(App);
+} catch (error) {
+  if (isChoError(error, "CHO_COMMAND_NO_COMMANDS")) {
+    // ...
+  }
+  throw error;
+}
+```
+
+The codes of this package start with `CHO_COMMAND_` (type
+`ChoCommandErrorCode`). A mistake the core finds has a code of the core,
+`CHO_CORE_…` (type `ChoCoreErrorCode`): it is named below where a command-line
+application meets it.
 
 **When a class is defined** (the decorators):
 
-| Mistake                                      | Message                                                                                                                 |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `@Action` name is empty or not a string      | `TypeError: Action must be a non-empty string`                                                                          |
-| `@Action` name has whitespace                | `TypeError: @Action("<name>"): the name must not contain whitespace`                                                    |
-| `@Action` name starts with `-`               | `TypeError: @Action("<name>"): the name must not start with "-"`                                                        |
-| `@Main` / `@Action` on a symbol-named method | `TypeError: <decorator> cannot decorate method Symbol(...): a command method must have a string name`                   |
-| `@Main` / `@Action` on a `#private` method   | `TypeError: <decorator> cannot decorate private method '#<name>': a command method must be public`                      |
-| `@Main` / `@Action` on a static method       | `TypeError: <decorator> cannot decorate static method '<name>': a command method must not be static`                    |
-| `@Main` / `@Action` on anything but a method | `TypeError: <decorator> can only decorate a method`                                                                     |
-| A second `@Main` / `@Action` on a method     | `Cannot add <decorator> to method '<name>': it already has <existing>. A method can have at most one @Main or @Action.` |
-| `@Help` text is empty or not a string        | `TypeError: Help must be a non-empty string`                                                                            |
-| `@Help` on anything but a class or a method  | `TypeError: @Help() can only decorate a class or a method`                                                              |
+| Mistake                                        | Code                              | Message                                                                                                                 |
+| ---------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `@Action` name is empty or not a string        | `CHO_COMMAND_INVALID_ARGUMENT`    | `Action must be a non-empty string`                                                                                     |
+| `@Action` name has whitespace                  | `CHO_COMMAND_INVALID_ARGUMENT`    | `@Action("<name>"): the name must not contain whitespace`                                                               |
+| `@Action` name starts with `-`                 | `CHO_COMMAND_INVALID_ARGUMENT`    | `@Action("<name>"): the name must not start with "-"`                                                                   |
+| `@Main` / `@Action` on a symbol-named method   | `CHO_COMMAND_INVALID_TARGET`      | `<decorator> cannot decorate method Symbol(...): a command method must have a string name`                              |
+| `@Main` / `@Action` on a `#private` method     | `CHO_COMMAND_INVALID_TARGET`      | `<decorator> cannot decorate private method '#<name>': a command method must be public`                                 |
+| `@Main` / `@Action` on a static method         | `CHO_COMMAND_INVALID_TARGET`      | `<decorator> cannot decorate static method '<name>': a command method must not be static`                               |
+| `@Main` / `@Action` on anything but a method   | `CHO_CORE_INVALID_TARGET`         | `<decorator> can only decorate a method`                                                                                |
+| A second `@Main` / `@Action` on a method       | `CHO_COMMAND_DUPLICATE_DECORATOR` | `Cannot add <decorator> to method '<name>': it already has <existing>. A method can have at most one @Main or @Action.` |
+| `@Help` text is empty or not a string          | `CHO_COMMAND_INVALID_ARGUMENT`    | `Help must be a non-empty string`                                                                                       |
+| `@Help` on anything but a class or a method    | `CHO_CORE_INVALID_TARGET`         | `@Help() can only decorate a class or a method`                                                                         |
+| An unknown option of `@Module` / `@Controller` | `CHO_CORE_UNKNOWN_OPTION`         | `@Controller(): unknown option "<name>". Known options: dependencies`                                                   |
 
 Flags declared with `@Main` / `@Action`, each message starting with the
 decorator (`@Action("copy"): …`):
 
-- `TypeError: … the flags must be an object`
-- `… unknown option "<key>". Known options: boolean, string, collect, negatable, alias, default, describe`
-- `TypeError: … "<key>" must be an array of flag names` (`boolean`, `string`,
-  `collect`, `negatable`)
-- `TypeError: … "<key>" must be an object` (`alias`, `default`, `describe`)
-- `… the flag "<name>" is reserved by the application` (`help`, `version`)
-
-An unknown option of `@Module` or `@Controller` throws
-`@Controller(): unknown option "<name>". Known options: dependencies`.
+| Mistake                                 | Code                        | Message                                                                                                  |
+| --------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| The flags are not an object             | `CHO_COMMAND_INVALID_FLAGS` | `… the flags must be an object`                                                                          |
+| An unknown key                          | `CHO_CORE_UNKNOWN_OPTION`   | `… unknown option "<key>". Known options: boolean, string, collect, negatable, alias, default, describe` |
+| A list of flags that is not one         | `CHO_COMMAND_INVALID_FLAGS` | `… "<key>" must be an array of flag names` (`boolean`, `string`, `collect`, `negatable`)                 |
+| A map of flags that is not one          | `CHO_COMMAND_INVALID_FLAGS` | `… "<key>" must be an object` (`alias`, `default`, `describe`)                                           |
+| A flag the application keeps for itself | `CHO_COMMAND_RESERVED_FLAG` | `… the flag "<name>" is reserved by the application` (`help`, `version`)                                 |
 
 **By `ChoCommand.create`**, for the middlewares and error handlers of the
 commands (nothing is created to check them):
 
-- `Middleware class <Name> must implement 'handle' method.`
-- `Error handler class <Name> must implement 'handle' method.` (`@Catch`, and
-  the `onError` option)
-- `Invalid error handler <v>: must be a function or a class with a 'handle' method.`
-  (the `onError` option)
-- `Middleware class <Name> is not visible in module <Module>. Provide it there or import a module that exports it.`
-  (and `Error handler class …`; for `onError`, the module is the root module)
-- `Middleware class <Name> is ambiguous in module <Module>: several of its imports export it. Provide it there to choose one.`
-  (and `Error handler class …`)
+| Mistake                                       | Code                             | Message                                                                                                                                                                                       |
+| --------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A middleware class has no `handle` method     | `CHO_CORE_INVALID_MIDDLEWARE`    | `Middleware class <Name> must implement 'handle' method.`                                                                                                                                     |
+| An error handler class has no `handle` method | `CHO_CORE_INVALID_ERROR_HANDLER` | `Error handler class <Name> must implement 'handle' method.` (`@Catch`, and the `onError` option)                                                                                             |
+| `onError` is not a function or a class        | `CHO_CORE_INVALID_ERROR_HANDLER` | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                                                                                            |
+| A class that its module cannot inject         | `CHO_COMMAND_NOT_VISIBLE`        | `Middleware class <Name> is not visible in module <Module>. Provide it there or import a module that exports it.` (and `Error handler class …`; for `onError`, the module is the root module) |
+| A class that two imports of its module export | `CHO_COMMAND_AMBIGUOUS_CLASS`    | `Middleware class <Name> is ambiguous in module <Module>: several of its imports export it. Provide it there to choose one.` (and `Error handler class …`)                                    |
 
 **By `ChoCommand.create`:** any module graph error of the core (`core/specs.md`,
 section 2.8), and:
 
-- `No @Main or @Action methods found in the application`
-- `Mixing @Main and @Action methods in the same application is not allowed`
-- `Multiple @Main methods in the same application is not allowed`
-- `Duplicate @Action("<name>"): declared on <Controller>.<method> and <Controller>.<method>`
-  (when it is one controller declared by two modules, followed by
-  `Controller <Controller> is declared in modules <A> and <B>: declare it in one.`)
+| Mistake                        | Code                           | Message                                                                                    |
+| ------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------ |
+| No command in the application  | `CHO_COMMAND_NO_COMMANDS`      | `No @Main or @Action methods found in the application`                                     |
+| `@Main` and `@Action` together | `CHO_COMMAND_MIXED_COMMANDS`   | `Mixing @Main and @Action methods in the same application is not allowed`                  |
+| More than one `@Main`          | `CHO_COMMAND_DUPLICATE_MAIN`   | `Multiple @Main methods in the same application is not allowed`                            |
+| Two `@Action` with one name    | `CHO_COMMAND_DUPLICATE_ACTION` | `Duplicate @Action("<name>"): declared on <Controller>.<method> and <Controller>.<method>` |
 
-**Printed by `run()`** (exit code `1`), besides the command's own errors:
+When a duplicate action is one controller declared by two modules, the message
+is followed by
+`Controller <Controller> is declared in modules <A> and <B>: declare it in one.`
 
-- `Error: middleware <name>: next() called more than once`
-- `Error: middleware <name> returned no exit code: return an exit code or call next()`
-- `Error: middleware <name> must return an exit code or nothing, got <typeof>`
+**Given to the error handler of the command, or printed by `run()`** as
+`Error: <message>` (exit code `1`), besides the command's own errors:
 
-- `Error: Action '<name>' not found. Use --help for usage information.`
-- `Error: Method '<name>' is not a function on controller '<Controller>'.`
+| Mistake                                               | Code                                 | Message                                                                       |
+| ----------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------- |
+| A middleware calls `next()` twice                     | `CHO_CORE_NEXT_CALLED_TWICE`         | `middleware <name>: next() called more than once`                             |
+| A middleware returns nothing without calling `next()` | `CHO_CORE_MISSING_MIDDLEWARE_RESULT` | `middleware <name> returned no exit code: return an exit code or call next()` |
+| A middleware returns something else                   | `CHO_CORE_INVALID_MIDDLEWARE_RESULT` | `middleware <name> must return an exit code or nothing, got <typeof>`         |
+| The instance replaced the command method              | `CHO_COMMAND_INVALID_METHOD`         | `Method '<name>' is not a function on controller '<Controller>'.`             |
+
+An unknown action is not an error: `run()` prints
+`Error: Action '<name>' not found. Use --help for usage information.` and
+resolves to `1` (section 4.2). Nothing is thrown, and it has no code.
+
+**What has no code**: the error a command throws is the application's, and is
+given to the error handler as it is. The vendored parser
+(`command/lib/parse-args.ts`) keeps the errors of the library it is copied from.
 
 ## 8. Internals
 
@@ -659,6 +693,10 @@ section 2.8), and:
   `compose` (`@chojs/core/utils`, the runner `@chojs/web` uses too). An error
   handler class is resolved when it first has an error to handle. Everything is
   created once per application, and only for the commands that run.
+- **Errors** (`command/errors.ts`). `command_error(code, message, options)`
+  makes the `ChoError`s of this package, with a code of `ChoCommandErrorCode`
+  (`core/specs.md`, section 4.4). `command/errors_test.ts` checks the codes
+  against section 7 and against the tests.
 - **Parsing.** `parseArgs` is a vendored copy of `@std/cli/parse-args`
   (`command/lib/parse-args.ts`), so the package has no dependency besides
   `@chojs/core`.

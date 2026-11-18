@@ -24,6 +24,7 @@ import {
   Controller,
   Get,
   Head,
+  HttpError,
   Middlewares,
   Module,
   Options,
@@ -279,6 +280,7 @@ suite("FastifyLinker.link", () => {
     const linker = new FastifyLinker();
     linker.link([echo("GET", "/x")]);
     assert.throws(() => linker.link([echo("GET", "/y")]), {
+      code: "CHO_FASTIFY_ALREADY_LINKED",
       message:
         "FastifyLinker.link() was already called: use one linker for one application",
     });
@@ -397,6 +399,7 @@ suite("FastifyLinked.mount", () => {
     const ready = new FastifyLinker().link([echo("GET", "/a")]);
     await ready.instance.ready();
     assert.throws(() => ready.mount(echo("GET", "/b")), {
+      code: "CHO_FASTIFY_MOUNT_TOO_LATE",
       message:
         "FastifyLinked.mount(): cannot add GET /b: the Fastify application is ready. Mount routes before listen(), ready() and the first request",
     });
@@ -404,6 +407,7 @@ suite("FastifyLinked.mount", () => {
     const served = new FastifyLinker().link([echo("GET", "/a")]);
     await send(served, "/a");
     assert.throws(() => served.mount(echo("GET", "/b")), {
+      code: "CHO_FASTIFY_MOUNT_TOO_LATE",
       message: /^FastifyLinked\.mount\(\): cannot add GET \/b/,
     });
     assert.equal((await send(served, "/b")).status, 404);
@@ -438,6 +442,7 @@ suite("FastifyLinked.mount", () => {
       });
       assert.equal((await fetch(`${address}/api/docs/intro`)).status, 404);
       assert.throws(() => app.mount("GET", "late", () => "late"), {
+        code: "CHO_FASTIFY_MOUNT_TOO_LATE",
         message: /^FastifyLinked\.mount\(\): cannot add GET \/late/,
       });
       // refused by Fastify: the application has not got the route either
@@ -895,6 +900,40 @@ suite("fromFastify", () => {
     });
   }
 
+  it("answers an HttpError of a handler or of a middleware, before Fastify sees an error", async () => {
+    const fastify = Fastify();
+    const seen: unknown[] = [];
+    fastify.setErrorHandler((error, _request, reply) => {
+      seen.push(error);
+      reply.code(500).send("fastify");
+    });
+    const refused = controller(() => {
+      throw new HttpError(404, "no such thing", {
+        headers: { "x-reason": "missing" },
+      });
+    });
+    const app = await create(refused, fastify);
+    const response = await send(app, "/x", "GET");
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get("x-reason"), "missing");
+    assert.deepEqual(await response.json(), { error: "no such thing" });
+
+    // A HEAD request is answered by the GET route, without the body.
+    const head = await send(app, "/x", "HEAD");
+    assert.deepEqual([head.status, await head.text()], [404, ""]);
+
+    const guard: ChoWebMiddlewareFn = () => {
+      throw new HttpError(401);
+    };
+    const [status, body] = await get(
+      await create(controller(() => "never", guard)),
+    );
+    assert.deepEqual([status, JSON.parse(body as string)], [401, {
+      error: "Unauthorized",
+    }]);
+    assert.deepEqual(seen, []);
+  });
+
   it("leaves an unhandled error of the hook to Fastify's error handler", async () => {
     const app = await create(
       controller(
@@ -905,6 +944,26 @@ suite("fromFastify", () => {
     const [status, body] = await get(app);
     assert.equal(status, 500);
     assert.equal(JSON.parse(body as string).message, "broken hook");
+  });
+
+  it("fails with an error of its own when a hook fails with nothing", async () => {
+    for (
+      const [hook, message] of [
+        [() => Promise.reject(undefined), "the hook rejected"],
+        [() => {
+          throw undefined;
+        }, "the hook threw"],
+      ] as [FastifyHook, string][]
+    ) {
+      const ctrl = controller(() => "never", fromFastify(hook));
+      Catch((error) => {
+        const { code, message } = error as { code?: string; message: string };
+        return new Response(`${code}: ${message}`, { status: 500 });
+      })(ctrl);
+      const [status, body] = await get(await create(ctrl));
+      assert.equal(status, 500);
+      assert.equal(body, `CHO_FASTIFY_HOOK_FAILED: ${message}`);
+    }
   });
 
   it("works over HTTP, on a listening server", async () => {
@@ -936,9 +995,10 @@ suite("fromFastify", () => {
       () => "never",
       fromFastify((_request, _reply, done) => done()),
     );
-    Catch((error) => new Response((error as Error).message, { status: 500 }))(
-      ctrl,
-    );
+    Catch((error) => {
+      const { code, message } = error as { code?: string; message: string };
+      return new Response(`${code}: ${message}`, { status: 500 });
+    })(ctrl);
     class App {}
     Module({ controllers: [ctrl] })(App);
     // a linker with no Fastify request: `ctx.native` is undefined
@@ -953,7 +1013,7 @@ suite("fromFastify", () => {
     });
     assert.equal(
       await (await send(app, "/x")).text(),
-      "fromFastify(): a Fastify hook runs on the Fastify adapter only: create the application with a FastifyLinker",
+      "CHO_FASTIFY_WRONG_ADAPTER: fromFastify(): a Fastify hook runs on the Fastify adapter only: create the application with a FastifyLinker",
     );
   });
 });

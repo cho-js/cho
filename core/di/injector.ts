@@ -28,6 +28,7 @@
  * @module
  */
 
+import { core_error } from "../errors.ts";
 import type { Ctr, Provider, Token } from "./types.ts";
 import {
   build_meta_graph,
@@ -132,7 +133,7 @@ export class Injector {
    *
    * @param root The root module class.
    * @param options The options: `overrides`, for tests.
-   * @throws {Error} On any invalid declaration or wiring error, such as a
+   * @throws {ChoError} On any invalid declaration or wiring error, such as a
    *   class without its decorator, a dependency that is not provided, an
    *   ambiguous or duplicate token, or a circular dependency; and on an
    *   override that is invalid or replaces nothing.
@@ -180,13 +181,13 @@ export class Injector {
    * in flight: nothing is created twice.
    *
    * @returns A promise that resolves when everything is created.
-   * @throws {Error} (as a rejection) When a factory fails:
+   * @throws {ChoError} (as a rejection) When a factory fails:
    *   `Failed to create X in module M`, with the original error as `cause`;
    *   and when the injector is disposed.
    */
   async init(): Promise<void> {
     if (this.#disposal) {
-      throw new Error(DISPOSED);
+      throw core_error("CHO_CORE_DISPOSED", DISPOSED);
     }
     await this.#init_module(this.graph.root);
   }
@@ -279,7 +280,11 @@ export class Injector {
         this.#log(`disposed ${name}`);
       } catch (cause) {
         this.#log.error(`failed to dispose ${name}:`, cause);
-        errors.push(new Error(`Failed to dispose ${name}`, { cause }));
+        errors.push(
+          core_error("CHO_CORE_DISPOSE_FAILED", `Failed to dispose ${name}`, {
+            cause,
+          }),
+        );
       }
     }
     this.#created.length = 0;
@@ -305,7 +310,7 @@ export class Injector {
    * @param token The token to resolve.
    * @param module The module whose scope is searched. Defaults to the root.
    * @returns The value of the token. The same value for every call.
-   * @throws {Error} (as a rejection) When `module` is not part of the
+   * @throws {ChoError} (as a rejection) When `module` is not part of the
    *   application, when the token is not visible in its scope, when it is
    *   ambiguous there (two imports export different instances of it), when
    *   a factory fails (`Failed to create X in module M`, with `cause`), or
@@ -320,12 +325,15 @@ export class Injector {
    */
   resolve<T>(token: Token<T>, module?: Ctr): Promise<T> {
     if (this.#disposal) {
-      return this.#reject(new Error(DISPOSED));
+      return this.#reject(core_error("CHO_CORE_DISPOSED", DISPOSED));
     }
     const scope = module ? this.graph.modules.get(module) : this.graph.root;
     if (!scope) {
       return this.#reject(
-        new Error(`${describe(module)} is not part of this application`),
+        core_error(
+          "CHO_CORE_UNKNOWN_MODULE",
+          `${describe(module)} is not part of this application`,
+        ),
       );
     }
     this.#log(`resolve ${describe(token)} in module ${describe(scope.ctr)}`);
@@ -333,7 +341,8 @@ export class Injector {
     if (!node) {
       return this.#reject(
         ambiguity_error(scope, token) ??
-          new Error(
+          core_error(
+            "CHO_CORE_NOT_VISIBLE",
             `${describe(token)} is not visible in module ${
               describe(scope.ctr)
             }`,
@@ -417,7 +426,7 @@ export class Injector {
       // `dispose()` was called: creating them then would leave instances
       // that nothing disposes.
       if (this.#disposal) {
-        return Promise.reject(new Error(DISPOSED));
+        return Promise.reject(core_error("CHO_CORE_DISPOSED", DISPOSED));
       }
       instance = this.#create(node);
       this.#instances.set(node, instance);
@@ -435,7 +444,7 @@ export class Injector {
    *
    * @param node The node to create.
    * @returns The value returned by the factory.
-   * @throws {Error} (as a rejection) `Failed to create X in module M`, with the
+   * @throws {ChoError} (as a rejection) `Failed to create X in module M`, with the
    *   factory's error as `cause`.
    */
   async #create(node: DependencyNode): Promise<unknown> {
@@ -451,7 +460,9 @@ export class Injector {
       return value;
     } catch (cause) {
       this.#log.error(`failed to create ${name}:`, cause);
-      throw new Error(`Failed to create ${name}`, { cause });
+      throw core_error("CHO_CORE_CREATE_FAILED", `Failed to create ${name}`, {
+        cause,
+      });
     }
   }
 

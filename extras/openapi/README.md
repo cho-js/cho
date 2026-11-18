@@ -22,6 +22,7 @@ OpenAPI.
 - [Protecting the documentation](#protecting-the-documentation)
 - [The document, and the page, by themselves](#the-document-and-the-page-by-themselves)
 - [Behavior](#behavior)
+- [Errors](#errors)
 - [Runtime support](#runtime-support)
 - [Documentation](#documentation)
 
@@ -315,6 +316,36 @@ change it, or serve it from a controller of your own.
 | Twice                          | The same `route` throws. Another `route` gives a second documentation, with its own options                                                                                       |
 | Mounted routes                 | A route of `app.mount` is not in the document                                                                                                                                     |
 | Logs                           | The `cho:openapi` debug context                                                                                                                                                   |
+
+## Errors
+
+A mistake in the options, or a document that cannot be made, is a `ChoError` of
+`@chojs/web`: an `Error` with a stable `code`. `openApi` throws it when it is
+called, before the server starts.
+
+```ts
+import { isChoError } from "@chojs/web";
+
+try {
+  openApi(app, options);
+} catch (error) {
+  if (isChoError(error, "CHO_OPENAPI_DUPLICATE_OPERATION_ID")) {
+    // ...
+  }
+  throw error;
+}
+```
+
+| Mistake                                          | Code                                  |
+| ------------------------------------------------ | ------------------------------------- |
+| An option that is missing or wrong               | `CHO_OPENAPI_INVALID_OPTION`          |
+| Two operations with one `operationId`            | `CHO_OPENAPI_DUPLICATE_OPERATION_ID`  |
+| A `security` that names a scheme nobody declared | `CHO_OPENAPI_UNKNOWN_SECURITY_SCHEME` |
+| A `ui` that is not a client                      | `CHO_OPENAPI_UNKNOWN_UI`              |
+
+An option that does not exist is `CHO_CORE_UNKNOWN_OPTION`, and a route that is
+not valid or already taken has the code of `app.mount` (`CHO_WEB_…`). The
+messages are in the [specification](./specs.md#8-errors).
 
 ## Runtime support
 

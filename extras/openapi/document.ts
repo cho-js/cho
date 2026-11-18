@@ -4,6 +4,8 @@
  * @module
  */
 
+import { assert_known_options } from "@chojs/core/di";
+import { openapi_error } from "./errors.ts";
 import type { ChoWeb, ChoWebDocSecurity, ChoWebValidator } from "@chojs/web";
 import type { ControllerRef, FeatureRef, MethodRef } from "@chojs/web/graph";
 import { debuglog, describe } from "@chojs/core/utils";
@@ -121,7 +123,7 @@ function is_object(value: unknown): value is Record<string, unknown> {
  *   `"openApiDocument()"`.
  * @param options The options.
  * @param known The names of the options the caller takes.
- * @throws {Error} When `info` has no title or no version, or when an option
+ * @throws {ChoError} When `info` has no title or no version, or when an option
  *   is unknown.
  */
 export function assert_document_options(
@@ -130,25 +132,19 @@ export function assert_document_options(
   known: readonly string[] = DOCUMENT_OPTIONS,
 ): void {
   if (!is_object(options)) {
-    throw new TypeError(
+    throw openapi_error(
+      "CHO_OPENAPI_INVALID_OPTION",
       `${caller}: expected options, such as { info: { title: "My API", version: "1.0.0" } }`,
     );
   }
-  for (const name of Object.keys(options)) {
-    if (!known.includes(name)) {
-      throw new Error(
-        `${caller}: unknown option ${JSON.stringify(name)}. Known options: ${
-          known.join(", ")
-        }`,
-      );
-    }
-  }
+  assert_known_options(caller, options, known);
   const { info } = options;
   if (
     !is_object(info) || typeof info.title !== "string" || info.title === "" ||
     typeof info.version !== "string" || info.version === ""
   ) {
-    throw new Error(
+    throw openapi_error(
+      "CHO_OPENAPI_INVALID_OPTION",
       `${caller}: the "info" option is required: { title: "My API", version: "1.0.0" }`,
     );
   }
@@ -367,7 +363,7 @@ function read_responses(
  * @param options The options: `info`, and what the application declares
  *   nowhere else.
  * @returns The document.
- * @throws {Error} When `info` has no title or no version, when an option is
+ * @throws {ChoError} When `info` has no title or no version, when an option is
  *   unknown, when two operations have one `operationId`, or when a
  *   `security` names a scheme the `securitySchemes` option does not have.
  *
@@ -397,7 +393,8 @@ export function openApiDocument(
     for (const requirement of security) {
       for (const scheme of Object.keys(requirement)) {
         if (!Object.hasOwn(schemes, scheme)) {
-          throw new Error(
+          throw openapi_error(
+            "CHO_OPENAPI_UNKNOWN_SECURITY_SCHEME",
             `openApiDocument(): ${who} requires the security scheme ${
               JSON.stringify(scheme)
             }, which is not in the "securitySchemes" option`,
@@ -441,7 +438,8 @@ export function openApiDocument(
         const id = method.doc.operationId ?? name;
         const taken = ids.get(id);
         if (taken !== undefined) {
-          throw new Error(
+          throw openapi_error(
+            "CHO_OPENAPI_DUPLICATE_OPERATION_ID",
             `openApiDocument(): the operationId ${
               JSON.stringify(id)
             } is used by ${taken} and ${name}`,

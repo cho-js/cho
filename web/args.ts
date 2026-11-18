@@ -11,6 +11,7 @@
  * @module
  */
 
+import { web_error } from "./errors.ts";
 import { describe } from "@chojs/core/utils";
 import type { ChoWebContext } from "./context.ts";
 import type {
@@ -162,7 +163,7 @@ function body_form(ctx: ChoWebContext): Promise<Strings> {
  * @param first The key or the validator, if any.
  * @param second The validator, when `first` is the key.
  * @returns The argument, with its `info`.
- * @throws {TypeError} When `first` or `second` is not what it should be.
+ * @throws {ChoError} When `first` or `second` is not what it should be.
  */
 function make_arg(
   name: string,
@@ -179,7 +180,8 @@ function make_arg(
     ) {
       return value as ChoWebValidator;
     }
-    throw new TypeError(
+    throw web_error(
+      "CHO_WEB_INVALID_ARGUMENT",
       `${name}(): expected a key (a string) or a validator (an object with a parse method), got ${
         describe(value)
       }`,
@@ -193,7 +195,8 @@ function make_arg(
   } else if (first !== undefined) {
     validator = as_validator(first);
     if (second !== undefined) {
-      throw new TypeError(
+      throw web_error(
+        "CHO_WEB_INVALID_ARGUMENT",
         `${name}(): a validator is the last argument, got ${
           describe(second)
         } after it`,
@@ -218,7 +221,7 @@ function make_arg(
  *   is run when the validation middleware covers the request.
  *
  * @returns The argument, for `@Args`.
- * @throws {TypeError} When a key is not a string, or a validator has no
+ * @throws {ChoError} When a key is not a string, or a validator has no
  *   `parse` method.
  *
  * @example
@@ -279,7 +282,7 @@ export function Param(first?: unknown, second?: unknown): ChoWebArg<unknown> {
  *   It is run when the validation middleware covers the request.
  *
  * @returns The argument, for `@Args`.
- * @throws {TypeError} When a key is not a string, or a validator has no
+ * @throws {ChoError} When a key is not a string, or a validator has no
  *   `parse` method.
  *
  * @example
@@ -344,7 +347,7 @@ export function Query(first?: unknown, second?: unknown): ChoWebArg<unknown> {
  *   validator)`. It is run when the validation middleware covers the request.
  *
  * @returns The argument, for `@Args`.
- * @throws {TypeError} When a key is not a string, or a validator has no
+ * @throws {ChoError} When a key is not a string, or a validator has no
  *   `parse` method.
  *
  * @example
@@ -413,7 +416,7 @@ export function Header(first?: unknown, second?: unknown): ChoWebArg<unknown> {
  *
  * @typeParam T The type of the value.
  * @returns The argument, for `@Args`.
- * @throws {TypeError} When a key is not a string, or a validator has no
+ * @throws {ChoError} When a key is not a string, or a validator has no
  *   `parse` method.
  *
  * @example
@@ -486,7 +489,7 @@ export function Body(first?: unknown, second?: unknown): ChoWebArg<unknown> {
  *   is run when the validation middleware covers the request.
  *
  * @returns The argument, for `@Args`.
- * @throws {TypeError} When a key is not a string, or a validator has no
+ * @throws {ChoError} When a key is not a string, or a validator has no
  *   `parse` method.
  *
  * @example

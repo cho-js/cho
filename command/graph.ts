@@ -5,6 +5,7 @@
  * @module
  */
 
+import { command_error } from "./errors.ts";
 import type {
   ControllerMetadata,
   DependencyNode,
@@ -43,7 +44,7 @@ export type CommandGraph = {
  *
  * @param inj The application's injector.
  * @returns The mode and the command methods.
- * @throws {Error} When there is no command method, when `@Main` and `@Action`
+ * @throws {ChoError} When there is no command method, when `@Main` and `@Action`
  *   are mixed, when there is more than one `@Main`, or when two `@Action`s
  *   share a name (anywhere in the module graph).
  */
@@ -64,7 +65,8 @@ export function command_graph(inj: Injector): CommandGraph {
           // so each of its actions exists twice: say so, or the message
           // names one method twice.
           const same = prev[0].token === c.token && prev[1].name === m.name;
-          throw new Error(
+          throw command_error(
+            "CHO_COMMAND_DUPLICATE_ACTION",
             `Duplicate @Action("${record[ALIAS]}"): declared on ${
               describe(prev[0].token)
             }.${prev[1].name} and ${describe(c.token)}.${m.name}` +
@@ -85,17 +87,22 @@ export function command_graph(inj: Injector): CommandGraph {
   const al = actionMethods.length;
 
   if (ml === 0 && al === 0) {
-    throw new Error("No @Main or @Action methods found in the application");
+    throw command_error(
+      "CHO_COMMAND_NO_COMMANDS",
+      "No @Main or @Action methods found in the application",
+    );
   }
 
   if (ml > 0 && al > 0) {
-    throw new Error(
+    throw command_error(
+      "CHO_COMMAND_MIXED_COMMANDS",
       "Mixing @Main and @Action methods in the same application is not allowed",
     );
   }
 
   if (ml > 1) {
-    throw new Error(
+    throw command_error(
+      "CHO_COMMAND_DUPLICATE_MAIN",
       "Multiple @Main methods in the same application is not allowed",
     );
   }

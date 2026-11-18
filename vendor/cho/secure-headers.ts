@@ -4,6 +4,7 @@
  * @module
  */
 
+import { vendor_error } from "./errors.ts";
 import type { ChoWebMiddlewareFn } from "@chojs/web";
 import { with_headers } from "./headers.ts";
 
@@ -54,7 +55,7 @@ export type SecureHeadersOptions = Readonly<Record<string, string | false>>;
  *
  * @param options Headers to set, to change, or (`false`) to leave out.
  * @returns A CHO middleware function.
- * @throws {TypeError} When a value is not a string or `false`.
+ * @throws {ChoError} When a value is not a string or `false`.
  *
  * @example
  * ```ts
@@ -84,7 +85,8 @@ export function secureHeaders(
     } else if (typeof value === "string") {
       wanted.set(name.toLowerCase(), value);
     } else {
-      throw new TypeError(
+      throw vendor_error(
+        "CHO_VENDOR_INVALID_OPTION",
         `secureHeaders(): the value of ${
           JSON.stringify(name)
         } must be a string or false`,

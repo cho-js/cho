@@ -4,6 +4,7 @@
  * @module
  */
 
+import { vendor_error } from "./errors.ts";
 import type { ChoWebContext, ChoWebMiddlewareFn } from "@chojs/web";
 
 /** The options of {@link timeout}. */
@@ -28,7 +29,7 @@ export type TimeoutOptions = {
  *
  * @param options The limit, and the answer to a request over it.
  * @returns A CHO middleware function.
- * @throws {TypeError} When `ms` is not a positive number.
+ * @throws {ChoError} When `ms` is not a positive number.
  *
  * @example
  * ```ts
@@ -40,7 +41,8 @@ export type TimeoutOptions = {
 export function timeout(options: TimeoutOptions): ChoWebMiddlewareFn {
   const { ms, onTimeout } = options ?? {};
   if (!(typeof ms === "number" && Number.isFinite(ms) && ms > 0)) {
-    throw new TypeError(
+    throw vendor_error(
+      "CHO_VENDOR_INVALID_OPTION",
       "timeout(): ms must be a positive number of milliseconds",
     );
   }

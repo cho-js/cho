@@ -94,6 +94,7 @@ describe("ChoWeb.create", () => {
     // close() disposes it
     await app.close();
     await assert.rejects(app.injector.resolve(Store), {
+      code: "CHO_CORE_DISPOSED",
       message: "The injector is disposed",
     });
   });
@@ -131,7 +132,10 @@ describe("ChoWeb.create", () => {
     class NotAModule {}
     await assert.rejects(
       ChoWeb.create(NotAModule, { linker: new FakeLinker() }),
-      { message: "Class NotAModule is not a module. Did you forget @Module?" },
+      {
+        code: "CHO_CORE_NOT_A_MODULE",
+        message: "Class NotAModule is not a module. Did you forget @Module?",
+      },
     );
   });
 
@@ -139,6 +143,7 @@ describe("ChoWeb.create", () => {
     await assert.rejects(
       ChoWeb.create(users_app(), { linker: new FakeLinker(), prefix: "/api" }),
       {
+        code: "CHO_WEB_INVALID_ROUTE",
         message:
           'Invalid route "/api" of the global prefix: it must not start or end with "/"',
       },
@@ -156,6 +161,7 @@ describe("ChoWeb.create", () => {
     Module({ providers: [Broken] })(App);
     const linker = new FakeLinker();
     await assert.rejects(ChoWeb.create(App, { linker }), {
+      code: "CHO_CORE_CREATE_FAILED",
       message: "Failed to create Broken in module App",
     });
     assert.equal(linker.calls.length, 0);
@@ -232,7 +238,7 @@ describe("ChoWeb.create, debug logging", () => {
     const logs = await logs_of({ ...OFF, CHO_DEBUGLOG: "cho:web" }, NotAModule);
     assert.match(
       logs,
-      /ERROR cannot create application NotAModule: Error: Class NotAModule is not a module/,
+      /ERROR cannot create application NotAModule: ChoError: Class NotAModule is not a module/,
     );
   });
 });
@@ -338,7 +344,10 @@ describe("ChoWeb, closing and overrides", () => {
     const { App } = db_app(log);
     await assert.rejects(
       ChoWeb.create(App, { linker: new FakeLinker(), prefix: "/bad" }),
-      /Invalid route "\/bad" of the global prefix/,
+      {
+        code: "CHO_WEB_INVALID_ROUTE",
+        message: /Invalid route "\/bad" of the global prefix/,
+      },
     );
     assert.deepEqual(log, ["closed real"]);
   });
@@ -378,6 +387,7 @@ describe("ChoWeb, closing and overrides", () => {
     Module({ imports: [A, B] })(App);
 
     await assert.rejects(ChoWeb.create(App, { linker: new FakeLinker() }), {
+      code: "CHO_CORE_CREATE_FAILED",
       message: "Failed to create InjectionToken(FAIL) in module A",
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -567,28 +577,30 @@ describe("ChoWeb.mount", () => {
     const ok = () => {};
 
     assert.throws(() => mount("get", "x", ok), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_METHOD",
       message:
         'ChoWeb.mount(): method must be one of GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, got "get"',
     });
     assert.throws(() => mount("GET", "/x", ok), {
+      code: "CHO_WEB_INVALID_ROUTE",
       message:
         'Invalid route "/x" of ChoWeb.mount(): it must not start or end with "/"',
     });
     assert.throws(() => mount("GET", "a/*", ok), {
+      code: "CHO_WEB_INVALID_ROUTE",
       message: /^Invalid route "a\/\*" of ChoWeb\.mount\(\): .* wildcards/,
     });
     assert.throws(() => mount("GET", 7, ok), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_ROUTE",
       message: "Invalid route of ChoWeb.mount(): expected a string, got 7",
     });
     assert.throws(() => mount("GET", "x", "handler"), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_HANDLER",
       message:
         'ChoWeb.mount(): the handler of GET /x must be a function, got "handler"',
     });
     assert.throws(() => mount("GET", "x", ok, { middlewares: [ok, 3] }), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_MIDDLEWARE",
       message:
         "ChoWeb.mount(): middleware 2 of GET /x must be a function, got 3",
     });
@@ -603,6 +615,7 @@ describe("ChoWeb.mount", () => {
   it("rejects a route the application already has", async () => {
     const app = await ChoWeb.create(users_app(), { linker: new FakeLinker() });
     assert.throws(() => app.mount("GET", "users", () => {}, { name: "mine" }), {
+      code: "CHO_WEB_DUPLICATE_ROUTE",
       message:
         'Duplicate route "GET /users": declared by Users.list and mounted as mine',
     });
@@ -612,6 +625,7 @@ describe("ChoWeb.mount", () => {
     assert.throws(
       () => app.mount("GET", "docs/:name", () => {}, { name: "second" }),
       {
+        code: "CHO_WEB_DUPLICATE_ROUTE",
         message:
           'Duplicate route "GET /docs/:id": mounted as first and mounted as second',
       },
@@ -636,6 +650,7 @@ describe("ChoWeb.mount", () => {
     const app = await ChoWeb.create(users_app(), { linker });
     await app.close();
     assert.throws(() => app.mount("GET", "x", () => {}), {
+      code: "CHO_WEB_CLOSED",
       message: "The application is closed",
     });
     assert.deepEqual(linker.mounted, []);

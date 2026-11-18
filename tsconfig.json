@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "paths": {
+      "@chojs/core": ["./core/mod.ts"],
       "@chojs/core/di": ["./core/di/mod.ts"],
       "@chojs/core/utils": ["./core/utils/mod.ts"],
       "@chojs/core/utils/test_utils": ["./core/utils/test_utils.ts"],

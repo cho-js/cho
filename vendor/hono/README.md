@@ -15,6 +15,7 @@ registers the routes of a CHO web application on a Hono application.
 - [Reaching Hono from a handler](#reaching-hono-from-a-handler)
 - [How it works](#how-it-works)
 - [Behavior](#behavior)
+- [Errors](#errors)
 - [Documentation](#documentation)
 
 ## Installation
@@ -136,6 +137,24 @@ request: mount before the application serves.
 | HTTP methods        | Any method is registered as given                                                                                           |
 | Mounted routes      | `app.mount` registers a route after the others, until the Hono application answers its first request: after it, Hono throws |
 | One linker, one app | A second `link()` on the same linker throws: its Hono application already holds the routes of the first                     |
+
+## Errors
+
+A mistake the adapter finds is a `ChoError` of `@chojs/web`: an `Error` with a
+stable `code`. Recognize it with `isChoError(error, code)`. The messages are for
+people, and can change.
+
+| Mistake                       | Code                      | Message                                                                                                 |
+| ----------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `link()` is called twice      | `CHO_HONO_ALREADY_LINKED` | `HonoLinker.link() was already called: use one linker for one application`                              |
+| `fromHono` on another adapter | `CHO_HONO_WRONG_ADAPTER`  | `fromHono(): a Hono middleware runs on the Hono adapter only: create the application with a HonoLinker` |
+
+The second one fails the request: it goes to the error handlers of the route. A
+route mounted after the first request is refused by Hono, with Hono's own error.
+
+`HttpError` of `@chojs/web` and `HTTPException` of Hono are both answered: the
+first by the route, the second as a response of the Hono middleware that threw
+it.
 
 ## Documentation
 
