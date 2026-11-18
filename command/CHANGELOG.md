@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.0](https://github.com/cho-js/cho/compare/command-v3.4.0...command-v3.5.0) (2026-11-18)
+
+
+### Features
+
+* system wide error system ([#23](https://github.com/cho-js/cho/issues/23)) ([fc82ba6](https://github.com/cho-js/cho/commit/fc82ba6251932f54ed7cd66537d9347ba3fe337f))
+
 ## [3.4.0](https://github.com/cho-js/cho/compare/command-v3.3.0...command-v3.4.0) (2026-11-18)
 
 
