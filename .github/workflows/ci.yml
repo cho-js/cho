@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# The tests of the NATS adapter run against a real server, with JetStream,
+# on the three runtimes: tools/brokers.sh starts it in Docker. The ones of the
+# Kafka adapter take longer, and have a job of their own, on Node.js.
+env:
+  NATS_URL: localhost:4222
+
 jobs:
   deno:
     runs-on: ubuntu-latest
@@ -21,6 +27,7 @@ jobs:
       - run: deno install
       - run: deno check .
       - run: deno lint
+      - run: tools/brokers.sh start nats
       - run: deno task test
       - name: Publish dry run
         run: deno publish --dry-run
@@ -36,7 +43,26 @@ jobs:
         with:
           node-version: "24"
       - run: deno install # installs the npm dependencies (hono, fastify) into node_modules
+      - run: tools/brokers.sh start nats
       - run: npx --yes tsx --test
+
+  kafka:
+    # The Kafka adapter against a real broker, on the runtime its client
+    # library is written for.
+    runs-on: ubuntu-latest
+    env:
+      KAFKA_BROKERS: localhost:9092
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - run: deno install
+      - run: tools/brokers.sh start kafka
+      - run: npx --yes tsx --test vendor/kafka/*_test.ts
 
   bun:
     runs-on: ubuntu-latest
@@ -47,6 +73,7 @@ jobs:
           deno-version: v2.x
       - uses: oven-sh/setup-bun@v2
       - run: deno install
+      - run: tools/brokers.sh start nats
       - run: bun test
 
   workerd:

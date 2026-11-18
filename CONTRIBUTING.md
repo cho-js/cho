@@ -131,8 +131,10 @@ or run them with `npx tsx --test`.
 - A test file sits next to the code it tests, and is named `<file>_test.ts`.
 - Tests that need a broker (`vendor/kafka/kafka_test.ts`,
   `vendor/nats/nats_test.ts`) run only when the address of one is given
-  (`KAFKA_BROKERS`, `NATS_URL`), and are skipped otherwise. They are run
-  locally, against Docker: the CI runs the tests that need no Docker.
+  (`KAFKA_BROKERS`, `NATS_URL`), and are skipped otherwise. The CI runs them
+  against brokers in Docker: the ones of NATS on the three runtimes, and the
+  ones of Kafka, which take longer, on Node.js. `tools/brokers.sh start` starts
+  the same brokers on your machine, and `tools/brokers.sh stop` stops them.
 - Decorators are applied as plain function calls in tests (see `legacy` and
   `tc39` in `core/utils/test_utils.ts`), so that both decorator proposals are
   covered on every runtime. Decorator **syntax** is tested only in the
