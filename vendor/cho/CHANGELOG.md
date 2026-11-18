@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.0](https://github.com/cho-js/cho/compare/vendor-cho-v3.3.0...vendor-cho-v3.4.0) (2026-11-18)
+
+
+### Miscellaneous Chores
+
+* **vendor-cho:** Synchronize cho versions
+
 ## [3.3.0](https://github.com/cho-js/cho/compare/vendor-cho-v3.2.0...vendor-cho-v3.3.0) (2026-11-17)
 
 

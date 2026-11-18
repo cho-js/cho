@@ -1,11 +1,11 @@
 {
-  "core": "3.3.0",
-  "command": "3.3.0",
-  "web": "3.3.0",
-  "message": "3.3.0",
-  "vendor/hono": "3.3.0",
-  "vendor/fastify": "3.3.0",
-  "vendor/cho": "3.3.0",
-  "vendor/kafka": "3.3.0",
-  "extras/openapi": "3.3.0"
+  "core": "3.4.0",
+  "command": "3.4.0",
+  "web": "3.4.0",
+  "message": "3.4.0",
+  "vendor/hono": "3.4.0",
+  "vendor/fastify": "3.4.0",
+  "vendor/cho": "3.4.0",
+  "vendor/kafka": "3.4.0",
+  "extras/openapi": "3.4.0"
 }
