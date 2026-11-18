@@ -27,6 +27,7 @@ call.
   - [Answering with an error](#answering-with-an-error)
   - [Errors of the framework](#errors-of-the-framework)
   - [Serving](#serving)
+  - [Cloudflare Workers](#cloudflare-workers)
   - [Dependency injection and shutdown](#dependency-injection-and-shutdown)
   - [Mounting a route](#mounting-a-route)
   - [Testing](#testing)
@@ -640,6 +641,70 @@ export default { fetch: app.handler };
 You can still call the runtime's server yourself: `Deno.serve(app.handler)` or
 `Bun.serve({ fetch: app.handler })`.
 
+### Cloudflare Workers
+
+`app.handler` is the `fetch` of a Worker. There is no `serve()` on a Worker: the
+runtime calls the handler itself.
+
+```ts
+import { ChoWeb, Controller, Get, Injectable, Module } from "@chojs/web";
+import { env, waitUntil } from "cloudflare:workers";
+
+@Injectable()
+class Config {
+  readonly greeting = (env as { GREETING: string }).GREETING; // a binding
+}
+
+@Controller({ dependencies: [Config] })
+class HelloController {
+  constructor(readonly config: Config) {}
+
+  @Get("hello")
+  hello() {
+    waitUntil(audit("hello")); // work that goes on after the answer
+    return { message: this.config.greeting };
+  }
+}
+
+@Module({ providers: [Config], controllers: [HelloController] })
+class AppModule {}
+
+const app = await ChoWeb.create(AppModule);
+
+export default { fetch: app.handler };
+```
+
+- **The bindings** (KV, D1, queues, secrets) are `env` of `cloudflare:workers`.
+  A handler reads it, and so does a provider, when the application is created.
+  With the Hono adapter they are also in `ctx.native.env`.
+- **Work after the answer** is given to `waitUntil` of `cloudflare:workers`: the
+  Worker stays alive until it is done. With the Hono adapter it is also
+  `ctx.native.executionCtx.waitUntil`.
+- **Creating the application.** A Worker does no I/O outside a request. An
+  application whose providers only compute is created at the top level, as
+  above. One whose providers connect to something is created in the first
+  request:
+
+  ```ts
+  let app: Promise<ChoWeb<unknown>> | undefined;
+
+  export default {
+    async fetch(request: Request) {
+      app ??= ChoWeb.create(AppModule);
+      return (await app).handler(request);
+    },
+  };
+  ```
+- **The environment.** A Worker has no `process`: give `set_env()` of
+  `@chojs/core/utils` what `CHO_DEBUG` and the others are read from.
+- **Keep the names.** A minified bundle renames classes and functions, and CHO
+  puts their names in error messages, in logs and in the tags of an OpenAPI
+  document: set `keep_names = true` in `wrangler.toml` (the default of
+  wrangler).
+- The packages need no `nodejs_compat` flag.
+
+[`examples/worker`](../examples/worker) is a Worker to run with wrangler.
+
 ### Dependency injection and shutdown
 
 `@Module`, `@Controller`, `@Injectable`, `token` and `provider` come from the
@@ -846,12 +911,15 @@ There is no runtime context on this router: `ctx.native` is `undefined`.
 
 ## Runtime support
 
-Deno, Node.js and Bun, and any runtime that serves a `fetch`-style handler. The
-built-in router needs the global `URLPattern` (Deno, Node.js 24, Bun 1.3.4,
-Cloudflare Workers); on a runtime without it, use the Hono adapter. Deno and Bun
-run TypeScript decorators directly; on Node.js, compile the application with
-TypeScript 5 or run it with a tool such as `tsx`. Both standard (TC39) and
-legacy (`experimentalDecorators`) decorators are supported.
+Deno, Node.js, Bun and [Cloudflare Workers](#cloudflare-workers), and any
+runtime that serves a `fetch`-style handler. The tests run on the four:
+Cloudflare Workers is tested in workerd, at the compatibility date `2025-09-01`
+and with no `nodejs_compat` flag. The built-in router needs the global
+`URLPattern` (Deno, Node.js 24, Bun 1.3.4, Cloudflare Workers); on a runtime
+without it, use the Hono adapter. Deno and Bun run TypeScript decorators
+directly; on Node.js, compile the application with TypeScript 5 or run it with a
+tool such as `tsx`. Both standard (TC39) and legacy (`experimentalDecorators`)
+decorators are supported.
 
 Debug logging is enabled with `CHO_DEBUG=1`, or with `CHO_DEBUGLOG=cho:web`.
 

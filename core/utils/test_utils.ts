@@ -203,7 +203,8 @@ export function with_env(
  *   calls this function.
  *
  * It reads files, so it needs a permission on Deno (`--allow-read`). Without
- * it nothing is checked, and `undefined` is returned.
+ * it nothing is checked, and `undefined` is returned; so it is where the test
+ * is not a file (a bundle, as on Cloudflare Workers).
  *
  * @param codes The codes of the package.
  * @param prefix What the codes of the package start with: `"CHO_WEB_"`.
@@ -226,6 +227,10 @@ export async function check_codes(
   url: string,
   doc: string,
 ): Promise<string[] | undefined> {
+  // A bundled test, as on Cloudflare Workers, has no files beside it.
+  if (typeof url !== "string" || !url.startsWith("file:")) {
+    return undefined;
+  }
   const fs = await import("node:fs");
   const root = new URL(".", url);
   const itself = new URL(url).pathname;

@@ -38,6 +38,7 @@ import {
   Sse,
 } from "@chojs/web";
 import type { Route } from "@chojs/web/linker";
+import { engine } from "@chojs/core/utils";
 import { capture, legacy, loose } from "@chojs/core/utils/test_utils";
 import { serve } from "../../web/serve.ts";
 import { fromHono, HonoLinked, HonoLinker } from "./mod.ts";
@@ -826,7 +827,11 @@ function feed_app() {
 }
 
 describe("HonoLinker, server-sent events", () => {
-  it("sends the events of an @Sse handler as they come, over a connection", async () => {
+  it("sends the events of an @Sse handler as they come, over a connection", {
+    // `serve` has no server on Cloudflare Workers.
+    skip: !["deno", "node", "bun"].includes(engine()) &&
+      "this runtime has no server",
+  }, async () => {
     const { App, ended, started } = feed_app();
     const app = await ChoWeb.create(App, { linker: new HonoLinker() });
     const server = await serve(app.handler, { port: 0, hostname: "127.0.0.1" });

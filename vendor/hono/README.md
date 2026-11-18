@@ -112,6 +112,13 @@ ip(ctx: ChoWebContext) {
 }
 ```
 
+On Cloudflare Workers, where the tests of the adapter run too, Hono has the
+bindings and the execution context of the Worker: `(ctx.native as Context).env`
+and `(ctx.native as Context).executionCtx.waitUntil(promise)`. The module of the
+runtime gives the same, with every router:
+`import { env, waitUntil } from "cloudflare:workers"` (see
+[Cloudflare Workers](../../web/README.md#cloudflare-workers) in `@chojs/web`).
+
 ## How it works
 
 The adapter only matches requests. `@chojs/web` builds each route as one

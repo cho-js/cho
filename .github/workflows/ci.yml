@@ -1,4 +1,4 @@
-# Checks every pull request, and main, on the three runtimes CHO supports.
+# Checks every pull request, and main, on the four runtimes CHO supports.
 name: CI
 
 on:
@@ -48,3 +48,17 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: deno install
       - run: bun test
+
+  workerd:
+    # Cloudflare Workers: each test file runs as a Worker, in workerd.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - run: deno install # hono, for the tests of its adapter
+      - run: tools/workerd/run.sh # installs workerd and esbuild in a temporary folder

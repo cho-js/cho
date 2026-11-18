@@ -177,7 +177,7 @@ give `ChoWeb.create` the linker of an adapter:
 
 | Router                                                | Runs on                                                                     |
 |-------------------------------------------------------|-----------------------------------------------------------------------------|
-| [Built in](./web/README.md#the-built-in-router)       | Runtimes with `URLPattern`: Deno, Node.js 24, Bun 1.3.4, Cloudflare Workers |
+| [Built in](./web/README.md#the-built-in-router)       | Deno, Node.js 24, Bun 1.3.4 and Cloudflare Workers: tested on the four       |
 | [`@chojs/vendor-hono`](./vendor/hono/README.md)       | Deno, Node.js, Bun and edge runtimes                                        |
 | [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | Node.js only                                                                |
 

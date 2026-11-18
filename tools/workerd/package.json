@@ -1,0 +1,10 @@
+{
+  "name": "cho-workerd-tests",
+  "private": true,
+  "type": "module",
+  "description": "What tools/workerd/run.sh installs, in a temporary folder: not dependencies of the workspace.",
+  "dependencies": {
+    "esbuild": "0.28.2",
+    "workerd": "1.20261118.1"
+  }
+}

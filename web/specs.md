@@ -1107,21 +1107,21 @@ method and path.
 
 ## 7. Runtime adapters
 
-|                               | `ChoLinker` (built in)                                   | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                          |
-| ----------------------------- | -------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------- |
-| Linker                        | `new ChoLinker(options?)`                                | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                                    |
-| Runs on                       | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                                     |
-| `app.linked.instance`         | a `ChoRouter`                                            | the `Hono` application                           | the Fastify application                                          |
-| Served with                   | `app.handler`                                            | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()`       |
-| `ctx.native`                  | `undefined`                                              | Hono's `Context`                                 | `{ request, reply }` of Fastify                                  |
-| When two routes match         | the first declared                                       | the first declared                               | the static one                                                   |
-| `HEAD` without `@Head`        | `@Get`, without the body                                 | `@Get`, without the body                         | `@Get`, without the body                                         |
-| No route matches              | the `notFound` option; `404`                             | `notFound` of the Hono application               | the not-found handler of the Fastify application                 |
-| A route rejects               | logged with `console.error`; `500`                       | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`              |
-| A route throws an `HttpError` | answered by the route (section 5.1)                      | answered by the route                            | answered by the route                                            |
-| An event stream (`@Sse`)      | streamed by the server that runs `app.handler`           | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end |
-| Its own middlewares           | `@chojs/vendor-cho` (`cors`)                             | `fromHono(middleware)`                           | `fromFastify(hook)`                                              |
-| A route mounted late          | accepted                                                 | throws, after the first request                  | throws, once the application is ready                            |
+|                               | `ChoLinker` (built in)                                                       | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                          |
+| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------- |
+| Linker                        | `new ChoLinker(options?)`                                                    | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                                    |
+| Runs on                       | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4, Cloudflare Workers) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                                     |
+| `app.linked.instance`         | a `ChoRouter`                                                                | the `Hono` application                           | the Fastify application                                          |
+| Served with                   | `app.handler`                                                                | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()`       |
+| `ctx.native`                  | `undefined`                                                                  | Hono's `Context`                                 | `{ request, reply }` of Fastify                                  |
+| When two routes match         | the first declared                                                           | the first declared                               | the static one                                                   |
+| `HEAD` without `@Head`        | `@Get`, without the body                                                     | `@Get`, without the body                         | `@Get`, without the body                                         |
+| No route matches              | the `notFound` option; `404`                                                 | `notFound` of the Hono application               | the not-found handler of the Fastify application                 |
+| A route rejects               | logged with `console.error`; `500`                                           | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`              |
+| A route throws an `HttpError` | answered by the route (section 5.1)                                          | answered by the route                            | answered by the route                                            |
+| An event stream (`@Sse`)      | streamed by the server that runs `app.handler`                               | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end |
+| Its own middlewares           | `@chojs/vendor-cho` (`cors`)                                                 | `fromHono(middleware)`                           | `fromFastify(hook)`                                              |
+| A route mounted late          | accepted                                                                     | throws, after the first request                  | throws, once the application is ready                            |
 
 **The middlewares of the built-in router.** `new ChoLinker({ middlewares })`
 takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
@@ -1215,6 +1215,34 @@ not in it:
 | `FeatureRef`    | `route`, `middlewares`, `errorHandler`, `doc`, `controllers`                                                        |
 | `ControllerRef` | `route`, `middlewares`, `errorHandler`, `doc`, `instance`, `methods`                                                |
 | `MethodRef`     | `route`, `middlewares`, `errorHandler`, `doc`, `name`, `method` (`"GET"`, …), `handler`, `args`, `validated`, `sse` |
+
+### 7.1 Cloudflare Workers
+
+Cloudflare Workers is the fourth runtime the package is tested on: its tests run
+in workerd, the runtime of Workers (`tools/workerd/README.md`), at the
+compatibility date `2025-09-01` and, for the package itself, with no
+`nodejs_compat` flag.
+
+- **The entry point** is `export default { fetch: app.handler }`. `serve()` has
+  no server there, and rejects with `CHO_WEB_NO_SERVER`.
+- **The runtime calls `fetch(request, env, ctx)`.** `app.handler` takes the
+  request. The bindings and the execution context are reached with the module of
+  the runtime, `import { env, waitUntil } from "cloudflare:workers"`, in a
+  handler and in the factory of a provider. With `HonoLinker` they are also
+  `ctx.native.env` and `ctx.native.executionCtx`; with the built-in router
+  `ctx.native` is `undefined`.
+- **Creation.** A Worker does no I/O outside a request, so an application whose
+  providers do some is created in the first request. `ChoWeb.create` at the top
+  level is for providers that only compute.
+- **The environment** is given with `set_env()` (`core/specs.md`, section 3.3):
+  there is no `process`.
+- **Names.** CHO puts the names of classes and functions in error messages, in
+  logs and in the tags of an OpenAPI document. A bundle that renames them
+  changes those: the bundle keeps the names.
+- **What is skipped in the tests**: what needs a server (`serve()`), what reads
+  files (the check of the error codes), and Fastify.
+- **Not covered**: a deployment to Cloudflare, and the bindings other than a
+  text one. The tests run in workerd, on a machine.
 
 ## 8. Public API
 

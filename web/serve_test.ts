@@ -56,8 +56,14 @@ async function using_server(
   }
 }
 
+/** Whether `serve` has a server here: not on Cloudflare Workers. */
+const SERVES = ["deno", "node", "bun"].includes(engine());
+
+/** `describe`, skipped on a runtime with no server. */
+const served = SERVES ? describe : describe.skip;
+
 for (const [name, start] of starts) {
-  describe(name, () => {
+  served(name, () => {
     it("listens on a free port, and answers", async () => {
       await using_server(start, () => new Response("hello"), async (url, s) => {
         assert.ok(s.port > 0);
@@ -328,7 +334,7 @@ for (const [name, start] of starts) {
   });
 }
 
-describe("serve_node", () => {
+served("serve_node", () => {
   it("answers 500 when the handler rejects, and logs the error", async () => {
     const server = await serve_node(
       () => Promise.reject(new Error("boom")),
@@ -467,7 +473,9 @@ describe("serve_node", () => {
 });
 
 describe("serve", () => {
-  it("reports the runtime it serves on", async () => {
+  it("reports the runtime it serves on", {
+    skip: !SERVES && "this runtime has no server",
+  }, async () => {
     const server = await serve(() => new Response(""), {
       port: 0,
       hostname: "127.0.0.1",

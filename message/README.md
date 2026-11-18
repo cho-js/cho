@@ -839,11 +839,13 @@ whole adapter for a broker in memory.
 
 ## Runtime support
 
-Deno, Node.js and Bun. `@chojs/message` itself needs nothing of a runtime; an
-adapter runs where the client library of its broker does. Deno and Bun run
-TypeScript decorators directly; on Node.js, compile the application with
-TypeScript 5 or run it with a tool such as `tsx`. Both standard (TC39) and
-legacy (`experimentalDecorators`) decorators are supported.
+Deno, Node.js and Bun. `@chojs/message` itself needs nothing of a runtime, and
+its tests run on Cloudflare Workers too, where an application delivers its
+messages with `app.handle`: no adapter runs there. An adapter runs where the
+client library of its broker does. Deno and Bun run TypeScript decorators
+directly; on Node.js, compile the application with TypeScript 5 or run it with a
+tool such as `tsx`. Both standard (TC39) and legacy (`experimentalDecorators`)
+decorators are supported.
 
 Debug logging is enabled with `CHO_DEBUG=1`, or with `CHO_DEBUGLOG=cho:message`.
 

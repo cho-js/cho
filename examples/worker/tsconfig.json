@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "paths": {
+      "@chojs/core": ["../../core/mod.ts"],
+      "@chojs/core/di": ["../../core/di/mod.ts"],
+      "@chojs/core/utils": ["../../core/utils/mod.ts"],
+      "@chojs/web": ["../../web/mod.ts"]
+    }
+  }
+}

@@ -343,8 +343,8 @@ nothing is thrown, and no error handler is called.
 
 ## Runtime support
 
-Deno, Node.js and Bun, and any runtime with the standard `Request`, `Response`
-and `Headers`.
+Deno, Node.js, Bun and Cloudflare Workers, where the tests run, and any runtime
+with the standard `Request`, `Response` and `Headers`.
 
 ## Documentation
 

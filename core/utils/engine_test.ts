@@ -1,8 +1,8 @@
 /**
  * Tests for `engine.ts`: detecting the JavaScript runtime.
  *
- * The tests run on Deno, Node.js and Bun: each run checks that the runtime it
- * runs on is detected, and only that one.
+ * The tests run on Deno, Node.js, Bun and workerd (Cloudflare Workers): each
+ * run checks that the runtime it runs on is detected, and only that one.
  */
 
 import { describe, it } from "node:test";
@@ -21,6 +21,9 @@ const actual = "Deno" in globalThis
   ? "deno"
   : "Bun" in globalThis
   ? "bun"
+  : (globalThis as { navigator?: { userAgent?: string } }).navigator
+      ?.userAgent === "Cloudflare-Workers"
+  ? "workerd"
   : "node";
 
 describe("engine", () => {
@@ -31,7 +34,7 @@ describe("engine", () => {
   it("is consistent with the is*Rt checks", () => {
     assert.equal(is_deno_rt(), actual === "deno");
     assert.equal(is_bun_rt(), actual === "bun");
-    assert.equal(is_cloudflare_rt(), false);
+    assert.equal(is_cloudflare_rt(), actual === "workerd");
     assert.equal(is_edge_rt(), false);
     if (actual === "node") assert.equal(is_node_rt(), true);
   });
@@ -41,7 +44,8 @@ describe("engine", () => {
     g.EdgeRuntime = "edge-runtime";
     try {
       assert.equal(is_edge_rt(), true);
-      assert.equal(engine(), "edge");
+      // Cloudflare Workers is looked for before any other edge runtime.
+      assert.equal(engine(), actual === "workerd" ? "workerd" : "edge");
     } finally {
       delete g.EdgeRuntime;
     }

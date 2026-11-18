@@ -8,6 +8,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { engine } from "@chojs/core/utils";
 import { capture, legacy, loose } from "@chojs/core/utils/test_utils";
 import { Body, Header, Param } from "./args.ts";
 import type { ChoWebContext } from "./context.ts";
@@ -498,144 +499,163 @@ describe("@Sse, inherited handlers", () => {
   });
 });
 
-describe("@Sse, over a connection (the built-in router and serve)", () => {
-  /** Serve the application of a controller, and run a test against it. */
-  async function using_app(
-    controller: Class,
-    test: (url: string) => Promise<void>,
-  ) {
-    const app = await ChoWeb.create(feature([controller]));
-    const server = await serve(app.handler, { port: 0, hostname: "127.0.0.1" });
-    try {
-      await test(`http://127.0.0.1:${server.port}`);
-    } finally {
-      await server.close();
-      await app.close();
+/** Whether `serve` has a server here: not on Cloudflare Workers. */
+const SERVES = ["deno", "node", "bun"].includes(engine());
+
+(SERVES ? describe : describe.skip)(
+  "@Sse, over a connection (the built-in router and serve)",
+  () => {
+    /** Serve the application of a controller, and run a test against it. */
+    async function using_app(
+      controller: Class,
+      test: (url: string) => Promise<void>,
+    ) {
+      const app = await ChoWeb.create(feature([controller]));
+      const server = await serve(app.handler, {
+        port: 0,
+        hostname: "127.0.0.1",
+      });
+      try {
+        await test(`http://127.0.0.1:${server.port}`);
+      } finally {
+        await server.close();
+        await app.close();
+      }
     }
-  }
 
-  it("sends each event when it is yielded", async () => {
-    const release = Promise.withResolvers<void>();
-    await using_app(
-      feed(async function* () {
-        yield { event: "first", data: "now" };
-        await release.promise;
-        yield { event: "second", data: "later" };
-      }),
-      async (url) => {
-        const response = await fetch(`${url}/feed/events`);
-        assert.equal(response.headers.get("content-type"), "text/event-stream");
-        const events = events_of(response);
-        // read while the handler is still waiting: nothing is held back
-        assert.equal(await events.next(), "event: first\ndata: now\n\n");
-        release.resolve();
-        assert.equal(await events.next(), "event: second\ndata: later\n\n");
-        assert.equal(await events.next(), undefined);
-      },
-    );
-  });
-
-  it("ends the iteration and aborts the signal when the client goes away", async () => {
-    const ended = Promise.withResolvers<boolean>();
-    await using_app(
-      feed(async function* (ctx: ChoWebContext) {
-        try {
-          yield "first";
-          await new Promise((resolve) =>
-            ctx.req.signal.addEventListener("abort", resolve)
-          );
-        } finally {
-          ended.resolve(ctx.req.signal.aborted);
-        }
-      }),
-      async (url) => {
-        const client = new AbortController();
-        const response = await fetch(`${url}/feed/events`, {
-          signal: client.signal,
-        });
-        const events = events_of(response);
-        assert.equal(await events.next(), "data: first\n\n");
-        client.abort();
-        assert.equal(await ended.promise, true);
-      },
-    );
-  });
-
-  it("answers a HEAD request with the headers, and reads no event", async () => {
-    let started = 0;
-    await using_app(
-      feed(async function* () {
-        started++;
-        yield "one";
-      }),
-      async (url) => {
-        const response = await fetch(`${url}/feed/events`, { method: "HEAD" });
-        assert.equal(response.status, 200);
-        assert.equal(response.headers.get("content-type"), "text/event-stream");
-        assert.equal(await response.text(), "");
-        await sleep(20);
-        assert.equal(started, 0);
-      },
-    );
-  });
-
-  it("cuts the connection when the stream fails", async () => {
-    const failure = new Error("db down");
-    const read = Promise.withResolvers<void>();
-    // The server reports a body that fails, its own way: keep it out of the
-    // output of the tests where it goes through `console.error`.
-    const console_error = console.error;
-    console.error = () => {};
-    try {
+    it("sends each event when it is yielded", async () => {
+      const release = Promise.withResolvers<void>();
       await using_app(
         feed(async function* () {
-          yield "one";
-          // Fail once the first event is with the client: a server may
-          // drop a response that fails before it sent anything.
-          await read.promise;
-          throw failure;
+          yield { event: "first", data: "now" };
+          await release.promise;
+          yield { event: "second", data: "later" };
         }),
         async (url) => {
-          const events = events_of(await fetch(`${url}/feed/events`));
-          assert.equal(await events.next(), "data: one\n\n");
-          read.resolve();
-          // the client never gets a proper end
-          await assert.rejects(events.next());
+          const response = await fetch(`${url}/feed/events`);
+          assert.equal(
+            response.headers.get("content-type"),
+            "text/event-stream",
+          );
+          const events = events_of(response);
+          // read while the handler is still waiting: nothing is held back
+          assert.equal(await events.next(), "event: first\ndata: now\n\n");
+          release.resolve();
+          assert.equal(await events.next(), "event: second\ndata: later\n\n");
+          assert.equal(await events.next(), undefined);
         },
       );
-    } finally {
-      console.error = console_error;
-    }
-  });
-
-  it("ends an open stream when the server closes, after its closeTimeout", async () => {
-    const ended = Promise.withResolvers<void>();
-    const app = await ChoWeb.create(feature([
-      feed(async function* (ctx: ChoWebContext) {
-        try {
-          yield "first";
-          // a stream with no end: it waits for the client to go away
-          await new Promise((resolve) =>
-            ctx.req.signal.addEventListener("abort", resolve)
-          );
-        } finally {
-          ended.resolve();
-        }
-      }),
-    ]));
-    const server = await serve(app.handler, {
-      port: 0,
-      hostname: "127.0.0.1",
-      closeTimeout: 50,
     });
-    const response = await fetch(`http://127.0.0.1:${server.port}/feed/events`);
-    const events = events_of(response);
-    assert.equal(await events.next(), "data: first\n\n");
 
-    // without the timeout, this would wait for the stream for ever
-    await server.close();
-    await ended.promise;
-    await app.close();
-    await events.cancel().catch(() => {});
-  });
-});
+    it("ends the iteration and aborts the signal when the client goes away", async () => {
+      const ended = Promise.withResolvers<boolean>();
+      await using_app(
+        feed(async function* (ctx: ChoWebContext) {
+          try {
+            yield "first";
+            await new Promise((resolve) =>
+              ctx.req.signal.addEventListener("abort", resolve)
+            );
+          } finally {
+            ended.resolve(ctx.req.signal.aborted);
+          }
+        }),
+        async (url) => {
+          const client = new AbortController();
+          const response = await fetch(`${url}/feed/events`, {
+            signal: client.signal,
+          });
+          const events = events_of(response);
+          assert.equal(await events.next(), "data: first\n\n");
+          client.abort();
+          assert.equal(await ended.promise, true);
+        },
+      );
+    });
+
+    it("answers a HEAD request with the headers, and reads no event", async () => {
+      let started = 0;
+      await using_app(
+        feed(async function* () {
+          started++;
+          yield "one";
+        }),
+        async (url) => {
+          const response = await fetch(`${url}/feed/events`, {
+            method: "HEAD",
+          });
+          assert.equal(response.status, 200);
+          assert.equal(
+            response.headers.get("content-type"),
+            "text/event-stream",
+          );
+          assert.equal(await response.text(), "");
+          await sleep(20);
+          assert.equal(started, 0);
+        },
+      );
+    });
+
+    it("cuts the connection when the stream fails", async () => {
+      const failure = new Error("db down");
+      const read = Promise.withResolvers<void>();
+      // The server reports a body that fails, its own way: keep it out of the
+      // output of the tests where it goes through `console.error`.
+      const console_error = console.error;
+      console.error = () => {};
+      try {
+        await using_app(
+          feed(async function* () {
+            yield "one";
+            // Fail once the first event is with the client: a server may
+            // drop a response that fails before it sent anything.
+            await read.promise;
+            throw failure;
+          }),
+          async (url) => {
+            const events = events_of(await fetch(`${url}/feed/events`));
+            assert.equal(await events.next(), "data: one\n\n");
+            read.resolve();
+            // the client never gets a proper end
+            await assert.rejects(events.next());
+          },
+        );
+      } finally {
+        console.error = console_error;
+      }
+    });
+
+    it("ends an open stream when the server closes, after its closeTimeout", async () => {
+      const ended = Promise.withResolvers<void>();
+      const app = await ChoWeb.create(feature([
+        feed(async function* (ctx: ChoWebContext) {
+          try {
+            yield "first";
+            // a stream with no end: it waits for the client to go away
+            await new Promise((resolve) =>
+              ctx.req.signal.addEventListener("abort", resolve)
+            );
+          } finally {
+            ended.resolve();
+          }
+        }),
+      ]));
+      const server = await serve(app.handler, {
+        port: 0,
+        hostname: "127.0.0.1",
+        closeTimeout: 50,
+      });
+      const response = await fetch(
+        `http://127.0.0.1:${server.port}/feed/events`,
+      );
+      const events = events_of(response);
+      assert.equal(await events.next(), "data: first\n\n");
+
+      // without the timeout, this would wait for the stream for ever
+      await server.close();
+      await ended.promise;
+      await app.close();
+      await events.cancel().catch(() => {});
+    });
+  },
+);

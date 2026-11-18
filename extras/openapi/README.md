@@ -349,8 +349,10 @@ messages are in the [specification](./specs.md#8-errors).
 
 ## Runtime support
 
-Every runtime `@chojs/web` runs on: Deno, Node.js, Bun and edge runtimes, with
-every adapter. Making the document and the page uses the language alone.
+Every runtime `@chojs/web` runs on: Deno, Node.js, Bun, Cloudflare Workers and
+other edge runtimes, with every adapter. Making the document and the page uses
+the language alone. A tag of the document is the name of a controller: on a
+Worker, keep the names when the bundle is minified.
 
 ## Documentation
 

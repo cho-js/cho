@@ -72,6 +72,7 @@ Node.js and Bun are needed only to run the tests on those runtimes.
 | Deno    | 2.x            | Everything: checks, tests, publishing    |
 | Node.js | 24 or later    | Running the tests on Node.js, with `tsx` |
 | Bun     | 1.3.4 or later | Running the tests on Bun                 |
+| Docker  | any            | Running the tests on Cloudflare Workers  |
 
 ```sh
 git clone https://github.com/cho-js/cho.git
@@ -102,7 +103,7 @@ tests.
 `core`, `command`, `web`, `message`, `vendor/kafka`, `vendor/nats` and
 `extras/openapi` each have a `specs.md`: the specification of the package, and
 the place to look for how something is meant to behave. A package that has work
-planned lists it in a `tasks.md`.
+planned lists it in a `tmp/tasks.md`.
 
 ### Checks
 
@@ -115,6 +116,7 @@ deno check .                # type-check
 deno task test              # tests on Deno
 deno task test-node         # tests on Node.js (needs tsx)
 deno task test-bun          # tests on Bun
+tools/workerd/docker.sh     # tests on Cloudflare Workers (workerd), in Docker
 deno publish --dry-run --allow-dirty   # what would be published to JSR
 ```
 

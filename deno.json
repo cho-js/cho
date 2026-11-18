@@ -20,6 +20,10 @@
     "@nats-io/transport-deno": "jsr:@nats-io/transport-deno@^3.4.0",
     "@nats-io/jetstream-deno": "jsr:@nats-io/jetstream@^3.4.0"
   },
+  "exclude": [
+    "tools/workerd/",
+    "examples/worker/"
+  ],
   "fmt": {
     "lineWidth": 80,
     "exclude": [

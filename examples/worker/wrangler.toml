@@ -1,0 +1,10 @@
+name = "cho-example"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+# The names of classes are in error messages, in logs and in the tags of an
+# OpenAPI document: keep them when the bundle is minified.
+keep_names = true
+
+[vars]
+GREETING = "Hello"

@@ -222,9 +222,11 @@ Every code is listed with its mistake in the
 
 ## Runtime support
 
-Deno, Node.js and Bun. The package itself contains no decorator syntax and no
-runtime-specific API. Debug logging is enabled with `CHO_DEBUG=1`, or per
-context with `CHO_DEBUGLOG=cho:di`.
+Deno, Node.js, Bun and Cloudflare Workers: the tests run on the four. The
+package itself contains no decorator syntax and no runtime-specific API. On a
+Worker, which has no `process`, give the environment with `set_env()` of
+`@chojs/core/utils`. Debug logging is enabled with `CHO_DEBUG=1`, or per context
+with `CHO_DEBUGLOG=cho:di`.
 
 ## Documentation
 

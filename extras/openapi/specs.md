@@ -1,6 +1,6 @@
 # @chojs/openapi
 
-> **Status: implemented.** `tasks.md` lists what was done and what is left.
+> **Status: implemented.** `../../tmp/tasks.md` lists what was done and what is left.
 > Section 10 lists every decision this document makes, with the alternative that
 > was not chosen, and section 12 what it changed in the other packages.
 
