@@ -227,9 +227,10 @@ validator and are not covered.
 
 Everything declared about a handler is kept on `app.graph`: its method, path and
 name, its arguments with their source, key and validator, and whether it is
-validated. It is what an OpenAPI document of the application is generated from.
-What the code cannot tell is added with `@Doc`, which changes nothing in how a
-request is handled:
+validated. It is what [`@chojs/openapi`](../extras/openapi/README.md) makes the
+OpenAPI document of the application from, with a page that shows it. What the
+code cannot tell is added with `@Doc`, which changes nothing in how a request is
+handled:
 
 ```ts
 @Doc({ tags: ["users"] })

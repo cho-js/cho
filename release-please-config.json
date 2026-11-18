@@ -16,7 +16,8 @@
         "vendor-hono",
         "vendor-fastify",
         "vendor-cho",
-        "vendor-kafka"
+        "vendor-kafka",
+        "openapi"
       ]
     }
   ],
@@ -108,6 +109,18 @@
     "vendor/kafka": {
       "component": "vendor-kafka",
       "package-name": "@chojs/vendor-kafka",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    },
+    "extras/openapi": {
+      "component": "openapi",
+      "package-name": "@chojs/openapi",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {

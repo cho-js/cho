@@ -6,5 +6,6 @@
   "vendor/hono": "3.3.0",
   "vendor/fastify": "3.3.0",
   "vendor/cho": "3.3.0",
-  "vendor/kafka": "3.3.0"
+  "vendor/kafka": "3.3.0",
+  "extras/openapi": "3.3.0"
 }

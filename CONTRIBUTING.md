@@ -94,11 +94,13 @@ tests.
 | `vendor/fastify/` | `@chojs/vendor-fastify` | Web adapter on Fastify (Node.js only)                                      |
 | `vendor/kafka/`   | `@chojs/vendor-kafka`   | Message adapter on Apache Kafka (Node.js only)                             |
 | `extras/`         |                         | Modules built on the graph of an application ([rules](./extras/README.md)) |
+| `extras/openapi/` | `@chojs/openapi`        | The OpenAPI document of a web application, and its page                    |
 | `examples/`       |                         | Runnable examples                                                          |
 
-`core`, `command`, `web`, `message` and `vendor/kafka` each have a `specs.md`:
-the specification of the package, and the place to look for how something is
-meant to behave. A package that has work planned lists it in a `tasks.md`.
+`core`, `command`, `web`, `message`, `vendor/kafka` and `extras/openapi` each
+have a `specs.md`: the specification of the package, and the place to look for
+how something is meant to behave. A package that has work planned lists it in a
+`tasks.md`.
 
 ### Checks
 
