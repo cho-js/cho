@@ -41,11 +41,15 @@ import { engine, env } from "@chojs/core/utils";
 import { legacy, loose } from "@chojs/core/utils/test_utils";
 import type { NatsConnection } from "@nats-io/nats-core";
 import {
+  DEAD_LETTER_HEADERS,
   ERROR_HEADERS,
+  type JetStreamClientLike,
   NatsLinker,
   type NatsLinkerOptions,
   type NatsNative,
+  type NatsStreamNative,
 } from "./mod.ts";
+import { consumer_name } from "./stream.ts";
 
 const SERVER = env("NATS_URL") ?? "";
 
@@ -69,6 +73,33 @@ const transport: { connect: Connect } = !RUN
 /** A connection of the test. */
 const connect = () => transport.connect({ servers: SERVER });
 
+/** The JetStream client, as the test uses it: the one of this runtime. */
+type JetStream = typeof import("@nats-io/jetstream");
+
+// The JetStream client of this runtime: on Deno, the one of JSR, which goes
+// with its transport.
+const { jetstream, jetstreamManager }: JetStream = !RUN
+  ? loose({})
+  : engine() === "deno"
+  ? await import("@nats-io/jetstream-deno")
+  : await import("@nats-io/jetstream");
+
+/** Whether the server has JetStream: `nats-server -js`. */
+const JETSTREAM = RUN && await (async () => {
+  const client = await connect();
+  try {
+    await jetstreamManager(client);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await client.close();
+  }
+})();
+
+/** `describe`, skipped without a server that has JetStream. */
+const stream_suite = JETSTREAM ? describe : describe.skip;
+
 /** A name no other run of the tests has. */
 const unique = (name: string) =>
   `cho-test-${name}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -81,6 +112,21 @@ async function until(done: () => boolean, what: string, ms = 10_000) {
       throw new Error(`timeout: ${what}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+/** Resolves when `done()` resolves with true; rejects after the timeout. */
+async function until_async(
+  done: () => Promise<boolean>,
+  what: string,
+  ms = 10_000,
+) {
+  const end = Date.now() + ms;
+  while (!(await done())) {
+    if (Date.now() > end) {
+      throw new Error(`timeout: ${what}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
 
@@ -594,5 +640,415 @@ suite("NatsLinker, with a server", { timeout: 60_000 }, () => {
     });
     await assert.rejects(app.start());
     await app.close();
+  });
+});
+
+stream_suite("NatsLinker, with JetStream", { timeout: 60_000 }, () => {
+  /** Make streams on the server, each with its subjects. */
+  async function make_streams(streams: Record<string, string[]>) {
+    await with_client(async (client) => {
+      const manager = await jetstreamManager(client);
+      for (const [name, subjects] of Object.entries(streams)) {
+        await manager.streams.add({ name, subjects });
+      }
+    });
+  }
+
+  /** What the server knows of the consumer of a topic. */
+  async function consumer_of(stream: string, queue: string, topic: string) {
+    const client = await connect();
+    try {
+      const manager = await jetstreamManager(client);
+      return await manager.consumers.info(stream, consumer_name(queue, topic));
+    } finally {
+      await client.close();
+    }
+  }
+
+  /** Publish to a stream, and wait until it has the message. */
+  async function publish(
+    subject: string,
+    payloads: string[],
+    headers?: Record<string, string>,
+  ) {
+    await with_client(async (client) => {
+      const { headers: make } = await import("@nats-io/nats-core");
+      const js = jetstream(client);
+      for (const payload of payloads) {
+        const sent = make();
+        for (const [name, text] of Object.entries(headers ?? {})) {
+          sent.set(name, text);
+        }
+        await js.publish(subject, payload, { headers: sent });
+      }
+    });
+  }
+
+  /** An application of `orders_app`, on the streams given. */
+  async function start_on(
+    prefix: string,
+    streams: string[],
+    handler: (ctx: ChoMessageContext) => unknown,
+    options: Partial<NonNullable<NatsLinkerOptions["jetstream"]>> = {},
+    queue = unique("queue"),
+  ) {
+    const app = await ChoMessage.create(orders_app(handler), {
+      prefix,
+      linker: new NatsLinker({
+        connect,
+        queue,
+        jetstream: {
+          client: (nc): JetStreamClientLike => jetstream(nc),
+          streams,
+          retryDelay: 50,
+          ...options,
+        },
+      }),
+    });
+    await app.start();
+    return app;
+  }
+
+  it("handles a message of a stream, and acknowledges it", async () => {
+    const prefix = unique("js-ack");
+    const stream = unique("ORDERS");
+    const queue = unique("queue");
+    const subject = `${prefix}.orders.created`;
+    await make_streams({ [stream]: [`${prefix}.orders.>`] });
+    const seen: unknown[] = [];
+    const app = await start_on(
+      prefix,
+      [stream],
+      (ctx) => {
+        const native = ctx.native as NatsStreamNative;
+        seen.push({
+          value: ctx.json(),
+          headers: ctx.headers,
+          attempt: native.attempt,
+          seq: native.message.seq,
+        });
+      },
+      {},
+      queue,
+    );
+    await publish(subject, ['{"id":1}'], { Tenant: "acme" });
+    await until(() => seen.length === 1, "the message is handled");
+    await app.close();
+    assert.deepEqual(seen, [{
+      value: { id: 1 },
+      headers: { Tenant: "acme" },
+      attempt: 1,
+      seq: 1,
+    }]);
+    // Acknowledged: nothing is left to deliver.
+    const info = await consumer_of(stream, queue, subject);
+    assert.equal(info.num_ack_pending, 0);
+    assert.equal(info.num_pending, 0);
+    assert.equal(info.config.durable_name, consumer_name(queue, subject));
+    assert.equal(info.config.filter_subject, subject);
+  });
+
+  it("handles what was published while the application was down, once", async () => {
+    const prefix = unique("js-down");
+    const stream = unique("ORDERS");
+    const queue = unique("queue");
+    const subject = `${prefix}.orders.created`;
+    await make_streams({ [stream]: [subject] });
+    const seen: string[] = [];
+    const run = () =>
+      start_on(
+        prefix,
+        [stream],
+        (ctx) => void seen.push(ctx.text()),
+        {},
+        queue,
+      );
+
+    // The first start makes the consumer: what comes after is kept for it.
+    const first = await run();
+    await first.close();
+    await publish(subject, ["one", "two"]);
+    const second = await run();
+    await until(() => seen.length === 2, "both messages are handled");
+    await second.close();
+    // A third start has nothing to handle again.
+    const third = await run();
+    await publish(subject, ["three"]);
+    await until(() => seen.length === 3, "the third message is handled");
+    await third.close();
+    assert.deepEqual(seen, ["one", "two", "three"]);
+  });
+
+  it("delivers a failed message again, then sends it to the dead letters", async () => {
+    const prefix = unique("js-dead");
+    const stream = unique("ORDERS");
+    const dead = unique("DEAD");
+    const queue = unique("queue");
+    const subject = `${prefix}.orders.created`;
+    await make_streams({
+      [stream]: [subject],
+      [dead]: [`dead.${prefix}.>`],
+    });
+    const attempts: number[] = [];
+    const good: string[] = [];
+    const order: string[] = [];
+    const app = await start_on(
+      prefix,
+      [stream],
+      (ctx) => {
+        order.push(ctx.text());
+        if (ctx.text() === "bad") {
+          attempts.push((ctx.native as NatsStreamNative).attempt);
+          throw new Error("no stock");
+        }
+        good.push(ctx.text());
+      },
+      { retries: 2, deadLetter: (topic) => `dead.${topic}` },
+      queue,
+    );
+    await publish(subject, ["bad", "good"], { Trace: "t1" });
+    await until(() => attempts.length === 3, "the message is tried 3 times");
+    await until(() => good.length === 1, "the good message is handled");
+    // One message at a time: the failed one holds its route while it is
+    // tried again, so the order of the route is kept.
+    assert.deepEqual(order, ["bad", "bad", "bad", "good"]);
+
+    // The dead letter is in its stream, with where it comes from.
+    const letters: { value: string; headers: Record<string, string> }[] = [];
+    await with_client(async (client) => {
+      const manager = await jetstreamManager(client);
+      await until_async(
+        async () => (await manager.streams.info(dead)).state.messages === 1,
+        "the dead letter is stored",
+      );
+      const stored = await manager.streams.getMessage(dead, { seq: 1 });
+      letters.push({
+        value: stored!.string(),
+        headers: Object.fromEntries(
+          [...stored!.header].map(([name, values]) => [name, values[0]!]),
+        ),
+      });
+    });
+    await app.close();
+    assert.deepEqual(attempts, [1, 2, 3]);
+    assert.deepEqual(letters, [{
+      value: "bad",
+      headers: {
+        Trace: "t1",
+        [DEAD_LETTER_HEADERS.topic]: subject,
+        [DEAD_LETTER_HEADERS.stream]: stream,
+        [DEAD_LETTER_HEADERS.sequence]: "1",
+        [DEAD_LETTER_HEADERS.consumer]: consumer_name(queue, subject),
+        [DEAD_LETTER_HEADERS.attempts]: "3",
+        [DEAD_LETTER_HEADERS.error]: "no stock",
+      },
+    }]);
+    // Ended: it is not delivered again.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(attempts.length, 3);
+    const info = await consumer_of(stream, queue, subject);
+    assert.equal(info.num_ack_pending, 0);
+  });
+
+  it("does not hold a route for a retry when more than one message is in hand", async () => {
+    const prefix = unique("js-two");
+    const stream = unique("ORDERS");
+    const subject = `${prefix}.orders.created`;
+    await make_streams({ [stream]: [subject] });
+    const order: string[] = [];
+    const app = await ChoMessage.create(
+      orders_app((ctx) => {
+        order.push(ctx.text());
+        if (ctx.text() === "bad") {
+          throw new Error("boom");
+        }
+      }),
+      {
+        prefix,
+        linker: new NatsLinker({
+          connect,
+          queue: unique("queue"),
+          concurrency: 2,
+          jetstream: {
+            client: (nc): JetStreamClientLike => jetstream(nc),
+            streams: [stream],
+            retries: 1,
+            retryDelay: 300,
+          },
+        }),
+      },
+    );
+    await app.start();
+    await publish(subject, ["bad", "good"]);
+    await until(() => order.length === 3, "the three deliveries are handled");
+    await app.close();
+    // The good message was handled while the bad one waited for its retry.
+    assert.deepEqual(order, ["bad", "good", "bad"]);
+  });
+
+  it("ends a dead message with no dead-letter subject, and goes on", async () => {
+    const prefix = unique("js-term");
+    const stream = unique("ORDERS");
+    const queue = unique("queue");
+    const subject = `${prefix}.orders.created`;
+    await make_streams({ [stream]: [subject] });
+    let failures = 0;
+    const good: string[] = [];
+    const app = await start_on(
+      prefix,
+      [stream],
+      (ctx) => {
+        if (ctx.text() === "bad") {
+          failures++;
+          throw new Error("boom");
+        }
+        good.push(ctx.text());
+      },
+      { retries: 1 },
+      queue,
+    );
+    await publish(subject, ["bad", "good"]);
+    await until(() => failures === 2 && good.length === 1, "both are settled");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await app.close();
+    assert.equal(failures, 2);
+    const info = await consumer_of(stream, queue, subject);
+    assert.equal(info.num_ack_pending, 0);
+    assert.equal(info.num_pending, 0);
+  });
+
+  it("never delivers a message that is not valid again", async () => {
+    const prefix = unique("js-invalid");
+    const stream = unique("ORDERS");
+    const subject = `${prefix}.orders.created`;
+    await make_streams({ [stream]: [subject] });
+    const seen: unknown[] = [];
+    let refused = 0;
+    const IsOrder: ChoMessageValidator<{ id: number }> = {
+      parse(value) {
+        const id = (value as { id?: unknown } | null)?.id;
+        if (typeof id !== "number") {
+          refused++;
+          throw new Error("id: expected a number");
+        }
+        return { id };
+      },
+    };
+    class Orders {
+      created(order: { id: number }) {
+        seen.push(order);
+      }
+    }
+    legacy(loose(Args(Value(IsOrder))), Orders, "created");
+    legacy(Subscribe("created"), Orders, "created");
+    loose(Middlewares(validate()))(Orders);
+    loose(Controller({ topic: "orders" }))(Orders);
+    class App {}
+    loose(Module({ controllers: [Orders] }))(App);
+    const app = await ChoMessage.create(App, {
+      prefix,
+      linker: new NatsLinker({
+        connect,
+        queue: unique("queue"),
+        jetstream: {
+          client: (nc): JetStreamClientLike => jetstream(nc),
+          streams: [stream],
+          retryDelay: 20,
+        },
+      }),
+    });
+    await app.start();
+    await publish(subject, ['{"id":"x"}', '{"id":7}']);
+    await until(() => seen.length === 1, "the valid message is handled");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await app.close();
+    assert.deepEqual(seen, [{ id: 7 }]);
+    assert.equal(refused, 1);
+  });
+
+  it("has routes of a stream and routes that answer, in one application", async () => {
+    const prefix = unique("js-mixed");
+    const stream = unique("ORDERS");
+    await make_streams({ [stream]: [`${prefix}.orders.created`] });
+    const created: string[] = [];
+    class Orders {
+      created(ctx: ChoMessageContext) {
+        created.push(ctx.text());
+        return "dropped"; // a message of a stream has nobody to answer
+      }
+      price(ctx: ChoMessageContext) {
+        return { price: Number(ctx.text()) * 10 };
+      }
+    }
+    legacy(Subscribe("created"), Orders, "created");
+    legacy(Subscribe("price"), Orders, "price");
+    loose(Controller({ topic: "orders" }))(Orders);
+    class App {}
+    loose(Module({ controllers: [Orders] }))(App);
+    const app = await ChoMessage.create(App, {
+      prefix,
+      linker: new NatsLinker({
+        connect,
+        queue: unique("queue"),
+        jetstream: {
+          client: (nc): JetStreamClientLike => jetstream(nc),
+          streams: [stream],
+        },
+      }),
+    });
+    await app.start();
+    await publish(`${prefix}.orders.created`, ["one"]);
+    await with_client(async (client) => {
+      const reply = await client.request(`${prefix}.orders.price`, "7");
+      assert.deepEqual(reply.json(), { price: 70 });
+    });
+    await until(() => created.length === 1, "the message is handled");
+    await app.close();
+    assert.deepEqual(created, ["one"]);
+  });
+
+  it("rejects the start for a stream that does not exist", async () => {
+    const prefix = unique("js-missing");
+    const app = await ChoMessage.create(orders_app(() => undefined), {
+      prefix,
+      linker: new NatsLinker({
+        connect,
+        queue: unique("queue"),
+        jetstream: {
+          client: (nc): JetStreamClientLike => jetstream(nc),
+          streams: [unique("NOWHERE")],
+        },
+      }),
+    });
+    await assert.rejects(app.start(), { code: "CHO_NATS_STREAM_NOT_FOUND" });
+    await app.close();
+  });
+
+  it("acknowledges the message in hand when the application closes", async () => {
+    const prefix = unique("js-close");
+    const stream = unique("ORDERS");
+    const queue = unique("queue");
+    const subject = `${prefix}.orders.created`;
+    await make_streams({ [stream]: [subject] });
+    let started = 0;
+    let finished = 0;
+    const app = await start_on(
+      prefix,
+      [stream],
+      async () => {
+        started++;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        finished++;
+      },
+      {},
+      queue,
+    );
+    await publish(subject, ["one"]);
+    await until(() => started === 1, "the message is in hand");
+    await app.close();
+    assert.equal(finished, 1);
+    const info = await consumer_of(stream, queue, subject);
+    assert.equal(info.num_ack_pending, 0);
+    assert.equal(info.num_pending, 0);
   });
 });

@@ -8,10 +8,16 @@ import { type ChoNatsErrorCode, nats_error } from "./errors.ts";
 const CODES: Record<ChoNatsErrorCode, true> = {
   CHO_NATS_ALREADY_LINKED: true,
   CHO_NATS_CONNECTION_CLOSED: true,
+  CHO_NATS_CONSUMER_FAILED: true,
+  CHO_NATS_DEAD_LETTER_FAILED: true,
+  CHO_NATS_DUPLICATE_CONSUMER: true,
   CHO_NATS_INVALID_CONNECTION: true,
+  CHO_NATS_INVALID_DEAD_LETTER: true,
+  CHO_NATS_INVALID_JETSTREAM: true,
   CHO_NATS_INVALID_OPTION: true,
   CHO_NATS_NOT_STARTED: true,
   CHO_NATS_REPLY_FAILED: true,
+  CHO_NATS_STREAM_NOT_FOUND: true,
   CHO_NATS_SUBSCRIPTION_FAILED: true,
 };
 

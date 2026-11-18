@@ -44,6 +44,8 @@ export class KafkaSender implements Sender {
   readonly #producer: () => KafkaProducerLike;
 
   /**
+   * Make a sender. The linker of the adapter does: `linker.sender`.
+   *
    * @param producer Gives the producer of the adapter, once it is made.
    */
   constructor(producer: () => KafkaProducerLike) {

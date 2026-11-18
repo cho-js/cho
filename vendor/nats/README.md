@@ -17,6 +17,7 @@ its handler returns.
 - [Options](#options)
 - [Replying](#replying)
 - [A message that failed](#a-message-that-failed)
+- [Messages that must not be lost](#messages-that-must-not-be-lost)
 - [Order and concurrency](#order-and-concurrency)
 - [Reaching NATS from a handler](#reaching-nats-from-a-handler)
 - [Sending and asking](#sending-and-asking)
@@ -40,9 +41,10 @@ runtime.
 | Deno    | `@nats-io/transport-deno`, on JSR                       |
 | any     | `wsconnect` of `@nats-io/nats-core`, through WebSockets |
 
-This version is **core NATS**: subjects, a queue group, request and reply.
-Delivery is at most once. JetStream is
-[not in it](./specs.md#8-not-in-this-version).
+A route is a **core subscription** by default: subjects, a queue group, request
+and reply, at most once. With the `jetstream` option, the routes of a stream are
+consumed from **JetStream**, at least once: see
+[Messages that must not be lost](#messages-that-must-not-be-lost).
 
 ## Installation
 
@@ -58,6 +60,9 @@ npm install @nats-io/transport-node
 bunx jsr add @chojs/message @chojs/vendor-nats
 bun add @nats-io/transport-node
 ```
+
+For [JetStream](#messages-that-must-not-be-lost), add its client the same way:
+`jsr:@nats-io/jetstream` on Deno, `@nats-io/jetstream` on Node.js and Bun.
 
 ## Usage
 
@@ -111,18 +116,19 @@ await app.close();
 
 ## Options
 
-| Option        | Default  | What it is                                                                         |
-| ------------- | -------- | ---------------------------------------------------------------------------------- |
-| `connect`     | required | a function that connects to NATS: `connect` of the transport, with your options    |
-| `queue`       | required | the queue group: the name of the application for NATS                              |
-| `concurrency` | `1`      | how many messages of one subject are in hand at once                               |
-| `errorReply`  | `500`    | what a requester is told when its message failed: `(error, message) => errorReply` |
-| `onFatal`     | throws   | called when the adapter stopped by itself                                          |
+| Option        | Default  | What it is                                                                                            |
+| ------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `connect`     | required | a function that connects to NATS: `connect` of the transport, with your options                       |
+| `queue`       | required | the queue group: the name of the application for NATS                                                 |
+| `concurrency` | `1`      | how many messages of one subject are in hand at once                                                  |
+| `errorReply`  | `500`    | what a requester is told when its message failed: `(error, message) => errorReply`                    |
+| `onFatal`     | throws   | called when the adapter stopped by itself                                                             |
+| `jetstream`   | none     | the streams of the application: see [Messages that must not be lost](#messages-that-must-not-be-lost) |
 
 An option that is missing, unknown or wrong throws from the constructor, with a
 message that names it: a `ChoError` with the code `CHO_NATS_INVALID_OPTION`
 (`CHO_CORE_UNKNOWN_OPTION` for an option that does not exist). Every error of
-the adapter has such a [code](./specs.md#7-errors).
+the adapter has such a [code](./specs.md#8-errors).
 
 **`connect`** is yours, so every option of nats.js is: the servers, the
 credentials, TLS, the name of the client, how many times it connects again.
@@ -253,9 +259,108 @@ An error handler that returns a value answers with that value: it is a reply
 like any other, with no error headers.
 
 **A message that failed and asks for no reply is lost**, and logged. This is
-core NATS: there is nothing to acknowledge, and nothing is delivered again. The
-adapter does not try a message again. A message that must not be lost needs
-JetStream, which is not in this version.
+core NATS: there is nothing to acknowledge, and nothing is delivered again. A
+message that must not be lost goes through a stream:
+[JetStream](#messages-that-must-not-be-lost) delivers it again.
+
+## Messages that must not be lost
+
+A core subscription is at most once: a message that is published while nobody
+listens is gone, and so is one whose handler failed. **JetStream** keeps
+messages: a _stream_ stores the messages of its subjects, and delivers each one
+again until it is acknowledged. Give the adapter the streams of the application:
+
+```ts
+import { jetstream } from "@nats-io/jetstream";
+
+new NatsLinker({
+  connect: () => connect({ servers: "nats:4222" }),
+  queue: "shop",
+  jetstream: {
+    client: (nc) => jetstream(nc),
+    streams: ["ORDERS"],
+    deadLetter: (topic) => `dead.${topic}`,
+  },
+});
+```
+
+A route whose subject is a subject of one of the streams is consumed from it.
+Every other route stays a core subscription, so one application has both: the
+handlers that answer requests, and the ones whose messages must arrive.
+
+```ts
+@Controller({ topic: "shop.orders" })
+class OrdersController {
+  @Subscribe("created") // of the stream ORDERS: kept, acknowledged, retried
+  created(ctx: ChoMessageContext) {}
+
+  @Subscribe("price") // of no stream: a request, answered with what it returns
+  price(ctx: ChoMessageContext) {}
+}
+```
+
+| Option       | Default  | What it is                                                            |
+| ------------ | -------- | --------------------------------------------------------------------- |
+| `client`     | required | makes the JetStream client: `(nc) => jetstream(nc)`                   |
+| `streams`    | required | the names of the streams of the application                           |
+| `retries`    | `3`      | how many times a failed message is delivered again                    |
+| `retryDelay` | `1000`   | the milliseconds before a retry: a number, or a function of the retry |
+| `deadLetter` | none     | the subject of the dead messages: a name, or a function of the topic  |
+| `ackWait`    | `30000`  | the milliseconds a handler has before its message is delivered again  |
+
+What happens to a message of a stream:
+
+1. **Handled: acknowledged.** It is not delivered again. What the handler
+   returns is dropped: a message of a stream has nobody to answer.
+2. **Failed: delivered again**, after `retryDelay`, `retries` times.
+   `ctx.native.attempt` is `1` the first time, `2` on the first retry. A message
+   that waits for its retry still counts as one in hand: with `concurrency: 1`
+   it holds its route meanwhile, so the order of the route is kept.
+3. **Then the message is dead.** It is published to the `deadLetter` subject,
+   and ended. Without `deadLetter` it is ended, and logged: it stays in the
+   stream, and the route goes on.
+
+A **message that is not valid**, one that
+[`validate()`](../../message/README.md#validation) refused, is not delivered
+again: it is dead at once.
+
+A dead letter is the message as it was (its payload and its headers), with
+headers that say where it comes from:
+
+| Header         | Holds                                  |
+| -------------- | -------------------------------------- |
+| `cho-topic`    | the topic of the message               |
+| `cho-stream`   | its stream                             |
+| `cho-sequence` | its sequence in the stream             |
+| `cho-consumer` | the consumer of the route              |
+| `cho-attempts` | how many times the message was handled |
+| `cho-error`    | the message of the last error          |
+
+Their names are exported as `DEAD_LETTER_HEADERS`. The dead-letter subject must
+be a subject of a stream, so that the dead letters are kept: when one cannot be
+published, the message is not ended, and is tried again after `retryDelay`.
+
+Things to know:
+
+- **The streams are yours.** The adapter creates none: `start()` rejects for a
+  stream that does not exist (`CHO_NATS_STREAM_NOT_FOUND`). A subject of a
+  stream can have wildcards (`shop.orders.>`).
+- **The consumers are the adapter's.** Each route of a stream has one durable
+  consumer, named after the queue group and the topic
+  (`shop_shop_orders_created`), which every instance of the application shares.
+  It is made, or changed to what the options say, on each start.
+- **Delivery is at least once.** A message can be handled twice: after a crash,
+  or when its handler is slower than `ackWait`. A handler should be safe to run
+  twice for the same message.
+- **`concurrency`** is, for a route of a stream, how many of its messages are
+  not settled yet at once, the ones that wait for a retry included. With 1, the
+  messages of a route are handled in order, also when one fails. With more, a
+  message is handled while another waits for its retry.
+- **`app.close()`** waits for the messages in hand, which are acknowledged. A
+  message that was received and not handled yet is left to the stream: it is
+  delivered again.
+- `ctx.native` is a `NatsStreamNative`, `{ message, attempt }`: the message of
+  the JetStream client (`seq`, `info`, `time`).
 
 ## Order and concurrency
 
@@ -266,7 +371,7 @@ other.
 
 NATS gives the messages as fast as they are published, and the client keeps the
 ones that wait in memory. A handler that stays slower than its publishers needs
-JetStream.
+a [stream](#messages-that-must-not-be-lost), which keeps them on the server.
 
 ## Reaching NATS from a handler
 
@@ -383,8 +488,10 @@ new NatsLinker({
 - **Topics keep their names**: the topic `shop.orders.created` of the
   application is the NATS subject `shop.orders.created`. A topic has no
   wildcard.
-- **Delivery is at most once.** A message that is published while no instance
-  listens, or while the connection is lost, is not received.
+- **Delivery is at most once** for a core subscription: a message that is
+  published while no instance listens, or while the connection is lost, is not
+  received. It is at least once for a route of a
+  [stream](#messages-that-must-not-be-lost).
 - **A message with no payload** reaches its handler with an empty value:
   `ctx.text()` is `""` and `ctx.json()` is `undefined`.
 - **The adapter owns the connection**: it makes it on `start()`, and closes it
@@ -401,12 +508,14 @@ Handlers need no server to be tested: `app.handle(topic, message)` of
 `@chojs/message` delivers a message by hand, with no linker, and resolves with
 the reply.
 
-The tests of the adapter itself are in two parts. `consume_test.ts` and
-`mod_test.ts` need no server. `nats_test.ts` runs against a real one, on each
-runtime with its own transport, when `NATS_URL` is set:
+The tests of the adapter itself are in two parts. `consume_test.ts`,
+`stream_test.ts`, `send_test.ts` and `mod_test.ts` need no server.
+`nats_test.ts` runs against a real one, on each runtime with its own transport,
+when `NATS_URL` is set. Its JetStream tests run when the server has JetStream
+(`-js`), and are skipped otherwise:
 
 ```sh
-docker run -d --rm -p 4222:4222 nats:2
+docker run -d --rm -p 4222:4222 nats:2 -js
 NATS_URL=localhost:4222 deno test --allow-env --allow-net vendor/nats/nats_test.ts
 NATS_URL=localhost:4222 npx tsx --test vendor/nats/nats_test.ts
 NATS_URL=localhost:4222 bun test vendor/nats/nats_test.ts

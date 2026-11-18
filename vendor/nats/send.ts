@@ -78,6 +78,8 @@ export class NatsSender implements Sender {
   readonly #connection: () => Promise<NatsConnectionLike>;
 
   /**
+   * Make a sender. The linker of the adapter does: `linker.sender`.
+   *
    * @param connection Gives the connection of the application, once it is
    *   made.
    */

@@ -1254,11 +1254,14 @@ error `route.handle` rejects with,
 again. What it does in place is its own decision: Kafka sends it to the
 dead-letter topic at once, and NATS tells who asked `400`, `Bad Request`.
 
-`@chojs/vendor-nats` has one too, `vendor/nats/specs.md`. It is core NATS, where
-a message can ask for a reply: the reply of a handler is sent to who asked, a
-request whose handler returned nothing is answered with an empty reply, and one
-that failed with an error reply. The application gives the connection, so the
-adapter imports no transport and runs on Deno, Node.js and Bun.
+`@chojs/vendor-nats` has one too, `vendor/nats/specs.md`. By default a route is
+a core subscription, where a message can ask for a reply: the reply of a handler
+is sent to who asked, a request whose handler returned nothing is answered with
+an empty reply, and one that failed with an error reply. With its `jetstream`
+option, a route whose subject is of a stream is consumed from JetStream: each
+message is acknowledged, a failed one is delivered again, then sent to a
+dead-letter subject. The application gives the connection, so the adapter
+imports no transport and runs on Deno, Node.js and Bun.
 
 The tree behind the topics is on `app.graph` (`@chojs/message/graph`), with
 every instance, middleware and error handler already created: `AppRef`,

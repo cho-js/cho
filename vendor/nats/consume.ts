@@ -17,6 +17,7 @@ import type { Msg, MsgHdrs } from "@nats-io/nats-core";
 import type { Debuglog } from "@chojs/core/utils";
 import type { Delivery, Reply, Route } from "@chojs/message/linker";
 import { nats_error } from "./errors.ts";
+import { StreamReader, type StreamSettings } from "./stream.ts";
 
 /** A message of NATS, as the client library gives it. */
 export type NatsMessage = Msg;
@@ -98,6 +99,11 @@ export type PumpSettings = {
   readonly onFatal: (error: Error) => void;
   /** The `cho:nats` debug logger. */
   readonly log: Debuglog;
+  /**
+   * The streams of the application, and what a failed message of one leads
+   * to; `undefined`: every route is a core subscription.
+   */
+  readonly jetstream?: StreamSettings | undefined;
 };
 
 /** What a handler finds in `ctx.native` on this adapter. */
@@ -187,6 +193,8 @@ function is_connection(value: unknown): value is NatsConnectionLike {
  *   an error reply when it failed.
  * - A message that asks for none is not answered: what its handler returns is
  *   dropped, and a failure is logged.
+ * - A route whose subject is of a stream of the application is consumed from
+ *   that stream instead, with acknowledgements (see `stream.ts`).
  *
  * @typeParam C The connection of the client library.
  */
@@ -200,6 +208,8 @@ export class Pump<C extends NatsConnectionLike = NatsConnectionLike> {
   readonly #readings: Promise<void>[] = [];
   /** The routes whose reply was dropped, and said so. */
   readonly #dropped = new WeakSet<Route>();
+  /** What reads the routes of a stream, when the application has streams. */
+  readonly #streams: StreamReader | undefined;
   #connecting: Promise<C> | undefined;
   #connection: C | undefined;
   #stopped: Promise<void> | undefined;
@@ -214,6 +224,11 @@ export class Pump<C extends NatsConnectionLike = NatsConnectionLike> {
     this.#routes = routes;
     this.#connect = connect;
     this.#settings = settings;
+    this.#streams = settings.jetstream && new StreamReader(
+      settings.jetstream,
+      (error) => this.#fail(error),
+      () => this.#stopping,
+    );
   }
 
   /**
@@ -273,7 +288,15 @@ export class Pump<C extends NatsConnectionLike = NatsConnectionLike> {
       log("no subject to subscribe to: nothing is received");
       return;
     }
+    // The routes of a stream are consumed from it: the others subscribe.
+    const of_a_stream = await this.#streams?.start(connection, this.#routes);
+    if (this.#stopping) {
+      return; // stop() was called meanwhile: it closes what was started
+    }
     for (const route of this.#routes) {
+      if (of_a_stream?.has(route)) {
+        continue;
+      }
       log("subscribing to", route.topic, "in the queue group", queue);
       const subscription = connection.subscribe(route.topic, { queue });
       this.#subscriptions.push(subscription);
@@ -336,8 +359,11 @@ export class Pump<C extends NatsConnectionLike = NatsConnectionLike> {
       );
     }
     await Promise.all(this.#readings);
+    // The messages of a stream that are in hand are acknowledged; the ones
+    // that wait are delivered again.
+    await this.#streams?.stop();
     if (!connection.isClosed()) {
-      // Sends the replies that wait, then closes.
+      // Sends the replies and the acknowledgements that wait, then closes.
       await attempt(() => connection.drain());
     }
     log("stopped");

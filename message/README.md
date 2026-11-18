@@ -784,10 +784,10 @@ Every code is listed with its mistake in the
 
 An adapter is a package of its own, named after its broker:
 
-| Adapter                                            | Broker       | Runs on               | What a handler returns |
-| -------------------------------------------------- | ------------ | --------------------- | ---------------------- |
-| [`@chojs/vendor-kafka`](../vendor/kafka/README.md) | Apache Kafka | Node.js only          | dropped                |
-| [`@chojs/vendor-nats`](../vendor/nats/README.md)   | NATS         | Deno, Node.js and Bun | sent, as the reply     |
+| Adapter                                            | Broker       | Runs on               | What a handler returns                                          |
+| -------------------------------------------------- | ------------ | --------------------- | --------------------------------------------------------------- |
+| [`@chojs/vendor-kafka`](../vendor/kafka/README.md) | Apache Kafka | Node.js only          | dropped                                                         |
+| [`@chojs/vendor-nats`](../vendor/nats/README.md)   | NATS         | Deno, Node.js and Bun | sent, as the reply; dropped for a message of a JetStream stream |
 
 An adapter implements `Linker`, from `@chojs/message/linker`: it receives the
 topics of the application, and returns what connects them to the broker.

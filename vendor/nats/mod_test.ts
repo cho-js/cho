@@ -187,7 +187,7 @@ describe("NatsLinker options", () => {
   it("names an unknown option, and the known ones", () => {
     rejects(
       { ...options(), group: "g" },
-      /unknown option "group"\. Known options: concurrency, connect, errorReply, onFatal, queue$/,
+      /unknown option "group"\. Known options: concurrency, connect, errorReply, jetstream, onFatal, queue$/,
       "CHO_CORE_UNKNOWN_OPTION",
     );
   });
@@ -205,7 +205,59 @@ describe("NatsLinker options", () => {
       concurrency: 4,
       errorReply: () => ({ code: 404, description: "Not Found" }),
       onFatal: () => {},
+      jetstream: {
+        client: () => loose({}),
+        streams: ["ORDERS", "PAYMENTS"],
+        retries: 0,
+        retryDelay: (retry) => retry * 100,
+        deadLetter: "dead.orders",
+        ackWait: 5000,
+      },
     });
+    new NatsLinker({
+      ...options(),
+      jetstream: {
+        client: () => loose({}),
+        streams: ["ORDERS"],
+        retryDelay: 0,
+        deadLetter: (topic) => `dead.${topic}`,
+      },
+    });
+  });
+
+  it("checks the options of jetstream", () => {
+    const jetstream = { client: () => ({}), streams: ["ORDERS"] };
+    const refuses = (given: unknown, message: RegExp, code?: string) =>
+      rejects({ ...options(), jetstream: given }, message, code);
+    refuses(null, /the "jetstream" option is an object, such as/);
+    refuses("ORDERS", /the "jetstream" option is an object/);
+    refuses(
+      { streams: ["ORDERS"] },
+      /the "client" option of "jetstream" is required: a function/,
+    );
+    refuses(
+      { ...jetstream, client: {} },
+      /the "client" option of "jetstream" is required/,
+    );
+    for (const streams of [undefined, [], "ORDERS", [""], [7]]) {
+      refuses(
+        { ...jetstream, streams },
+        /the "streams" option of "jetstream" is required: the names of the streams/,
+      );
+    }
+    refuses({ ...jetstream, retries: -1 }, /"retries" option of "jetstream"/);
+    refuses({ ...jetstream, retries: 1.5 }, /"retries" option of "jetstream"/);
+    refuses({ ...jetstream, retryDelay: -5 }, /"retryDelay" option of "jet/);
+    refuses({ ...jetstream, retryDelay: "1s" }, /"retryDelay" option of "j/);
+    refuses({ ...jetstream, deadLetter: "" }, /"deadLetter" option of "jet/);
+    refuses({ ...jetstream, deadLetter: true }, /"deadLetter" option of "j/);
+    refuses({ ...jetstream, ackWait: 0 }, /"ackWait" option of "jetstream"/);
+    refuses({ ...jetstream, ackWait: "30s" }, /"ackWait" option of "jetst/);
+    refuses(
+      { ...jetstream, stream: "ORDERS" },
+      /^NatsLinker, "jetstream": unknown option "stream"\. Known options: ackWait, client, deadLetter, retries, retryDelay, streams$/,
+      "CHO_CORE_UNKNOWN_OPTION",
+    );
   });
 });
 
@@ -223,6 +275,27 @@ describe("NatsLinker.link", () => {
     assert.equal(connected, 0);
     await linked.stop();
     assert.equal(connected, 0);
+  });
+
+  it("refuses a dead-letter subject that is the topic itself", () => {
+    for (const deadLetter of ["orders", (topic: string) => topic]) {
+      assert.throws(
+        () =>
+          new NatsLinker({
+            ...options(),
+            jetstream: {
+              client: () => loose({}),
+              streams: ["ORDERS"],
+              deadLetter,
+            },
+          }).link([route("orders")]),
+        {
+          code: "CHO_NATS_INVALID_DEAD_LETTER",
+          message:
+            'NatsLinker: the dead-letter subject of "orders" is "orders" itself: a dead message would be handled again, for ever',
+        },
+      );
+    }
   });
 
   it("links one application only", () => {

@@ -57,6 +57,74 @@ import {
   Pump,
 } from "./consume.ts";
 import { NatsSender, REQUEST_TIMEOUT } from "./send.ts";
+import {
+  type ConsumerSettings,
+  DEAD_LETTER_HEADERS,
+  type JetStreamClientLike,
+  type JetStreamConsumerLike,
+  type JetStreamManagerLike,
+  type JetStreamMessageLike,
+  type JetStreamMessagesLike,
+  type NatsStreamMessage,
+  type NatsStreamNative,
+} from "./stream.ts";
+
+export { DEAD_LETTER_HEADERS };
+export type {
+  ConsumerSettings,
+  JetStreamClientLike,
+  JetStreamConsumerLike,
+  JetStreamManagerLike,
+  JetStreamMessageLike,
+  JetStreamMessagesLike,
+  NatsStreamMessage,
+  NatsStreamNative,
+};
+
+/**
+ * The streams of an application, and what a failed message of one leads to:
+ * the `jetstream` option of {@link NatsLinker}.
+ *
+ * @typeParam C The connection `connect` gives.
+ */
+export type NatsJetStreamOptions<
+  C extends NatsConnectionLike = NatsConnection,
+> = {
+  /**
+   * Makes the JetStream client of the connection: `jetstream` of
+   * `@nats-io/jetstream`, which the application imports as it imports its
+   * transport.
+   */
+  readonly client: (connection: C) => JetStreamClientLike;
+  /**
+   * The streams of the application, by their names. A route whose subject is
+   * a subject of one of them is consumed from it; every other route is a
+   * core subscription. The adapter does not create a stream: `start()`
+   * rejects for one that does not exist.
+   */
+  readonly streams: readonly string[];
+  /**
+   * How many times a message that failed is delivered again, before it is
+   * dead. Default: `3`. `0`: never.
+   */
+  readonly retries?: number | undefined;
+  /**
+   * The milliseconds before a retry: a number, or a function of the retry
+   * (`1` for the first). Default: `1000`.
+   */
+  readonly retryDelay?: number | ((retry: number) => number) | undefined;
+  /**
+   * The subject a dead message is published to: a name, or a function of
+   * the topic of the message. It must be a subject of a stream. Without it,
+   * a dead message is ended, and logged.
+   */
+  readonly deadLetter?: string | ((topic: string) => string) | undefined;
+  /**
+   * The milliseconds a handler has: a message that is not settled by then
+   * is delivered again. Default: `30000`, as NATS.
+   */
+  readonly ackWait?: number | undefined;
+};
 
 // The `@chojs/message` types this module refers to.
 export type { Delivery, Linked, Linker, Reply, RequestOptions, Route, Sender };
@@ -114,6 +182,13 @@ export type NatsLinkerOptions<
    * error is thrown, and ends the process when nothing catches it.
    */
   readonly onFatal?: ((error: Error) => void) | undefined;
+  /**
+   * JetStream: the streams of the application. A route whose subject is of
+   * one of them is consumed from it, and each of its messages is
+   * acknowledged: delivery is at least once. Without it, every route is a
+   * core subscription.
+   */
+  readonly jetstream?: NatsJetStreamOptions<C> | undefined;
 };
 
 /** The names of the options, for the error of an unknown one. */
@@ -121,9 +196,20 @@ const OPTIONS = [
   "concurrency",
   "connect",
   "errorReply",
+  "jetstream",
   "onFatal",
   "queue",
 ] as const satisfies readonly (keyof NatsLinkerOptions)[];
+
+/** The names of the options of `jetstream`. */
+const JETSTREAM_OPTIONS = [
+  "ackWait",
+  "client",
+  "deadLetter",
+  "retries",
+  "retryDelay",
+  "streams",
+] as const satisfies readonly (keyof NatsJetStreamOptions)[];
 
 /** An error of the options, with the name of the class. */
 function invalid(message: string): ChoError<ChoNatsErrorCode> {
@@ -131,7 +217,9 @@ function invalid(message: string): ChoError<ChoNatsErrorCode> {
 }
 
 /** Check the options, and throw for the first that is wrong. */
-function assert_options(options: NatsLinkerOptions<NatsConnectionLike>): void {
+function assert_options<C extends NatsConnectionLike>(
+  options: NatsLinkerOptions<C>,
+): void {
   if (typeof options !== "object" || options === null) {
     throw invalid(
       'expected options, such as { connect: () => connect({ servers: "localhost:4222" }), queue: "my-app" }',
@@ -165,6 +253,64 @@ function assert_options(options: NatsLinkerOptions<NatsConnectionLike>): void {
     if (value !== undefined && typeof value !== "function") {
       throw invalid(`the "${name}" option is a function`);
     }
+  }
+  if (options.jetstream !== undefined) {
+    assert_jetstream(options.jetstream);
+  }
+}
+
+/** Check the options of `jetstream`, and throw for the first that is wrong. */
+function assert_jetstream<C extends NatsConnectionLike>(
+  options: NatsJetStreamOptions<C>,
+): void {
+  if (typeof options !== "object" || options === null) {
+    throw invalid(
+      'the "jetstream" option is an object, such as { client: (nc) => jetstream(nc), streams: ["ORDERS"] }',
+    );
+  }
+  assert_known_options('NatsLinker, "jetstream"', options, JETSTREAM_OPTIONS);
+  const { client, streams, retries, retryDelay, deadLetter, ackWait } = options;
+  if (typeof client !== "function") {
+    throw invalid(
+      'the "client" option of "jetstream" is required: a function that makes the JetStream client, such as (nc) => jetstream(nc)',
+    );
+  }
+  if (
+    !Array.isArray(streams) || streams.length === 0 ||
+    streams.some((stream) => typeof stream !== "string" || stream === "")
+  ) {
+    throw invalid(
+      'the "streams" option of "jetstream" is required: the names of the streams of the application, such as ["ORDERS"]',
+    );
+  }
+  if (retries !== undefined && !(Number.isInteger(retries) && retries >= 0)) {
+    throw invalid(
+      `the "retries" option of "jetstream" is 0 or more, got ${retries}`,
+    );
+  }
+  if (
+    retryDelay !== undefined && typeof retryDelay !== "function" &&
+    !(typeof retryDelay === "number" && retryDelay >= 0)
+  ) {
+    throw invalid(
+      `the "retryDelay" option of "jetstream" is a number of milliseconds or a function, got ${retryDelay}`,
+    );
+  }
+  if (
+    deadLetter !== undefined && typeof deadLetter !== "function" &&
+    !(typeof deadLetter === "string" && deadLetter !== "")
+  ) {
+    throw invalid(
+      'the "deadLetter" option of "jetstream" is a subject or a function of the topic',
+    );
+  }
+  if (
+    ackWait !== undefined &&
+    !(typeof ackWait === "number" && Number.isFinite(ackWait) && ackWait > 0)
+  ) {
+    throw invalid(
+      `the "ackWait" option of "jetstream" is a number of milliseconds, more than 0, got ${ackWait}`,
+    );
   }
 }
 
@@ -335,14 +481,43 @@ export class NatsLinker<C extends NatsConnectionLike = NatsConnection>
       );
     }
     const options = this.#options;
+    const { jetstream } = options;
+    const dead_letter = jetstream?.deadLetter;
+    const deadLetter = typeof dead_letter === "string"
+      ? () => dead_letter
+      : dead_letter;
+    for (const route of routes) {
+      if (deadLetter?.(route.topic) === route.topic) {
+        throw nats_error(
+          "CHO_NATS_INVALID_DEAD_LETTER",
+          `NatsLinker: the dead-letter subject of "${route.topic}" is "${route.topic}" itself: a dead message would be handled again, for ever`,
+        );
+      }
+    }
+    const log = debuglog("cho:nats");
+    const concurrency = options.concurrency ?? 1;
+    const retry_delay = jetstream?.retryDelay ?? 1000;
     const pump = this.#pump = new Pump<C>(routes, options.connect, {
       queue: options.queue,
-      concurrency: options.concurrency ?? 1,
+      concurrency,
       errorReply: options.errorReply,
       onFatal: options.onFatal ?? ((error) => {
         throw error;
       }),
-      log: debuglog("cho:nats"),
+      log,
+      jetstream: jetstream && {
+        client: jetstream.client as (connection: never) => JetStreamClientLike,
+        streams: [...jetstream.streams],
+        queue: options.queue,
+        concurrency,
+        retries: jetstream.retries ?? 3,
+        retryDelay: typeof retry_delay === "function"
+          ? retry_delay
+          : () => retry_delay,
+        deadLetter,
+        ackWait: jetstream.ackWait ?? 30_000,
+        log,
+      },
     });
     return new NatsLinked(pump);
   }

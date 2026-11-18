@@ -17,7 +17,8 @@
     "./extras/openapi"
   ],
   "imports": {
-    "@nats-io/transport-deno": "jsr:@nats-io/transport-deno@^3.4.0"
+    "@nats-io/transport-deno": "jsr:@nats-io/transport-deno@^3.4.0",
+    "@nats-io/jetstream-deno": "jsr:@nats-io/jetstream@^3.4.0"
   },
   "fmt": {
     "lineWidth": 80,

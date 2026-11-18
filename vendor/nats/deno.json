@@ -4,7 +4,8 @@
   "license": "MIT",
   "exports": "./mod.ts",
   "imports": {
-    "@nats-io/nats-core": "npm:@nats-io/nats-core@^3.4.0"
+    "@nats-io/nats-core": "npm:@nats-io/nats-core@^3.4.0",
+    "@nats-io/jetstream": "npm:@nats-io/jetstream@^3.4.0"
   },
   "publish": {
     "exclude": [

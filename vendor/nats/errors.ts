@@ -9,7 +9,7 @@ import type { ChoError } from "@chojs/core";
 import { make_error } from "@chojs/core/utils";
 
 /**
- * The codes of the errors of `@chojs/vendor-nats`. Each is described in `specs.md`, section 7.
+ * The codes of the errors of `@chojs/vendor-nats`. Each is described in `specs.md`, section 8.
  *
  * A mistake the core finds for the package has a code of the core
  * (`ChoCoreErrorCode` of `@chojs/core`): an unknown option is
@@ -18,10 +18,16 @@ import { make_error } from "@chojs/core/utils";
 export type ChoNatsErrorCode =
   | "CHO_NATS_ALREADY_LINKED"
   | "CHO_NATS_CONNECTION_CLOSED"
+  | "CHO_NATS_CONSUMER_FAILED"
+  | "CHO_NATS_DEAD_LETTER_FAILED"
+  | "CHO_NATS_DUPLICATE_CONSUMER"
   | "CHO_NATS_INVALID_CONNECTION"
+  | "CHO_NATS_INVALID_DEAD_LETTER"
+  | "CHO_NATS_INVALID_JETSTREAM"
   | "CHO_NATS_INVALID_OPTION"
   | "CHO_NATS_NOT_STARTED"
   | "CHO_NATS_REPLY_FAILED"
+  | "CHO_NATS_STREAM_NOT_FOUND"
   | "CHO_NATS_SUBSCRIPTION_FAILED";
 
 /**
