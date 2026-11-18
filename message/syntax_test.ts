@@ -15,18 +15,23 @@ import {
   Catch,
   ChoMessage,
   type ChoMessageArg,
+  ChoMessageClient,
   type ChoMessageContext,
   type ChoMessageMiddlewareFn,
+  ChoMessageReply,
   type ChoMessageValidator,
+  contract,
   Controller,
   Header,
   Injectable,
   Key,
   type Linked,
   type Linker,
+  localSender,
   Middlewares,
   Module,
   provider,
+  ReplyError,
   type Route,
   Subscribe,
   token,
@@ -365,6 +370,163 @@ describe("@Args, with decorator syntax", () => {
         h(_order: NewOrder, _id: number, _ctx: ChoMessageContext) {}
       }
       return Wrong;
+    };
+    assert.equal(typeof _check, "function");
+  });
+});
+
+type Price = { id: number; price: number };
+
+/** A validator that gives a `Price`, or throws. */
+const IsPrice: ChoMessageValidator<Price> = {
+  parse(value) {
+    const { id, price } = (value ?? {}) as Record<string, unknown>;
+    if (typeof id !== "number" || typeof price !== "number") {
+      throw new Error("not a price");
+    }
+    return { id, price };
+  },
+};
+
+const GetPrice = contract({
+  topic: "shop.orders.price",
+  request: NewOrder,
+  reply: IsPrice,
+});
+const OrderCreated = contract({
+  topic: "shop.orders.created",
+  request: NewOrder,
+});
+const Echo = contract<string, string>({ topic: "shop.echo" });
+
+describe("@Subscribe(contract), with decorator syntax", () => {
+  const created: NewOrder[] = [];
+
+  @Middlewares(validate())
+  @Controller({ topic: "orders" })
+  class Orders {
+    @Subscribe(GetPrice)
+    price(order: NewOrder, ctx: ChoMessageContext): Price {
+      if (order.id === 404) {
+        throw new ReplyError(404, "Not Found");
+      }
+      return {
+        id: order.id,
+        price: order.items.length * 10 + ctx.value.length * 0,
+      };
+    }
+
+    @Subscribe(OrderCreated)
+    async created(order: NewOrder) {
+      await Promise.resolve();
+      created.push(order);
+    }
+  }
+
+  @Controller()
+  class Tools {
+    @Subscribe(Echo)
+    echo(text: string) {
+      return new ChoMessageReply(text.toUpperCase(), {
+        headers: { length: String(text.length) },
+      });
+    }
+  }
+
+  @Module({ topic: "shop", controllers: [Orders, Tools] })
+  class Shop {}
+
+  it("handles the topic of each contract, and answers a client with typed replies", async () => {
+    const app = await ChoMessage.create(Shop, { prefix: "staging" });
+    assert.deepEqual(app.routes.map((route) => route.topic).sort(), [
+      "staging.shop.echo",
+      "staging.shop.orders.created",
+      "staging.shop.orders.price",
+    ]);
+    const client = new ChoMessageClient(localSender(app), {
+      prefix: "staging",
+    });
+
+    const price: Price = await client.request(GetPrice, {
+      id: 7,
+      items: ["a", "b"],
+    });
+    assert.deepEqual(price, { id: 7, price: 20 });
+
+    const echo: string = await client.request(Echo, "hello");
+    assert.equal(echo, "HELLO");
+
+    await client.publish(OrderCreated, { id: 8, items: [] });
+    assert.deepEqual(created, [{ id: 8, items: [] }]);
+
+    await assert.rejects(
+      client.request(GetPrice, { id: 404, items: [] }),
+      { name: "ReplyError", code: 404, message: "Not Found" },
+    );
+  });
+
+  it("checks the handler, and what a client sends, at compile time", () => {
+    // Type-only: never called, so the classes are never defined.
+    const _check = async (client: ChoMessageClient) => {
+      class Wrong {
+        // @ts-expect-error the request is a NewOrder
+        @Subscribe(GetPrice)
+        a(_order: { id: string }): Price {
+          return { id: 1, price: 1 };
+        }
+
+        // @ts-expect-error the reply is a Price
+        @Subscribe(GetPrice)
+        b(_order: NewOrder) {
+          return { id: 1 };
+        }
+
+        // @ts-expect-error a contract with a reply does not return nothing
+        @Subscribe(GetPrice)
+        c(_order: NewOrder) {}
+
+        // @ts-expect-error the context comes after the request
+        @Subscribe(GetPrice)
+        d(_ctx: ChoMessageContext, _order: NewOrder): Price {
+          return { id: 1, price: 1 };
+        }
+
+        // @ts-expect-error a contract with no reply does not return a value
+        @Subscribe(OrderCreated)
+        e(_order: NewOrder) {
+          return 42;
+        }
+
+        // A handler can leave its parameters out, and be asynchronous.
+        @Subscribe(GetPrice)
+        f(): Promise<Price> {
+          return Promise.resolve({ id: 1, price: 1 });
+        }
+
+        // A reply with headers is always accepted.
+        @Subscribe(GetPrice)
+        g(_order: NewOrder) {
+          return new ChoMessageReply({ id: 1, price: 1 });
+        }
+      }
+
+      // @ts-expect-error the value is a NewOrder
+      await client.request(GetPrice, { id: "7" });
+      // @ts-expect-error a contract with a request needs a value
+      await client.request(GetPrice);
+      // @ts-expect-error the reply is a Price, not a string
+      const _text: string = await client.request(GetPrice, {
+        id: 1,
+        items: [],
+      });
+      // @ts-expect-error the value is a NewOrder
+      await client.publish(OrderCreated, "order");
+      // The reply of a contract with none is undefined.
+      const _none: undefined = await client.request(OrderCreated, {
+        id: 1,
+        items: [],
+      });
+      return [Wrong, _text, _none];
     };
     assert.equal(typeof _check, "function");
   });

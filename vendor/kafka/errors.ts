@@ -22,7 +22,8 @@ export type ChoKafkaErrorCode =
   | "CHO_KAFKA_INVALID_DEAD_LETTER"
   | "CHO_KAFKA_INVALID_OPTION"
   | "CHO_KAFKA_INVALID_TOPIC"
-  | "CHO_KAFKA_NO_DEAD_LETTER";
+  | "CHO_KAFKA_NO_DEAD_LETTER"
+  | "CHO_KAFKA_NOT_LINKED";
 
 /**
  * Make an error of `@chojs/vendor-kafka`.

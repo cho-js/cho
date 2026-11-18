@@ -9,6 +9,7 @@
  * @module
  */
 
+import type { Contract } from "./contract.ts";
 import type { ChoMessageArg } from "./types.ts";
 
 /** The topic of a handler method, written by `@Subscribe`. */
@@ -16,8 +17,13 @@ export const SUBSCRIBE: unique symbol = Symbol.for("chojs.message.subscribe");
 
 /** What `@Subscribe` declares about a handler method. */
 export type Subscription = {
-  /** The topic of the handler, relative to its controller, as declared. */
+  /**
+   * The topic of the handler, as declared: relative to its controller, or
+   * the whole topic of its contract.
+   */
   readonly topic: string;
+  /** The contract of the handler, when `@Subscribe` was given one. */
+  readonly contract?: Contract;
 };
 
 /**

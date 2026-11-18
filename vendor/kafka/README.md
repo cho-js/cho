@@ -215,9 +215,29 @@ A handler that uses `ctx.native` runs on this adapter only, and not with
 
 ## Sending messages
 
-`@chojs/message` handles messages: it does not send them. The adapter has a
-producer of the client library, for its dead letters, and the application can
-use it. It connects on its first message, and `app.close()` closes it:
+**With a contract.** `linker.sender` is the sender of the adapter: give it to a
+[`ChoMessageClient`](../../message/README.md#sending-messages) of
+`@chojs/message`, and publish the message of a contract, as JSON, with its key
+and its headers.
+
+```ts
+import { ChoMessageClient } from "@chojs/message";
+
+const linker = new KafkaLinker({ brokers, groupId: "shop" });
+const client = new ChoMessageClient(linker.sender);
+
+const app = await ChoMessage.create(AppModule, { linker });
+
+await client.publish(OrderCreated, { id: 42, total: 12 }, { key: "42" });
+```
+
+The sender is there as soon as the linker is made, and sends once the
+application is created (`CHO_KAFKA_NOT_LINKED` before). **Kafka has no
+replies**: `client.request` throws `CHO_MESSAGE_NO_REPLIES` on this adapter.
+
+**With the producer.** The adapter has a producer of the client library, for its
+dead letters and for its sender, and the application can use it. It connects on
+its first message, and `app.close()` closes it:
 
 ```ts
 import { Buffer } from "node:buffer";

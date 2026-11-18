@@ -39,7 +39,7 @@ import {
   Producer,
 } from "@platformatic/kafka";
 import { debuglog } from "@chojs/core/utils";
-import type { Linked, Linker, Route } from "@chojs/message/linker";
+import type { Linked, Linker, Route, Sender } from "@chojs/message/linker";
 import {
   DEAD_LETTER_HEADERS,
   type KafkaMessage,
@@ -47,8 +47,11 @@ import {
   Pump,
 } from "./consume.ts";
 
+import { KafkaSender } from "./send.ts";
+
 // The `@chojs/message` types this module refers to.
-export type { Linked, Linker, Route };
+export type { Linked, Linker, Route, Sender };
+export { KafkaSender };
 export { DEAD_LETTER_HEADERS };
 export type { KafkaMessage, KafkaNative };
 
@@ -328,6 +331,32 @@ export class KafkaLinker implements Linker<KafkaClient> {
   readonly #options: KafkaLinkerOptions;
   /** Whether {@link link} was called: a linker serves one application. */
   #linked = false;
+  /** The producer of the linked application. */
+  #producer: KafkaProducer | undefined;
+
+  /**
+   * Sends messages with the producer of the adapter: give it to a
+   * `ChoMessageClient`. It can be given before the application is created,
+   * and it sends once `ChoMessage.create` linked the application: the
+   * producer connects on its first message.
+   *
+   * Kafka has no replies: this sender publishes, and a request on it throws.
+   *
+   * @example
+   * ```ts
+   * const linker = new KafkaLinker({ brokers, groupId: "shop" });
+   * const client = new ChoMessageClient(linker.sender);
+   * ```
+   */
+  readonly sender: Sender = new KafkaSender(() => {
+    if (!this.#producer) {
+      throw kafka_error(
+        "CHO_KAFKA_NOT_LINKED",
+        "KafkaLinker: there is no producer before the application is created: send after ChoMessage.create resolved",
+      );
+    }
+    return this.#producer;
+  });
 
   /**
    * Create a linker. Nothing is connected yet.
@@ -389,6 +418,7 @@ export class KafkaLinker implements Linker<KafkaClient> {
       producer: new Producer(base),
     };
     const retry_delay = options.retryDelay ?? 1000;
+    this.#producer = instance.producer;
     const pump = new Pump(routes, instance.consumer, instance.producer, {
       groupId: options.groupId,
       from: options.from ?? "latest",

@@ -35,6 +35,12 @@ import {
   type WithDependencies,
 } from "@chojs/core/di";
 import { describe } from "@chojs/core/utils";
+import { Value } from "./args.ts";
+import {
+  type ChoMessageContractDecorator,
+  type Contract,
+  is_contract,
+} from "./contract.ts";
 import {
   ARGS,
   handler_args,
@@ -150,6 +156,9 @@ export function Controller<const D extends readonly Dependency[] = []>(
  * (public, not static, with a string name), and it can have only one
  * `@Subscribe`.
  *
+ * Given a contract in place of a topic, the handler takes its topic, its
+ * argument and its types from it: see the second signature.
+ *
  * @param topic The topic of the handler, relative to its controller:
  *   segments of letters, digits, `_` and `-`, separated by `.`. `""` is the
  *   controller's own topic. There are no wildcards.
@@ -171,7 +180,56 @@ export function Controller<const D extends readonly Dependency[] = []>(
  * }
  * ```
  */
-export function Subscribe(topic: string): ChoMethodDecorator {
+export function Subscribe(topic: string): ChoMethodDecorator;
+/**
+ * Mark a controller method as the handler of a contract.
+ *
+ * It is `@Subscribe(topic)` and `@Args(Value(request))` in one. The handler
+ * is called with the value of the message, then the context:
+ * `handler(request, ctx)`. Its parameter, and what it returns, are checked
+ * against the contract at compile time.
+ *
+ * - The topic of the contract is the whole topic of the handler, without the
+ *   prefix of the application. The topics of the module and of the
+ *   controller are not added to it: they must be the start of it, and the
+ *   application is not created otherwise.
+ * - The request goes through its validator when `validate()` is on the
+ *   route, as any argument does.
+ * - What the handler returns is sent as JSON, a string too: a contract
+ *   speaks JSON both ways. A `ChoMessageReply` gives the headers.
+ * - The handler has no `@Args` of its own: it reads anything else from the
+ *   context.
+ *
+ * @typeParam Request What the message holds.
+ * @typeParam Reply What is replied.
+ * @param contract The contract, made by `contract()`.
+ * @returns A method decorator.
+ * @throws {ChoError} When the method already has `@Subscribe` or `@Args`, or
+ *   is not a public, non-static, string-named method.
+ *
+ * @example
+ * ```ts
+ * @Middlewares(validate())
+ * @Controller({ topic: "shop.orders" })
+ * class OrdersController {
+ *   // the topic shop.orders.price
+ *   @Subscribe(GetPrice)
+ *   price(request: { id: number }, ctx: ChoMessageContext) {
+ *     return { id: request.id, price: 42 };
+ *   }
+ * }
+ * ```
+ */
+export function Subscribe<Request, Reply>(
+  contract: Contract<Request, Reply>,
+): ChoMessageContractDecorator<Request, Reply>;
+export function Subscribe(
+  given: string | Contract<unknown, unknown>,
+): ChoMethodDecorator {
+  // What is neither a topic nor a contract is reported as a topic that is
+  // not valid.
+  const contract = is_contract(given) ? given : undefined;
+  const topic = contract ? contract.topic : given as string;
   return function (target, context, descriptor) {
     const decorator = "@Subscribe()";
     const decorated = decorated_method(decorator, target, context, descriptor);
@@ -204,8 +262,27 @@ export function Subscribe(topic: string): ChoMethodDecorator {
         }. A method can have one ${decorator}.`,
       );
     }
+    if (!contract) {
+      add_to_metadata_object(decorated.meta, {
+        [SUBSCRIBE]: Object.freeze({ topic } satisfies Subscription),
+      });
+      return;
+    }
+    if (handler_args(read_metadata_object(decorated.meta) ?? {})) {
+      throw message_error(
+        "CHO_MESSAGE_DUPLICATE_DECORATOR",
+        `Cannot add ${decorator} of a contract to ${of}: it has @Args(). A handler of a contract receives its request, then the context.`,
+      );
+    }
     add_to_metadata_object(decorated.meta, {
-      [SUBSCRIBE]: Object.freeze({ topic } satisfies Subscription),
+      [SUBSCRIBE]: Object.freeze({ topic, contract } satisfies Subscription),
+      [ARGS]: Object.freeze(
+        {
+          list: Object.freeze([
+            contract.request ? Value(contract.request) : Value(),
+          ]),
+        } satisfies HandlerArgs,
+      ),
     });
   };
 }
@@ -349,7 +426,14 @@ export function Args<const A extends readonly ChoMessageArg[]>(
         );
       }
     });
-    if (handler_args(read_metadata_object(meta) ?? {})) {
+    const record = read_metadata_object(meta) ?? {};
+    if (subscription(record)?.contract) {
+      throw message_error(
+        "CHO_MESSAGE_DUPLICATE_DECORATOR",
+        `Cannot add @Args() to ${of}: it is the handler of a contract, and receives its request, then the context.`,
+      );
+    }
+    if (handler_args(record)) {
       throw message_error(
         "CHO_MESSAGE_DUPLICATE_DECORATOR",
         `Cannot add @Args() to ${of}: it already has one.`,

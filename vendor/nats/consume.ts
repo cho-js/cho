@@ -11,6 +11,7 @@
  */
 
 import { isChoError } from "@chojs/core";
+import { isReplyError } from "@chojs/message/linker";
 import { headers as make_headers } from "@nats-io/nats-core";
 import type { Msg, MsgHdrs } from "@nats-io/nats-core";
 import type { Debuglog } from "@chojs/core/utils";
@@ -47,6 +48,18 @@ export interface NatsSubscriptionLike extends AsyncIterable<NatsMessageLike> {
 export interface NatsConnectionLike {
   /** Subscribe to a subject, as a member of a queue group. */
   subscribe(subject: string, options: { queue: string }): NatsSubscriptionLike;
+  /** Send a message. */
+  publish(
+    subject: string,
+    data?: Uint8Array,
+    options?: { headers?: MsgHdrs },
+  ): void;
+  /** Send a message that asks for a reply, and wait for it. */
+  request(
+    subject: string,
+    data?: Uint8Array,
+    options?: { timeout: number; headers?: MsgHdrs },
+  ): Promise<NatsMessageLike>;
   /** Resolves when the server has what was sent. */
   flush(): Promise<void>;
   /** End every subscription, send what is left, and close. */
@@ -150,7 +163,15 @@ function is_error_reply(value: unknown): value is NatsErrorReply {
 /** Whether a value is a connection the adapter can use. */
 function is_connection(value: unknown): value is NatsConnectionLike {
   return typeof value === "object" && value !== null &&
-    (["subscribe", "flush", "drain", "closed", "isClosed"] as const).every(
+    ([
+      "subscribe",
+      "publish",
+      "request",
+      "flush",
+      "drain",
+      "closed",
+      "isClosed",
+    ] as const).every(
       (name) => typeof (value as NatsConnectionLike)[name] === "function",
     );
 }
@@ -208,6 +229,25 @@ export class Pump<C extends NatsConnectionLike = NatsConnectionLike> {
       );
     }
     return this.#connection;
+  }
+
+  /**
+   * The connection, for what sends with it: it waits for a `start()` that is
+   * not done yet.
+   *
+   * @returns The connection.
+   * @throws {ChoError} (as a rejection) When `start()` was not called: there
+   *   is no connection to wait for. It rejects with the error of `connect`
+   *   when it failed.
+   */
+  connected(): Promise<C> {
+    if (!this.#connecting) {
+      return Promise.reject(nats_error(
+        "CHO_NATS_NOT_STARTED",
+        "NatsLinker: there is no connection before start(): send after app.start() was called",
+      ));
+    }
+    return this.#connecting;
   }
 
   /**
@@ -416,7 +456,10 @@ export class Pump<C extends NatsConnectionLike = NatsConnectionLike> {
       ? BAD_REQUEST
       : INTERNAL_ERROR;
     let told = by_default;
-    if (errorReply) {
+    if (isReplyError(error)) {
+      // The handler said what who asked is told.
+      told = { code: error.code, description: error.message };
+    } else if (errorReply) {
       try {
         const chosen = errorReply(error, message as NatsMessage);
         if (is_error_reply(chosen)) {

@@ -182,6 +182,20 @@ export function to_reply(value: unknown, name: string): Reply | undefined {
   if (typeof value === "string") {
     return { value: encoder.encode(value) };
   }
+  return { value: to_json(value, name) };
+}
+
+/**
+ * The JSON of a value, as bytes.
+ *
+ * @param value The value: what JSON can hold.
+ * @param name Where the value comes from, for the message of the error.
+ * @returns The bytes of its JSON, in UTF-8.
+ * @throws {ChoError} `CHO_MESSAGE_INVALID_REPLY` when the value has no JSON:
+ *   a function or a symbol, or what `JSON.stringify` throws for (a `bigint`,
+ *   a cycle), whose error is the `cause`.
+ */
+export function to_json(value: unknown, name: string): Uint8Array {
   let json: string | undefined;
   try {
     json = JSON.stringify(value);
@@ -203,5 +217,30 @@ export function to_reply(value: unknown, name: string): Reply | undefined {
       }`,
     );
   }
-  return { value: encoder.encode(json) };
+  return encoder.encode(json);
+}
+
+/**
+ * The reply of a handler of a contract: a contract speaks JSON, so a string
+ * is sent as JSON too (`"pong"`, with its quotes), where `to_reply` would
+ * send its text.
+ *
+ * @param value What the handler returned.
+ * @param name Where the value comes from, for the message of the error.
+ * @returns Nothing for no reply; otherwise the bytes of the JSON of the
+ *   value, in a `ChoMessageReply` with the same headers when the handler
+ *   returned one.
+ * @throws {ChoError} `CHO_MESSAGE_INVALID_REPLY` when the value has no JSON.
+ */
+export function to_contract_reply(value: unknown, name: string): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (is_reply(value)) {
+    return new ChoMessageReply(
+      value.value === undefined ? undefined : to_json(value.value, name),
+      { headers: value.headers },
+    );
+  }
+  return to_json(value, name);
 }

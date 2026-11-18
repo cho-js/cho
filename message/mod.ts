@@ -66,8 +66,36 @@ export {
 // What `ChoMessage` exposes: its routes, its graph and its linked
 // application. They are also in `@chojs/message/linker` and
 // `@chojs/message/graph`, for adapters.
-export type { Delivery, Linked, Linker, Reply, Route } from "./linker.ts";
+export type {
+  Delivery,
+  Linked,
+  Linker,
+  Reply,
+  RequestOptions,
+  Route,
+  Sender,
+} from "./linker.ts";
 export { ChoMessageReply, type ChoMessageReplyOptions } from "./reply.ts";
+export {
+  type ChoMessageContractDecorator,
+  type ChoMessageContractResult,
+  type Contract,
+  contract,
+} from "./contract.ts";
+export {
+  isReplyError,
+  ReplyError,
+  type ReplyErrorOptions,
+} from "./reply-error.ts";
+export {
+  ChoMessageClient,
+  type ChoMessageClientOptions,
+  type ChoMessageRequestOptions,
+  type ChoMessageSendOptions,
+  type ChoMessageSent,
+  type LocalApplication,
+  localSender,
+} from "./client.ts";
 export type {
   AppRef,
   ControllerRef,

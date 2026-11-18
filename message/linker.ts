@@ -13,8 +13,17 @@
  * `@chojs/message` does not depend on any adapter: the application passes the
  * linker to `ChoMessage.create`, and the adapters depend on `@chojs/message`.
  *
+ * An adapter also gives a {@link Sender}: what a `ChoMessageClient` sends
+ * its messages with.
+ *
  * @module
  */
+
+// What a sender throws: the error of the other side, and of no answer.
+export { isReplyError, ReplyError } from "./reply-error.ts";
+export { request_error } from "./errors.ts";
+export type { ChoMessageErrorCode } from "./errors.ts";
+export type { ChoError } from "@chojs/core";
 
 /** One message, as plain data: what an adapter gives to a route. */
 export type Delivery = {
@@ -148,4 +157,65 @@ export interface Linker<T> {
    * @returns The linked application.
    */
   link(routes: readonly Route[]): Linked<T>;
+}
+
+/** The options of a request. */
+export type RequestOptions = {
+  /** The milliseconds to wait for the answer. Default: the adapter's. */
+  readonly timeout?: number | undefined;
+};
+
+/**
+ * Sends messages to a broker: what a `ChoMessageClient` is built on. Each
+ * adapter gives one, made of the client of its broker.
+ *
+ * A {@link Delivery} is the message to send: its value, as bytes or as a
+ * string, its key and its headers. A sender ignores what its broker has not
+ * (a key, on NATS).
+ *
+ * @example
+ * ```ts
+ * const sender: Sender = {
+ *   publish: (topic, { value }) => client.publish(topic, value),
+ *   async request(topic, { value }, options) {
+ *     const answer = await client.request(topic, value, options?.timeout);
+ *     if (answer.error) {
+ *       throw new ReplyError(answer.error.code, answer.error.text);
+ *     }
+ *     return { value: answer.data };
+ *   },
+ * };
+ * ```
+ */
+export interface Sender {
+  /**
+   * Send a message that asks for no reply.
+   *
+   * @param topic The full topic.
+   * @param delivery The message.
+   * @returns A promise that resolves when the message is given to the
+   *   broker, as far as its client tells.
+   */
+  publish(topic: string, delivery: Delivery): Promise<void>;
+
+  /**
+   * Send a message that asks for a reply, and wait for it. A sender whose
+   * broker has no replies has no `request`.
+   *
+   * @param topic The full topic.
+   * @param delivery The message.
+   * @param options How long to wait.
+   * @returns The reply; `undefined`, or a reply with no bytes, when it is
+   *   empty.
+   * @throws {ReplyError} (as a rejection) When the other side answered with
+   *   an error: its code, and its description.
+   * @throws {ChoError} (as a rejection) `CHO_MESSAGE_NO_RESPONDERS` when the
+   *   broker says that nobody listens, and `CHO_MESSAGE_REQUEST_TIMEOUT` when
+   *   no answer came in time: see `request_error`.
+   */
+  request?(
+    topic: string,
+    delivery: Delivery,
+    options?: RequestOptions,
+  ): Promise<Reply | undefined>;
 }

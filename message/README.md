@@ -30,6 +30,9 @@ a route.
   - [Replying](#replying)
   - [Handler arguments](#handler-arguments)
   - [Validation](#validation)
+  - [Contracts](#contracts)
+  - [Sending messages](#sending-messages)
+  - [Telling who asked](#telling-who-asked)
   - [Middlewares](#middlewares)
   - [Error handling](#error-handling)
   - [Starting and stopping](#starting-and-stopping)
@@ -59,6 +62,9 @@ a route.
 - **Typed, validated arguments.** A handler declares what it receives with
   `@Args`, a validator of the shape of a zod schema checks it, and a message
   that is not valid is never tried again.
+- **One contract for the two sides.** The topic, the request and the reply of a
+  message are declared once: the handler and who sends take their types from it,
+  and a request has a typed reply.
 - **Testable with no broker.** `app.handle(topic, message)` gives a message to
   its handler, and resolves with its reply.
 - **One set of instances with a web application.** `ChoMessage.from` builds a
@@ -358,6 +364,150 @@ validate({
 | `true`              | Is handled, with no reply                 |
 | Any other value     | Is handled, and the value is its reply    |
 
+### Contracts
+
+A contract is one object that says the topic of a message, what it holds and
+what is replied. The handler and who sends both take their types, and their
+validators, from it. It imports nothing of an application: two services share it
+as a file or as a package.
+
+```ts
+import { contract } from "@chojs/message";
+
+export const GetPrice = contract({
+  topic: "shop.orders.price",
+  request: z.object({ id: z.number() }),
+  reply: z.object({ id: z.number(), price: z.number() }),
+});
+
+export const OrderCreated = contract({
+  topic: "shop.orders.created",
+  request: z.object({ id: z.number(), total: z.number() }),
+}); // no reply
+```
+
+A handler takes the contract in place of a topic. It is called with the value of
+the message, then the context:
+
+```ts
+@Middlewares(validate())
+@Controller({ topic: "shop.orders" })
+class OrdersController {
+  @Subscribe(GetPrice) // the topic shop.orders.price
+  price(request: { id: number }, ctx: ChoMessageContext) {
+    return { id: request.id, price: 42 };
+  }
+
+  @Subscribe(OrderCreated)
+  created(order: { id: number; total: number }) {
+    // …
+  }
+}
+```
+
+- **The parameter and what is returned are checked at compile time**: a handler
+  that expects another request, or returns another reply, does not compile.
+- **The request is validated** by its validator when [`validate()`](#validation)
+  is on the route.
+- **The topic of a contract is the whole topic**, without the prefix of the
+  application. The topics of the module and of the controller are not added to
+  it: they must be the start of it, or the application is not created.
+- **A contract speaks JSON, both ways**: the value and the reply are sent as
+  JSON, a string included.
+- Without a validator, give the types by hand:
+  `contract<Order, Price>({ topic })`.
+
+### Sending messages
+
+`ChoMessageClient` sends the message of a contract, and gives back its typed
+reply. It is built on the `sender` of the linker of an adapter:
+
+```ts
+import { ChoMessageClient } from "@chojs/message";
+
+const client = new ChoMessageClient(linker.sender);
+
+await client.publish(OrderCreated, { id: 7, total: 12 }); // asks for no reply
+const { price } = await client.request(GetPrice, { id: 7 }); // price: number
+```
+
+| Call                                 | Does                                                   |
+| ------------------------------------ | ------------------------------------------------------ |
+| `publish(contract, value, options?)` | Sends the message; resolves when the broker has it     |
+| `request(contract, value, options?)` | Sends it, and resolves with the reply, through `reply` |
+
+`options` has the `key` and the `headers` of the message, and `timeout`, in
+milliseconds, for a request. The client itself takes `prefix`, the prefix of the
+application that listens, and a default `timeout`.
+
+The sender of a linker is there before the application is created, so the client
+is provided like any dependency, and a handler sends with it:
+
+```ts
+const linker = new NatsLinker({ connect, queue: "shop" });
+
+@Module({
+  providers: [
+    provider({
+      provide: ChoMessageClient,
+      factory: () => new ChoMessageClient(linker.sender),
+    }),
+  ],
+  controllers: [OrdersController],
+})
+class AppModule {}
+
+const app = await ChoMessage.create(AppModule, { linker });
+await app.start();
+```
+
+A request rejects when it has no good answer:
+
+| What happened                                      | The error                            |
+| -------------------------------------------------- | ------------------------------------ |
+| The other side answered with an error              | A [`ReplyError`](#telling-who-asked) |
+| Nobody listens to the topic                        | `CHO_MESSAGE_NO_RESPONDERS`          |
+| No answer came in time                             | `CHO_MESSAGE_REQUEST_TIMEOUT`        |
+| The reply is not JSON, or its validator refused it | `CHO_MESSAGE_UNEXPECTED_REPLY`       |
+| The broker has no replies (Kafka)                  | `CHO_MESSAGE_NO_REPLIES`             |
+
+### Telling who asked
+
+A handler throws a `ReplyError` to say what a requester is told: a code, and a
+description. It is to a message what `HttpError` is to a request of
+`@chojs/web`.
+
+```ts
+import { isReplyError, ReplyError } from "@chojs/message";
+
+@Subscribe(GetPrice)
+price(request: { id: number }) {
+  const order = this.orders.find(request.id);
+  if (!order) {
+    throw new ReplyError(404, "Not Found");
+  }
+  return { id: order.id, price: order.price };
+}
+
+// who asked
+try {
+  await client.request(GetPrice, { id: 7 });
+} catch (error) {
+  if (isReplyError(error, 404)) {
+    // no such order
+  }
+}
+```
+
+- An adapter whose broker has replies answers with the code and the description,
+  and who asked gets the same `ReplyError` from `client.request`.
+- Any other error of a handler reaches who asked as a `ReplyError` too, with
+  what the adapter tells by default: `500`, and `400` for a request that is not
+  valid. Its message is not sent.
+- It is an error like any other for the rest: it goes to the
+  [error handler](#error-handling) first, and a message that asks for no reply
+  fails with it.
+
 ### Middlewares
 
 `@Middlewares(...)` applies to a feature module, a controller or a handler. A
@@ -563,6 +713,22 @@ assert.deepEqual(JSON.parse(new TextDecoder().decode(reply?.value)), {
 });
 ```
 
+A client and the application it talks to are tested together, with no broker:
+`localSender(app)` is a sender that delivers to the application itself.
+
+```ts
+import { ChoMessageClient, localSender } from "@chojs/message";
+
+const app = await ChoMessage.create(App);
+const client = new ChoMessageClient(localSender(app));
+
+assert.deepEqual(await client.request(GetPrice, { id: 7 }), {
+  id: 7,
+  price: 42,
+});
+await assert.rejects(client.request(GetPrice, { id: 0 }), { code: 404 });
+```
+
 ## Options
 
 `ChoMessage.create(App, options)`:
@@ -606,6 +772,10 @@ package in one process have a class each.
 
 The error a handler throws is the application's: it is given to the error
 handler as it is, and a message that fails rejects with it.
+
+A [`ReplyError`](#telling-who-asked) is not a `ChoError`: it is what a handler
+throws for who asked, and what `client.request` rejects with. Use
+`isReplyError`.
 
 Every code is listed with its mistake in the
 [specification](./specs.md#9-errors).

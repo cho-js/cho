@@ -16,6 +16,7 @@
  * @module
  */
 
+import type { Contract } from "./contract.ts";
 import type {
   ChoMessageArg,
   ChoMessageErrorHandlerFn,
@@ -24,6 +25,7 @@ import type {
 } from "./types.ts";
 
 export type { ChoMessageContext } from "./context.ts";
+export type { Contract } from "./contract.ts";
 export type {
   ChoMessageArg,
   ChoMessageArgInfo,
@@ -90,6 +92,11 @@ export class MethodRef extends NodeRef {
    * or of the handler. The validators of {@link args} are run only then.
    */
   readonly validated: boolean;
+  /**
+   * The contract of the handler, when `@Subscribe` was given one: its whole
+   * topic, and the validators of its request and of its reply.
+   */
+  readonly contract: Contract<unknown, unknown> | undefined;
 
   /**
    * Create a message handler node.
@@ -102,6 +109,7 @@ export class MethodRef extends NodeRef {
    * @param args The arguments of the handler. Default: none.
    * @param validated Whether the validation middleware covers the handler.
    *   Default: `false`.
+   * @param contract The contract of the handler. Default: none.
    */
   constructor(
     name: string,
@@ -111,12 +119,14 @@ export class MethodRef extends NodeRef {
     handler: ChoMessageHandler,
     args: readonly ChoMessageArg[] = [],
     validated = false,
+    contract?: Contract<unknown, unknown>,
   ) {
     super(topic, middlewares, errorHandler);
     this.name = name;
     this.handler = handler;
     this.args = args;
     this.validated = validated;
+    this.contract = contract;
   }
 }
 

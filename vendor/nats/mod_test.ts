@@ -82,6 +82,9 @@ function fake_connection() {
         },
       };
     },
+    publish() {},
+    request: (): Promise<NatsMessageLike> =>
+      Promise.reject(new Error("not used")),
     flush: () => Promise.resolve(),
     drain() {
       closed = true;
@@ -292,6 +295,40 @@ describe("NatsLinker.link", () => {
       (thrown[0] as { code?: string }).code,
       "CHO_NATS_CONNECTION_CLOSED",
     );
+  });
+});
+
+describe("NatsLinker.sender", () => {
+  it("is there before the application is created, and sends once it started", async () => {
+    const linker = new NatsLinker(options());
+    const { sender } = linker;
+    await assert.rejects(sender.publish("orders", {}), {
+      code: "CHO_NATS_NOT_STARTED",
+      message:
+        "NatsLinker: there is no connection before start(): send after app.start() was called",
+    });
+    const linked = linker.link([]);
+    assert.equal(linker.sender, sender);
+    await assert.rejects(sender.publish("orders", {}), {
+      code: "CHO_NATS_NOT_STARTED",
+    });
+    // It waits for a start that is not done yet.
+    const starting = linked.start();
+    await sender.publish("orders", { value: "x" });
+    await starting;
+    await linked.stop();
+  });
+
+  it("rejects with the error of a connect that failed", async () => {
+    const error = new Error("no server");
+    const linker = new NatsLinker({
+      queue: "mailer",
+      connect: () => Promise.reject(error),
+    });
+    const linked = linker.link([]);
+    await assert.rejects(linked.start(), error);
+    await assert.rejects(linker.sender.publish("orders", {}), error);
+    await linked.stop();
   });
 });
 

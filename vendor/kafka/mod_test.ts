@@ -178,6 +178,23 @@ suite("KafkaLinker.link", () => {
     await linked.stop();
   });
 
+  it("has a sender before the application is linked, which sends after", async () => {
+    const linker = new KafkaLinker(OPTIONS);
+    const { sender } = linker;
+    await assert.rejects(sender.publish("orders", {}), {
+      code: "CHO_KAFKA_NOT_LINKED",
+      message:
+        "KafkaLinker: there is no producer before the application is created: send after ChoMessage.create resolved",
+    });
+    assert.equal("request" in sender, false);
+    const linked = linker.link([]);
+    assert.equal(linker.sender, sender);
+    // Its producer is the one of the application: sending is not tried here,
+    // with no broker.
+    assert.ok(linked.instance.producer instanceof Producer);
+    await close(linked);
+  });
+
   it("returns the same promise for every start", async () => {
     const linked = new KafkaLinker(OPTIONS).link([]);
     assert.equal(linked.start(), linked.start());

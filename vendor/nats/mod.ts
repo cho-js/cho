@@ -37,7 +37,9 @@ import type {
   Linked,
   Linker,
   Reply,
+  RequestOptions,
   Route,
+  Sender,
 } from "@chojs/message/linker";
 import type { NatsConnection } from "@nats-io/nats-core";
 import { type ChoNatsErrorCode, nats_error } from "./errors.ts";
@@ -54,9 +56,11 @@ import {
   type NatsSubscriptionLike,
   Pump,
 } from "./consume.ts";
+import { NatsSender, REQUEST_TIMEOUT } from "./send.ts";
 
 // The `@chojs/message` types this module refers to.
-export type { Delivery, Linked, Linker, Reply, Route };
+export type { Delivery, Linked, Linker, Reply, RequestOptions, Route, Sender };
+export { NatsSender, REQUEST_TIMEOUT };
 export { BAD_REQUEST, ERROR_HEADERS, INTERNAL_ERROR };
 export type {
   NatsConnectionLike,
@@ -99,7 +103,9 @@ export type NatsLinkerOptions<
    * description of the error reply. It receives the error, and the message of
    * the client library. Default, and when it returns nothing: `500`,
    * `Internal Error`, so that the message of an error is not sent by mistake;
-   * and `400`, `Bad Request`, for a message that is not valid.
+   * and `400`, `Bad Request`, for a message that is not valid. It is not
+   * asked for a `ReplyError` a handler threw: that error says itself what is
+   * told.
    */
   readonly errorReply?: NatsErrorReplyFn | undefined;
   /**
@@ -230,8 +236,11 @@ export class NatsLinked<C extends NatsConnectionLike = NatsConnection>
  *   request). A handler that returns nothing answers with an empty reply. For
  *   a message that asks for none, what the handler returns is dropped.
  * - **A request that failed is answered with an error reply**: the headers
- *   {@link ERROR_HEADERS}, as a NATS service does. `errorReply` decides its
- *   code and description; by default they are `500` and `Internal Error`.
+ *   {@link ERROR_HEADERS}, as a NATS service does. A `ReplyError` the
+ *   handler threw gives its code and its description; for any other error
+ *   `errorReply` decides, and by default they are `500` and `Internal Error`.
+ * - **`sender` sends**, for a `ChoMessageClient` of `@chojs/message`: it
+ *   publishes and requests with the connection of the application.
  * - **A message that failed and asks for no reply is lost**, and logged: this
  *   is core NATS, delivery is at most once, and nothing is tried again.
  * - **One message at a time for each subject**, in the order they came.
@@ -276,8 +285,27 @@ export class NatsLinked<C extends NatsConnectionLike = NatsConnection>
 export class NatsLinker<C extends NatsConnectionLike = NatsConnection>
   implements Linker<C> {
   readonly #options: NatsLinkerOptions<C>;
-  /** Whether {@link link} was called: a linker serves one application. */
-  #linked = false;
+  /** What subscribes the application, once {@link link} was called. */
+  #pump: Pump<C> | undefined;
+
+  /**
+   * Sends messages with the connection of the application: give it to a
+   * `ChoMessageClient`. It can be given before the application is created,
+   * and it sends once `app.start()` was called: it waits for a start that is
+   * not done yet.
+   *
+   * @example
+   * ```ts
+   * const linker = new NatsLinker({ connect, queue: "shop" });
+   * const client = new ChoMessageClient(linker.sender);
+   * ```
+   */
+  readonly sender: Sender = new NatsSender(() =>
+    this.#pump?.connected() ?? Promise.reject(nats_error(
+      "CHO_NATS_NOT_STARTED",
+      "NatsLinker: there is no connection before start(): send after app.start() was called",
+    ))
+  );
 
   /**
    * Create a linker. Nothing is connected yet.
@@ -300,15 +328,14 @@ export class NatsLinker<C extends NatsConnectionLike = NatsConnection>
    * @throws {ChoError} When the linker was already used.
    */
   link(routes: readonly Route[]): NatsLinked<C> {
-    if (this.#linked) {
+    if (this.#pump) {
       throw nats_error(
         "CHO_NATS_ALREADY_LINKED",
         "NatsLinker.link() was already called: use one linker for one application",
       );
     }
-    this.#linked = true;
     const options = this.#options;
-    const pump = new Pump<C>(routes, options.connect, {
+    const pump = this.#pump = new Pump<C>(routes, options.connect, {
       queue: options.queue,
       concurrency: options.concurrency ?? 1,
       errorReply: options.errorReply,

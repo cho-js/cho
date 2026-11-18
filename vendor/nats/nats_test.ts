@@ -23,12 +23,16 @@ import assert from "node:assert/strict";
 import {
   Args,
   ChoMessage,
+  ChoMessageClient,
   type ChoMessageContext,
   ChoMessageReply,
   type ChoMessageValidator,
+  contract,
   Controller,
+  isReplyError,
   Middlewares,
   Module,
+  ReplyError,
   Subscribe,
   validate,
   Value,
@@ -322,6 +326,114 @@ suite("NatsLinker, with a server", { timeout: 60_000 }, () => {
     });
     await app.close();
     assert.deepEqual(seen, [7]);
+  });
+
+  it("answers a client that asks with a contract, with a typed reply", async () => {
+    const prefix = unique("contract");
+    type Order = { id: number };
+    const IsOrder: ChoMessageValidator<Order> = {
+      parse(value) {
+        const id = (value as { id?: unknown } | null)?.id;
+        if (typeof id !== "number") {
+          throw new Error("id: expected a number");
+        }
+        return { id };
+      },
+    };
+    const GetPrice = contract({
+      topic: "shop.orders.price",
+      request: IsOrder,
+      reply: {
+        parse: (value: unknown) => value as { id: number; price: number },
+      },
+    });
+    const Slow = contract<number, string>({ topic: "shop.orders.slow" });
+    const Created = contract<Order>({ topic: "shop.orders.created" });
+    const Nobody = contract({ topic: "shop.orders.nobody" });
+    const created: unknown[] = [];
+
+    class Orders {
+      price(order: Order) {
+        if (order.id === 404) {
+          throw new ReplyError(404, "Not Found");
+        }
+        if (order.id === 500) {
+          throw new Error("a secret of the database");
+        }
+        return { id: order.id, price: order.id * 10 };
+      }
+      async slow(ms: number) {
+        await new Promise((resolve) => setTimeout(resolve, ms));
+        return "done";
+      }
+      created(order: Order, ctx: ChoMessageContext) {
+        created.push([order, ctx.headers]);
+      }
+    }
+    legacy(loose(Subscribe)(GetPrice), Orders, "price");
+    legacy(loose(Subscribe)(Slow), Orders, "slow");
+    legacy(loose(Subscribe)(Created), Orders, "created");
+    loose(Middlewares(validate()))(Orders);
+    loose(Controller({ topic: "shop.orders" }))(Orders);
+    class App {}
+    loose(Module({ controllers: [Orders] }))(App);
+    const app = await ChoMessage.create(App, {
+      prefix,
+      linker: new NatsLinker({ connect, queue: unique("queue") }),
+    });
+    await app.start();
+
+    // Another application: it only sends.
+    const linker = new NatsLinker({ connect, queue: unique("asker") });
+    class Asker {}
+    loose(Module({}))(Asker);
+    const asker = await ChoMessage.create(Asker, { linker });
+    const client = new ChoMessageClient(linker.sender, { prefix });
+    await assert.rejects(client.request(GetPrice, { id: 7 }), {
+      code: "CHO_NATS_NOT_STARTED",
+    });
+    await asker.start();
+
+    assert.deepEqual(await client.request(GetPrice, { id: 7 }), {
+      id: 7,
+      price: 70,
+    });
+    // A string is JSON both ways.
+    assert.equal(await client.request(Slow, 1), "done");
+
+    // What the handler threw, as a ReplyError.
+    await assert.rejects(client.request(GetPrice, { id: 404 }), (error) => {
+      assert.equal(isReplyError(error, 404), true);
+      assert.equal((error as ReplyError).description, "Not Found");
+      return true;
+    });
+    // Any other error: 500, and nothing of its message.
+    await assert.rejects(client.request(GetPrice, { id: 500 }), (error) => {
+      assert.equal(isReplyError(error, 500), true);
+      assert.equal((error as ReplyError).description, "Internal Error");
+      return true;
+    });
+    // A request that is not valid: 400.
+    await assert.rejects(
+      client.request(GetPrice, loose({ id: "seven" })),
+      (error) => isReplyError(error, 400),
+    );
+    // No answer in time, and nobody that listens.
+    await assert.rejects(client.request(Slow, 400, { timeout: 100 }), {
+      code: "CHO_MESSAGE_REQUEST_TIMEOUT",
+    });
+    await assert.rejects(client.request(Nobody), {
+      code: "CHO_MESSAGE_NO_RESPONDERS",
+    });
+
+    // A message that asks for no reply, with headers.
+    await client.publish(Created, { id: 9 }, { headers: { Tenant: "acme" } });
+    await asker.linked.instance.flush();
+    await until(() => created.length === 1, "the message is handled");
+    assert.deepEqual(created, [[{ id: 9 }, { Tenant: "acme" }]]);
+
+    await asker.close();
+    await app.close();
   });
 
   it("tells who asked when the reply is too large for the server", async () => {

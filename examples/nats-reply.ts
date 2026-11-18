@@ -1,14 +1,16 @@
 #!/usr/bin/env -S deno run --allow-all
 /**
- * A service that answers, on NATS, with `@chojs/message` and
- * `@chojs/vendor-nats`: what a handler returns is the reply of its message.
+ * Two sides of a contract, on NATS, with `@chojs/message` and
+ * `@chojs/vendor-nats`: a service that answers, and a client that asks.
  *
- * - `PricesController` answers the subject `shop.prices.get` with the price of
- *   an order, and the subject `shop.prices.fail` with an error.
+ * - `GetPrice` is the contract: the topic, the request and the reply. The
+ *   handler and the client take their types, and their validators, from it.
+ * - `PricesController` handles it. What it returns is the reply; a
+ *   `ReplyError` says what who asked is told.
  * - The application is one queue group, `shop`: start this file twice, and
  *   each request is answered by one of the two.
- * - The file then asks its own service, as any NATS client would, and prints
- *   the answers.
+ * - The file then asks its own service, with a `ChoMessageClient`, and
+ *   prints the answers.
  *
  * It needs a NATS server (`NATS_URL`, `localhost:4222` by default):
  *
@@ -23,13 +25,20 @@
  */
 import {
   ChoMessage,
-  type ChoMessageContext,
+  ChoMessageClient,
+  type ChoMessageValidator,
+  contract,
   Controller,
+  isChoError,
+  isReplyError,
+  Middlewares,
   Module,
+  ReplyError,
   Subscribe,
+  validate,
 } from "@chojs/message";
 import { engine, env } from "@chojs/core/utils";
-import { ERROR_HEADERS, NatsLinker } from "@chojs/vendor-nats";
+import { NatsLinker } from "@chojs/vendor-nats";
 
 // The transport of the runtime: Deno has its own, on JSR; the one of
 // Node.js serves Bun too. An application imports the one it runs on.
@@ -39,64 +48,79 @@ const { connect } = engine() === "deno"
 
 const servers = env("NATS_URL") ?? "localhost:4222";
 
-class OrderNotFound extends Error {}
+type Order = { id: number };
+type Price = { id: number; price: number };
 
-@Controller({ topic: "prices" })
+/** A validator: any object with `parse`, as a zod schema is. */
+const IsOrder: ChoMessageValidator<Order> = {
+  parse(value) {
+    const id = (value as { id?: unknown } | null)?.id;
+    if (typeof id !== "number") {
+      throw new Error("id: expected a number");
+    }
+    return { id };
+  },
+};
+
+const IsPrice: ChoMessageValidator<Price> = {
+  parse: (value) => value as Price,
+};
+
+// The contract: what the two sides share. In an application of several
+// services, it is in a file or a package both import.
+const GetPrice = contract({
+  topic: "shop.prices.get",
+  request: IsOrder,
+  reply: IsPrice,
+});
+
+@Middlewares(validate())
+@Controller({ topic: "shop.prices" })
 class PricesController {
   /** `shop.prices.get`: the price of an order. The object is sent as JSON. */
-  @Subscribe("get")
-  get(ctx: ChoMessageContext) {
-    const { id } = ctx.json<{ id: number }>();
-    if (id > 100) {
-      throw new OrderNotFound(`no order ${id}`);
+  @Subscribe(GetPrice)
+  get(order: Order): Price {
+    if (order.id > 100) {
+      throw new ReplyError(404, "Not Found"); // what who asked is told
     }
-    return { id, price: id * 10 };
-  }
-
-  /** `shop.prices.fail`: a handler that fails for a reason nobody is told. */
-  @Subscribe("fail")
-  fail() {
-    throw new Error("the password of the database is wrong");
+    if (order.id < 0) {
+      throw new Error("the password of the database is wrong"); // not told
+    }
+    return { id: order.id, price: order.id * 10 };
   }
 }
 
-@Module({ topic: "shop", controllers: [PricesController] })
+@Module({ controllers: [PricesController] })
 class AppModule {}
 
-const app = await ChoMessage.create(AppModule, {
-  linker: new NatsLinker({
-    connect: () => connect({ servers }),
-    queue: "shop",
-    // What who asked is told when a handler failed. Nothing: 500.
-    errorReply: (error) =>
-      error instanceof OrderNotFound
-        ? { code: 404, description: "Not Found" }
-        : undefined,
-  }),
+const linker = new NatsLinker({
+  connect: () => connect({ servers }),
+  queue: "shop",
 });
+const app = await ChoMessage.create(AppModule, { linker });
 await app.start();
 console.log(`listening on ${servers}, in the queue group "shop"`);
 
-// Another connection: the one that asks. Any NATS client does the same.
-const client = await connect({ servers });
-for (
-  const [subject, payload] of [
-    ["shop.prices.get", { id: 7 }],
-    ["shop.prices.get", { id: 500 }],
-    ["shop.prices.fail", {}],
-  ] as const
-) {
-  const reply = await client.request(subject, JSON.stringify(payload));
-  const failed = reply.headers?.get(ERROR_HEADERS.code);
-  console.log(
-    subject,
-    JSON.stringify(payload),
-    "->",
-    failed
-      ? `error ${failed}: ${reply.headers?.get(ERROR_HEADERS.description)}`
-      : reply.string(),
-  );
+// The client: it sends with the connection of the application. Another
+// service makes its own, with its own linker.
+const client = new ChoMessageClient(linker.sender);
+
+for (const order of [{ id: 7 }, { id: 500 }, { id: -1 }, { id: "seven" }]) {
+  try {
+    // The reply is typed: `price` is a number.
+    const { price } = await client.request(GetPrice, order as Order);
+    console.log(JSON.stringify(order), "->", `the price is ${price}`);
+  } catch (error) {
+    console.log(
+      JSON.stringify(order),
+      "->",
+      isReplyError(error)
+        ? `error ${error.code}: ${error.description}`
+        : isChoError(error)
+        ? error.code
+        : error,
+    );
+  }
 }
-await client.close();
 
 await app.close();

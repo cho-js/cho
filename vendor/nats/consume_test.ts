@@ -14,7 +14,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { type Debuglog, make_error } from "@chojs/core/utils";
-import type { Delivery, Reply, Route } from "@chojs/message/linker";
+import {
+  type Delivery,
+  type Reply,
+  ReplyError,
+  type Route,
+} from "@chojs/message/linker";
 import {
   BAD_REQUEST,
   ERROR_HEADERS,
@@ -137,6 +142,12 @@ class FakeConnection implements NatsConnectionLike {
     const subscription = new FakeSubscription();
     this.subscriptions.set(subject, subscription);
     return subscription;
+  }
+
+  publish() {}
+
+  request(): Promise<NatsMessageLike> {
+    return Promise.reject(new Error("not used"));
   }
 
   flush() {
@@ -506,6 +517,37 @@ describe("Pump: a request", () => {
     // The message of the error is logged, not sent.
     assert.match(lines.join("\n"), /Test\.orders failed for a request/);
     assert.match(lines.join("\n"), /a secret of the database/);
+  });
+
+  it("is answered with the code and the description of a ReplyError", async () => {
+    let asked = 0;
+    const { pump, connection, lines } = pump_of([
+      route("orders", () => {
+        throw new ReplyError(404, "Not Found", { cause: new Error("no row") });
+      }),
+    ], {
+      // Not asked: the handler said what who asked is told.
+      errorReply: () => {
+        asked++;
+        return { code: 500, description: "Internal Error" };
+      },
+    });
+    await pump.start();
+    const one = message("a", { reply: "_INBOX.1" });
+    const quiet = message("b");
+    connection.of("orders").push(one, quiet);
+    await pump.stop();
+    assert.deepEqual(one.sent, [{
+      value: "",
+      headers: {
+        [ERROR_HEADERS.description]: "Not Found",
+        [ERROR_HEADERS.code]: "404",
+      },
+    }]);
+    assert.equal(asked, 0);
+    // With no reply subject, it is a message that failed, as any other.
+    assert.deepEqual(quiet.sent, []);
+    assert.match(lines.join("\n"), /asks for no reply: the message is lost/);
   });
 
   it("is answered with 400 when it is not valid", async () => {

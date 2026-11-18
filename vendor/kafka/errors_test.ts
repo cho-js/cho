@@ -13,6 +13,7 @@ const CODES: Record<ChoKafkaErrorCode, true> = {
   CHO_KAFKA_INVALID_OPTION: true,
   CHO_KAFKA_INVALID_TOPIC: true,
   CHO_KAFKA_NO_DEAD_LETTER: true,
+  CHO_KAFKA_NOT_LINKED: true,
 };
 
 describe("the errors of @chojs/vendor-kafka", () => {

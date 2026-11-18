@@ -24,36 +24,39 @@ library through three small interfaces, so its tests need no server.
 
 **This version is core NATS**: subjects, a queue group, request and reply.
 Delivery is at most once, and there is nothing to acknowledge. JetStream is not
-in this version (section 7).
+in this version (section 8).
 
 ## 2. Decisions
 
 `→` marks the choice.
 
-| #  | Question                                 | → Chosen                                                                                                                 | Alternative                                                    |
-| -- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| 1  | The client library                       | nats.js v3, `@nats-io/nats-core`                                                                                         | the older `nats` package, which is Node.js only                |
-| 2  | The runtimes                             | Deno, Node.js and Bun: wherever nats.js runs (section 5)                                                                 | one runtime                                                    |
-| 3  | Core NATS, or JetStream                  | core NATS first: it is where a request has a reply                                                                       | both at once: they share little                                |
-| 4  | Who makes the connection                 | the application: the required `connect` option                                                                           | the adapter, which would import one transport for each runtime |
-| 5  | Who owns the connection                  | the adapter: `start()` makes it, `stop()` closes it                                                                      | the application closes it                                      |
-| 6  | How the application is identified        | one queue group, the required `queue` option                                                                             | no queue group: every instance gets every message              |
-| 7  | How a topic is named                     | as it is: a CHO topic is a subject of NATS, with no wildcard                                                             | a mapping of names                                             |
-| 8  | The value, the key and the headers       | the payload as bytes; no key; the first value of each header                                                             | every value of a header, joined                                |
-| 9  | What `ctx.native` is                     | `{ message }`: the `Msg` of the client                                                                                   | the message alone                                              |
-| 10 | What a handler returns, for a request    | sent as the reply, with its headers when it has some                                                                     | dropped, as an adapter with no replies does                    |
-| 11 | A request whose handler returned nothing | answered with an empty reply                                                                                             | not answered: the requester waits for its timeout              |
-| 12 | A reply nobody asked for                 | dropped; the debug log says so once for a handler                                                                        | an error                                                       |
-| 13 | A request that failed                    | answered with an error reply, as a NATS service does (`ERROR_HEADERS`)                                                   | not answered: the requester waits for its timeout              |
-| 14 | What an error reply says                 | `500`, `Internal Error`; `400`, `Bad Request` for a message that is not valid; the `errorReply` option decides otherwise | the message of the error, which can tell a secret              |
-| 15 | A failed message that asks for no reply  | logged, and lost: core NATS has no redelivery                                                                            | tried again in place, which NATS itself would not do           |
-| 16 | A reply that cannot be sent              | logged; who asked is told with an error reply; the adapter goes on                                                       | the adapter stops                                              |
-| 17 | How many messages run at once            | `concurrency` (1) for each subject, in order when it is 1                                                                | unbounded; or one pool for every subject                       |
-| 18 | A connection that is lost                | the client connects again by itself, as its options say                                                                  | the adapter connects again                                     |
-| 19 | A connection that closes for good        | `onFatal(error)`; by default the error is thrown, uncaught                                                               | an event emitter; a rejected promise nobody holds              |
-| 20 | A message received before `stop()`       | handled, and answered, before the connection closes                                                                      | dropped: only the ones in hand are finished                    |
-| 21 | Sending, and asking                      | the connection is `instance`: `publish`, `request`                                                                       | a `publish` API in `@chojs/message`                            |
-| 22 | The type of `instance`                   | the type of what `connect` gives (`NatsLinker<C>`)                                                                       | the `NatsConnection` of the copy the adapter was built with    |
+| #  | Question                                 | → Chosen                                                                                                                                                                                            | Alternative                                                    |
+| -- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 1  | The client library                       | nats.js v3, `@nats-io/nats-core`                                                                                                                                                                    | the older `nats` package, which is Node.js only                |
+| 2  | The runtimes                             | Deno, Node.js and Bun: wherever nats.js runs (section 6)                                                                                                                                            | one runtime                                                    |
+| 3  | Core NATS, or JetStream                  | core NATS first: it is where a request has a reply                                                                                                                                                  | both at once: they share little                                |
+| 4  | Who makes the connection                 | the application: the required `connect` option                                                                                                                                                      | the adapter, which would import one transport for each runtime |
+| 5  | Who owns the connection                  | the adapter: `start()` makes it, `stop()` closes it                                                                                                                                                 | the application closes it                                      |
+| 6  | How the application is identified        | one queue group, the required `queue` option                                                                                                                                                        | no queue group: every instance gets every message              |
+| 7  | How a topic is named                     | as it is: a CHO topic is a subject of NATS, with no wildcard                                                                                                                                        | a mapping of names                                             |
+| 8  | The value, the key and the headers       | the payload as bytes; no key; the first value of each header                                                                                                                                        | every value of a header, joined                                |
+| 9  | What `ctx.native` is                     | `{ message }`: the `Msg` of the client                                                                                                                                                              | the message alone                                              |
+| 10 | What a handler returns, for a request    | sent as the reply, with its headers when it has some                                                                                                                                                | dropped, as an adapter with no replies does                    |
+| 11 | A request whose handler returned nothing | answered with an empty reply                                                                                                                                                                        | not answered: the requester waits for its timeout              |
+| 12 | A reply nobody asked for                 | dropped; the debug log says so once for a handler                                                                                                                                                   | an error                                                       |
+| 13 | A request that failed                    | answered with an error reply, as a NATS service does (`ERROR_HEADERS`)                                                                                                                              | not answered: the requester waits for its timeout              |
+| 14 | What an error reply says                 | the code and the description of a `ReplyError` the handler threw; otherwise `500`, `Internal Error` (`400`, `Bad Request` for a message that is not valid), or what the `errorReply` option decides | the message of the error, which can tell a secret              |
+| 15 | A failed message that asks for no reply  | logged, and lost: core NATS has no redelivery                                                                                                                                                       | tried again in place, which NATS itself would not do           |
+| 16 | A reply that cannot be sent              | logged; who asked is told with an error reply; the adapter goes on                                                                                                                                  | the adapter stops                                              |
+| 17 | How many messages run at once            | `concurrency` (1) for each subject, in order when it is 1                                                                                                                                           | unbounded; or one pool for every subject                       |
+| 18 | A connection that is lost                | the client connects again by itself, as its options say                                                                                                                                             | the adapter connects again                                     |
+| 19 | A connection that closes for good        | `onFatal(error)`; by default the error is thrown, uncaught                                                                                                                                          | an event emitter; a rejected promise nobody holds              |
+| 20 | A message received before `stop()`       | handled, and answered, before the connection closes                                                                                                                                                 | dropped: only the ones in hand are finished                    |
+| 21 | Sending, and asking                      | `linker.sender`, for a `ChoMessageClient`; and the connection, `instance`: `publish`, `request`                                                                                                     | a `publish` API of the adapter itself                          |
+| 22 | The type of `instance`                   | the type of what `connect` gives (`NatsLinker<C>`)                                                                                                                                                  | the `NatsConnection` of the copy the adapter was built with    |
+| 23 | When the sender can send                 | once `start()` was called: it waits for a start that is not done                                                                                                                                    | at any time, with a connection of its own                      |
+| 24 | How long a request waits                 | 1000 ms, as nats.js; the request, or the client, says otherwise                                                                                                                                     | no limit                                                       |
+| 25 | A request nobody answers                 | `CHO_MESSAGE_NO_RESPONDERS`, at once, when no subscription listens; `CHO_MESSAGE_REQUEST_TIMEOUT` otherwise                                                                                         | the error of the client library, which another broker has not  |
 
 Notes:
 
@@ -96,7 +99,9 @@ Notes:
    sent.
 5. It resolves, and no reply was asked: nothing is sent. A reply of the handler
    is dropped, and the debug log says so once for that handler.
-6. It rejects, and a reply was asked: an error reply is sent. `errorReply`
+6. It rejects, and a reply was asked: an error reply is sent. For a `ReplyError`
+   (`message/specs.md`, section 5.1), it has the code and the description of the
+   error, and `errorReply` is not asked. For any other error, `errorReply`
    chooses its code, description and payload; when there is none, when it
    returns nothing, when it throws or returns something else, they are `500`,
    `Internal Error` and empty. For a message that is not valid, one that rejects
@@ -134,7 +139,34 @@ or ends, as one the server refuses does (`CHO_NATS_SUBSCRIPTION_FAILED`). It
 then waits for the messages in hand, closes what is still open, and calls
 `onFatal` once. After it, `stop()` resolves.
 
-## 5. Runtimes
+## 5. Sending
+
+`linker.sender` is the `Sender` of the adapter (`message/specs.md`, section 7):
+what a `ChoMessageClient` is built on. It is made with the linker, before the
+application is created, and uses the connection of the application.
+
+| Member    | Does                                                                         |
+| --------- | ---------------------------------------------------------------------------- |
+| `publish` | `connection.publish`: the value as bytes, and the headers                    |
+| `request` | `connection.request`, with the time to wait (1000 ms); resolves with a reply |
+
+- **Before `start()` was called** it rejects with `CHO_NATS_NOT_STARTED`. While
+  `start()` runs it waits for the connection, and it rejects with the error of a
+  `connect` that failed.
+- **NATS has no key**: the key of a delivery is not sent. A header NATS does not
+  accept rejects, with the error of the client.
+- **The reply** is the payload, and the first value of each header when it has
+  some.
+- **An error reply** is a reply with one of the headers `ERROR_HEADERS`, as a
+  NATS service and this adapter answer: `request` rejects with a `ReplyError` of
+  its code (`500` when it has none, or one that is not a number) and its
+  description (`Error` when it has none).
+- **Nobody listens**: `CHO_MESSAGE_NO_RESPONDERS`. **No reply in time**:
+  `CHO_MESSAGE_REQUEST_TIMEOUT`. Both have the error of the client as `cause`,
+  and are recognized by its name, so that the error of another copy of nats.js
+  is one too. Any other error of the client rejects as it is.
+
+## 6. Runtimes
 
 The adapter runs wherever nats.js does. The application imports `connect` from
 the transport of its runtime:
@@ -149,22 +181,22 @@ the transport of its runtime:
 The tests against a server (`nats_test.ts`) run on the first three, each with
 its own transport, when `NATS_URL` is set. `wsconnect` is not tested here.
 
-## 6. Errors
+## 7. Errors
 
 Every mistake is a `ChoError` with a `code` (`core/specs.md`, section 2.8). The
 code is part of the API; the messages are for people, and can change. The codes
 of this package start with `CHO_NATS_` (type `ChoNatsErrorCode`).
 
-| Situation                                 | Code                           | Message                                                                                                  |
-| ----------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| An option is missing, or wrong            | `CHO_NATS_INVALID_OPTION`      | `NatsLinker: the "queue" option is required: the queue group of the application, such as "mailer"`       |
-| An option is unknown                      | `CHO_CORE_UNKNOWN_OPTION`      | `NatsLinker: unknown option "group". Known options: concurrency, connect, errorReply, onFatal, queue`    |
-| `link()` is called twice                  | `CHO_NATS_ALREADY_LINKED`      | `NatsLinker.link() was already called: use one linker for one application`                               |
-| `instance` is read before `start()`       | `CHO_NATS_NOT_STARTED`         | `NatsLinker: there is no connection before start() resolves: read the instance after app.start()`        |
-| `connect` gave something else             | `CHO_NATS_INVALID_CONNECTION`  | `NatsLinker: the "connect" option did not give a connection of NATS: return what connect() of the …`     |
-| A reply cannot be sent                    | `CHO_NATS_REPLY_FAILED`        | `NatsLinker: cannot send the reply of OrdersController.created, of 2097152 byte(s), to who asked on "…"` |
-| The connection closed for good            | `CHO_NATS_CONNECTION_CLOSED`   | `NatsLinker: the connection to NATS closed, and the client does not connect again: the application …`    |
-| A subscription failed, or ended by itself | `CHO_NATS_SUBSCRIPTION_FAILED` | `NatsLinker: the subscription of OrdersController.created to "orders.created" failed: the application …` |
+| Situation                                                                                       | Code                           | Message                                                                                                  |
+| ----------------------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| An option is missing, or wrong                                                                  | `CHO_NATS_INVALID_OPTION`      | `NatsLinker: the "queue" option is required: the queue group of the application, such as "mailer"`       |
+| An option is unknown                                                                            | `CHO_CORE_UNKNOWN_OPTION`      | `NatsLinker: unknown option "group". Known options: concurrency, connect, errorReply, onFatal, queue`    |
+| `link()` is called twice                                                                        | `CHO_NATS_ALREADY_LINKED`      | `NatsLinker.link() was already called: use one linker for one application`                               |
+| `instance` is read before `start()` resolved, or the sender is used before `start()` was called | `CHO_NATS_NOT_STARTED`         | `NatsLinker: there is no connection before start() resolves: read the instance after app.start()`        |
+| `connect` gave something else                                                                   | `CHO_NATS_INVALID_CONNECTION`  | `NatsLinker: the "connect" option did not give a connection of NATS: return what connect() of the …`     |
+| A reply cannot be sent                                                                          | `CHO_NATS_REPLY_FAILED`        | `NatsLinker: cannot send the reply of OrdersController.created, of 2097152 byte(s), to who asked on "…"` |
+| The connection closed for good                                                                  | `CHO_NATS_CONNECTION_CLOSED`   | `NatsLinker: the connection to NATS closed, and the client does not connect again: the application …`    |
+| A subscription failed, or ended by itself                                                       | `CHO_NATS_SUBSCRIPTION_FAILED` | `NatsLinker: the subscription of OrdersController.created to "orders.created" failed: the application …` |
 
 The first two are thrown by the constructor, and `CHO_NATS_INVALID_CONNECTION`
 rejects `start()`. `CHO_NATS_REPLY_FAILED` is logged and given to `errorReply`,
@@ -172,7 +204,7 @@ with the error of the client as `cause`. The last two reach `onFatal`, with the
 error of the client as `cause` when there is one. An error of `connect` rejects
 `start()` as it is, without a code.
 
-## 7. Not in this version
+## 8. Not in this version
 
 - **JetStream**: streams, durable consumers, `ack` when a message is handled,
   `nak` when it failed, a limit of deliveries, a dead-letter subject. It is the

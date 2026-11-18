@@ -42,7 +42,7 @@ runtime.
 
 This version is **core NATS**: subjects, a queue group, request and reply.
 Delivery is at most once. JetStream is
-[not in it](./specs.md#7-not-in-this-version).
+[not in it](./specs.md#8-not-in-this-version).
 
 ## Installation
 
@@ -122,7 +122,7 @@ await app.close();
 An option that is missing, unknown or wrong throws from the constructor, with a
 message that names it: a `ChoError` with the code `CHO_NATS_INVALID_OPTION`
 (`CHO_CORE_UNKNOWN_OPTION` for an option that does not exist). Every error of
-the adapter has such a [code](./specs.md#6-errors).
+the adapter has such a [code](./specs.md#7-errors).
 
 **`connect`** is yours, so every option of nats.js is: the servers, the
 credentials, TLS, the name of the client, how many times it connects again.
@@ -208,6 +208,12 @@ two headers, the ones a NATS service answers with.
 | `Nats-Service-Error`      | `Internal Error` |
 | `Nats-Service-Error-Code` | `500`            |
 
+**A handler says what is told** by throwing a
+[`ReplyError`](../../message/README.md#telling-who-asked) of `@chojs/message`:
+`throw new ReplyError(404, "Not Found")` answers with that code and that
+description, and `errorReply` is not asked. `errorReply` is for every other
+error.
+
 A request that is not valid, one that
 [`validate()`](../../message/README.md#validation) of `@chojs/message` refused,
 is told `400` and `Bad Request` in their place: the mistake is its own.
@@ -283,8 +289,38 @@ NATS has no key. Code that reads `ctx.native` runs on this adapter only.
 
 ## Sending and asking
 
-`app.linked.instance` is the connection of the application, once `start()`
-resolved. Publish and request with it:
+**With a contract.** `linker.sender` is the sender of the adapter: give it to a
+[`ChoMessageClient`](../../message/README.md#sending-messages) of
+`@chojs/message`. A request has a typed reply, and an error reply rejects with a
+[`ReplyError`](../../message/README.md#telling-who-asked) of its code and its
+description.
+
+```ts
+import { ChoMessageClient } from "@chojs/message";
+
+const linker = new NatsLinker({ connect, queue: "shop" });
+const client = new ChoMessageClient(linker.sender);
+
+const app = await ChoMessage.create(AppModule, { linker });
+await app.start();
+
+await client.publish(OrderCreated, { id: 7, total: 12 });
+const { price } = await client.request(GetPrice, { id: 7 });
+```
+
+- The sender is there as soon as the linker is made, so the client can be
+  [provided to the application](../../message/README.md#sending-messages). It
+  sends once `app.start()` was called, and rejects before
+  (`CHO_NATS_NOT_STARTED`).
+- A request waits 1000 milliseconds by default, as nats.js does: give `timeout`
+  to the request, or to the client.
+- No subscription on the subject rejects at once with
+  `CHO_MESSAGE_NO_RESPONDERS`, and no reply in time with
+  `CHO_MESSAGE_REQUEST_TIMEOUT`.
+- NATS has no key: the `key` of a message is not sent.
+
+**With the connection.** `app.linked.instance` is the connection of the
+application, once `start()` resolved. Publish and request anything with it:
 
 ```ts
 await app.start();
@@ -298,9 +334,7 @@ const reply = await nc.request(
 ```
 
 It has the type of what your `connect` gives. Reading it before `start()`
-resolved throws (`CHO_NATS_NOT_STARTED`): there is no connection yet. To use it
-in a handler, provide it to the application after the start, or keep the
-application where the handler can reach it.
+resolved throws (`CHO_NATS_NOT_STARTED`): there is no connection yet.
 
 ## Stopping
 

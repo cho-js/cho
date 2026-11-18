@@ -27,7 +27,8 @@ import {
   MethodRef,
 } from "./graph.ts";
 import { handler_args, type Subscription, subscription } from "./keys.ts";
-import { normalize_topic } from "./topic.ts";
+import { to_contract_reply } from "./reply.ts";
+import { join_topic, normalize_topic } from "./topic.ts";
 import type {
   ChoMessageArg,
   ChoMessageErrorHandlerFn,
@@ -45,6 +46,8 @@ import { validation_of } from "./validate.ts";
  * @param args The arguments of the method, as given to `@Args`.
  * @param validation The options of the validation middleware that covers the
  *   handler, or `undefined` when none does.
+ * @param contract The name of the handler when it is the handler of a
+ *   contract, whose reply is sent as JSON; `undefined` otherwise.
  * @returns The method itself when it has no arguments. Otherwise a function
  *   that evaluates them, and calls the method with their values and then the
  *   context. For a validated handler, an argument that is not valid is given
@@ -56,6 +59,7 @@ function create_handler(
   method: (...args: unknown[]) => unknown,
   args: readonly ChoMessageArg[],
   validation: ChoMessageValidateOptions | undefined,
+  contract?: string,
 ): ChoMessageHandler {
   if (args.length === 0) {
     return method;
@@ -83,8 +87,42 @@ function create_handler(
       // `true` handles it with no reply. Anything else is the reply.
       return answer === true ? undefined : answer;
     }
-    return method(...values, ctx);
+    const result = await method(...values, ctx);
+    return contract === undefined
+      ? result
+      : to_contract_reply(result, contract);
   };
+}
+
+/**
+ * The topic of a handler of a contract, relative to its controller. The
+ * contract has the whole topic: the topics of the module and of the
+ * controller must be the start of it.
+ *
+ * @param full The topic of the contract.
+ * @param parent The topics of the feature and of the controller, joined.
+ * @param where Where the handler is declared, for the error message.
+ * @returns What is left of the topic after its parents; `""` when nothing is.
+ * @throws {ChoError} When the topic does not start with its parents.
+ */
+function contract_topic(full: string, parent: string, where: string): string {
+  if (parent === "") {
+    return full;
+  }
+  if (full === parent) {
+    return "";
+  }
+  if (full.startsWith(`${parent}.`)) {
+    return full.slice(parent.length + 1);
+  }
+  throw message_error(
+    "CHO_MESSAGE_INVALID_TOPIC",
+    `Invalid topic of ${where}: the topic of its contract, ${
+      JSON.stringify(full)
+    }, does not start with ${
+      JSON.stringify(parent)
+    }, the topic of its module and controller. A contract has the whole topic of its handler`,
+  );
 }
 
 /**
@@ -230,6 +268,12 @@ export async function build_message_graph(
   for (const mdl of injector.modules()) {
     const meta: ModuleMetadata = mdl.meta;
 
+    // The topic of the module, read when it has a handler: a module that
+    // is not a feature has its options ignored.
+    let module_topic: string | undefined;
+    const feature_topic = () =>
+      module_topic ??= get_topic(meta, `feature ${describe(mdl.ctr)}`);
+
     // Topics first: nothing is created for an invalid topic.
     const controllers = meta.controllers.flatMap((ctrl) => {
       const methods = subscribed_methods(ctrl);
@@ -237,16 +281,25 @@ export async function build_message_graph(
         return [];
       }
       const name = describe(ctrl.provider.provide);
+      const controller_topic = get_topic(ctrl, `controller ${name}`);
       return [{
         ctrl,
-        topic: get_topic(ctrl, `controller ${name}`),
-        methods: methods.map(([m, declared]) => ({
-          m,
-          topic: normalize_topic(
-            declared.topic,
-            `method ${m.name} of controller ${name}`,
-          ),
-        })),
+        topic: controller_topic,
+        methods: methods.map(([m, declared]) => {
+          const where = `method ${m.name} of controller ${name}`;
+          const topic = normalize_topic(declared.topic, where);
+          return {
+            m,
+            contract: declared.contract,
+            topic: declared.contract
+              ? contract_topic(
+                topic,
+                join_topic([feature_topic(), controller_topic]),
+                where,
+              )
+              : topic,
+          };
+        }),
       }];
     });
     if (controllers.length === 0) {
@@ -257,7 +310,7 @@ export async function build_message_graph(
     const create_middlewares = create_middleware_factory(mdl.ctr, injector);
 
     const feature = new FeatureRef(
-      get_topic(meta, `feature ${describe(mdl.ctr)}`),
+      feature_topic(),
       await create_middlewares(meta.middlewares),
       await error_handler(meta.errorHandler),
     );
@@ -271,7 +324,7 @@ export async function build_message_graph(
         instance,
       );
 
-      for (const { m, topic: method_topic } of methods) {
+      for (const { m, topic: method_topic, contract } of methods) {
         const args = handler_args(m.meta)?.list ?? [];
         const middlewares = await create_middlewares(m.middlewares);
         // The nearest validation middleware decides: the handler's, then
@@ -287,9 +340,16 @@ export async function build_message_graph(
             method_topic,
             middlewares,
             await error_handler(m.errorHandler),
-            create_handler(instance[m.name].bind(instance), args, validation),
+            create_handler(
+              instance[m.name].bind(instance),
+              args,
+              validation,
+              contract &&
+                `${describe(ctrl.provider.provide)}.${m.name}`,
+            ),
             args,
             validation !== undefined,
+            contract,
           ),
         );
       }
