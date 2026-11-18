@@ -13,7 +13,8 @@ import type { ChoMessageContext } from "./context.ts";
  *
  * When it returns (or resolves), the message is handled. What it returns is
  * the reply of the message: bytes and strings as they are, anything else as
- * JSON, and nothing for no reply. It is sent when the message asks for one,
+ * JSON, a `ChoMessageReply` for a reply with headers, and nothing for no
+ * reply. It is sent when the message asks for one,
  * by an adapter whose broker has replies; otherwise it is dropped. When it
  * throws (or rejects), the error goes to the nearest error handler.
  */

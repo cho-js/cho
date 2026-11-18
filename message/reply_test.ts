@@ -1,8 +1,11 @@
-/** Tests for `reply.ts`: what a returned value becomes. */
+/**
+ * Tests for `reply.ts`: what a returned value becomes, and `ChoMessageReply`,
+ * a reply with headers.
+ */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { to_reply } from "./reply.ts";
+import { ChoMessageReply, is_reply, to_reply } from "./reply.ts";
 
 const NAME = "Orders.price";
 
@@ -95,5 +98,134 @@ describe("to_reply", () => {
         },
       );
     }
+  });
+});
+
+describe("ChoMessageReply", () => {
+  it("keeps a value, and headers that cannot change", () => {
+    const given = { "content-type": "application/json", cache: "60" };
+    const reply = new ChoMessageReply({ id: 1 }, { headers: given });
+    assert.deepEqual(reply.value, { id: 1 });
+    assert.deepEqual(reply.headers, given);
+    assert.equal(Object.isFrozen(reply.headers), true);
+    // A copy: what the handler does to its object later changes nothing.
+    assert.notEqual(reply.headers, given);
+  });
+
+  it("has no headers, and no value, by default", () => {
+    assert.deepEqual(new ChoMessageReply("x").headers, {});
+    assert.deepEqual(new ChoMessageReply("x", {}).headers, {});
+    assert.deepEqual(
+      new ChoMessageReply("x", { headers: undefined }).headers,
+      {},
+    );
+    assert.equal(new ChoMessageReply().value, undefined);
+  });
+
+  it("is recognized without its class", () => {
+    assert.equal(is_reply(new ChoMessageReply("x")), true);
+    // What another copy of the package makes: the mark, on another class.
+    class Other {}
+    Object.defineProperty(Other.prototype, Symbol.for("cho.message.reply"), {
+      value: true,
+    });
+    assert.equal(is_reply(new Other()), true);
+    for (const value of [undefined, null, "x", {}, { value: 1, headers: {} }]) {
+      assert.equal(is_reply(value), false);
+    }
+  });
+
+  it("refuses options that are not an object, or not known", () => {
+    for (const options of [null, "headers", 5]) {
+      assert.throws(
+        () => new ChoMessageReply("x", options as never),
+        {
+          code: "CHO_MESSAGE_INVALID_REPLY",
+          message: /^new ChoMessageReply\(\): expected options, such as/,
+        },
+      );
+    }
+    assert.throws(
+      () => new ChoMessageReply("x", { header: {} } as never),
+      {
+        code: "CHO_CORE_UNKNOWN_OPTION",
+        message:
+          'new ChoMessageReply(): unknown option "header". Known options: headers',
+      },
+    );
+  });
+
+  it("refuses headers that are not an object of strings", () => {
+    const refuses = (headers: unknown, message: RegExp) =>
+      assert.throws(
+        () => new ChoMessageReply("x", { headers } as never),
+        { code: "CHO_MESSAGE_INVALID_REPLY", message },
+      );
+    refuses(null, /"headers" is an object of strings, got null/);
+    refuses("a: 1", /"headers" is an object of strings, got "a: 1"/);
+    refuses([["a", "1"]], /"headers" is an object of strings/);
+    refuses({ a: 1 }, /the header "a" is a string, got 1/);
+    refuses({ a: undefined }, /the header "a" is a string, got undefined/);
+    refuses({ a: ["1"] }, /the header "a" is a string/);
+    refuses({ "": "1" }, /a header has no name/);
+  });
+
+  it("refuses another reply as its value", () => {
+    assert.throws(
+      () => new ChoMessageReply(new ChoMessageReply("x")),
+      {
+        code: "CHO_MESSAGE_INVALID_REPLY",
+        message:
+          "new ChoMessageReply(): the value of a reply cannot be another reply",
+      },
+    );
+  });
+});
+
+describe("to_reply, for a ChoMessageReply", () => {
+  it("gives its value as a returned value, with its headers", () => {
+    const headers = { "content-type": "application/json" };
+    const reply = to_reply(new ChoMessageReply({ id: 1 }, { headers }), NAME);
+    assert.equal(new TextDecoder().decode(reply!.value), '{"id":1}');
+    assert.deepEqual(reply!.headers, headers);
+    assert.equal(text_of(new ChoMessageReply("hi", { headers })), "hi");
+    const bytes = new Uint8Array([1, 2]);
+    assert.equal(
+      to_reply(new ChoMessageReply(bytes, { headers }), NAME)!.value,
+      bytes,
+    );
+  });
+
+  it("has no headers property when the reply has no header", () => {
+    for (
+      const reply of [
+        to_reply(new ChoMessageReply("x"), NAME),
+        to_reply(new ChoMessageReply("x", { headers: {} }), NAME),
+      ]
+    ) {
+      assert.deepEqual(Object.keys(reply!), ["value"]);
+    }
+  });
+
+  it("gives an empty reply for one with no value", () => {
+    const empty = to_reply(new ChoMessageReply(), NAME);
+    assert.equal(empty!.value.byteLength, 0);
+    assert.deepEqual(Object.keys(empty!), ["value"]);
+    const reply = to_reply(
+      new ChoMessageReply(undefined, { headers: { status: "204" } }),
+      NAME,
+    );
+    assert.equal(reply!.value.byteLength, 0);
+    assert.deepEqual(reply!.headers, { status: "204" });
+  });
+
+  it("refuses a value that cannot be a reply", () => {
+    assert.throws(
+      () => to_reply(new ChoMessageReply(10n, { headers: { a: "1" } }), NAME),
+      {
+        code: "CHO_MESSAGE_INVALID_REPLY",
+        message: /^Invalid reply of Orders\.price: /,
+      },
+    );
   });
 });

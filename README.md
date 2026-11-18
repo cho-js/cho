@@ -23,6 +23,7 @@ TypeScript.
 | [`@chojs/vendor-hono`](./vendor/hono/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-hono)](https://jsr.io/@chojs/vendor-hono)       | Running `@chojs/web` on [Hono](https://hono.dev)                      |
 | [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | [![JSR](https://jsr.io/badges/@chojs/vendor-fastify)](https://jsr.io/@chojs/vendor-fastify) | Running `@chojs/web` on [Fastify](https://fastify.dev) (Node.js only) |
 | [`@chojs/vendor-kafka`](./vendor/kafka/README.md)     | [![JSR](https://jsr.io/badges/@chojs/vendor-kafka)](https://jsr.io/@chojs/vendor-kafka)     | Running `@chojs/message` on Apache Kafka (Node.js only)               |
+| [`@chojs/vendor-nats`](./vendor/nats/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-nats)](https://jsr.io/@chojs/vendor-nats)       | Running `@chojs/message` on [NATS](https://nats.io), with replies     |
 | [`@chojs/openapi`](./extras/openapi/README.md)        | [![JSR](https://jsr.io/badges/@chojs/openapi)](https://jsr.io/@chojs/openapi)               | The OpenAPI document of a `@chojs/web` application, and its page      |
 | [`@chojs/core`](./core/README.md)                     | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)                     | The dependency injection engine underneath                            |
 
@@ -194,6 +195,7 @@ application with TypeScript 5 or run it with a tool such as `tsx`.
 | `@chojs/vendor-hono`    | [README](./vendor/hono/README.md)    |                             |
 | `@chojs/vendor-fastify` | [README](./vendor/fastify/README.md) |                             |
 | `@chojs/vendor-kafka`   | [README](./vendor/kafka/README.md)   | [specs](./vendor/kafka/specs.md) |
+| `@chojs/vendor-nats`    | [README](./vendor/nats/README.md)    | [specs](./vendor/nats/specs.md) |
 | `@chojs/openapi`        | [README](./extras/openapi/README.md) | [specs](./extras/openapi/specs.md) |
 | `@chojs/core`           | [README](./core/README.md)           | [specs](./core/specs.md)    |
 

@@ -20,6 +20,7 @@ import {
 } from "./decorators.ts";
 import type { Reply } from "./linker.ts";
 import { ChoMessage } from "./message.ts";
+import { ChoMessageReply } from "./reply.ts";
 import type { ChoMessageMiddlewareFn } from "./types.ts";
 
 type Class = new (...args: never[]) => object;
@@ -666,6 +667,37 @@ describe("replies", () => {
     );
   });
 
+  it("gives the headers of a ChoMessageReply, with its value", async () => {
+    const Ctrl = controller(
+      "orders",
+      (ctx) =>
+        new ChoMessageReply({ id: ctx.text() }, {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const app = await ChoMessage.create(module_of([Ctrl]));
+    const reply = await app.handle("orders", { value: "42" });
+    assert.equal(text_of(reply), '{"id":"42"}');
+    assert.deepEqual(reply?.headers, { "content-type": "application/json" });
+    // No headers for a value that is returned as it is.
+    assert.equal(await reply_of(() => new ChoMessageReply("plain")), "plain");
+    const plain = await ChoMessage.create(
+      module_of([controller("orders", () => "plain")]),
+    );
+    assert.equal("headers" in (await plain.handle("orders"))!, false);
+  });
+
+  it("gives an empty reply for a ChoMessageReply with no value", async () => {
+    const Ctrl = controller(
+      "orders",
+      () => new ChoMessageReply(undefined, { headers: { status: "204" } }),
+    );
+    const app = await ChoMessage.create(module_of([Ctrl]));
+    const reply = await app.handle("orders");
+    assert.equal(reply?.value.byteLength, 0);
+    assert.deepEqual(reply?.headers, { status: "204" });
+  });
+
   it("gives what an async handler resolves with", async () => {
     assert.equal(
       await reply_of(async () => {
@@ -812,6 +844,19 @@ describe("replies of an error handler", () => {
   it("handles the message with no reply, for true", async () => {
     const app = await ChoMessage.create(failing(() => true));
     assert.equal(await app.handle("orders.price"), undefined);
+  });
+
+  it("handles the message with a reply and its headers, for a ChoMessageReply", async () => {
+    const app = await ChoMessage.create(
+      failing(() =>
+        new ChoMessageReply({ error: "not found" }, {
+          headers: { status: "404" },
+        })
+      ),
+    );
+    const reply = await app.handle("orders.price");
+    assert.equal(text_of(reply), '{"error":"not found"}');
+    assert.deepEqual(reply?.headers, { status: "404" });
   });
 
   it("handles the message with a reply, for any other value", async () => {

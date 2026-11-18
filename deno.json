@@ -13,8 +13,12 @@
     "./vendor/cho",
     "./vendor/fastify",
     "./vendor/kafka",
+    "./vendor/nats",
     "./extras/openapi"
   ],
+  "imports": {
+    "@nats-io/transport-deno": "jsr:@nats-io/transport-deno@^3.4.0"
+  },
   "fmt": {
     "lineWidth": 80,
     "exclude": [

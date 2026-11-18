@@ -17,6 +17,7 @@
         "vendor-fastify",
         "vendor-cho",
         "vendor-kafka",
+        "vendor-nats",
         "openapi"
       ]
     }
@@ -109,6 +110,18 @@
     "vendor/kafka": {
       "component": "vendor-kafka",
       "package-name": "@chojs/vendor-kafka",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    },
+    "vendor/nats": {
+      "component": "vendor-nats",
+      "package-name": "@chojs/vendor-nats",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {
