@@ -18,6 +18,7 @@ import {
   Module,
   Subscribe,
 } from "./decorators.ts";
+import type { Reply } from "./linker.ts";
 import { ChoMessage } from "./message.ts";
 import type { ChoMessageMiddlewareFn } from "./types.ts";
 
@@ -50,6 +51,10 @@ function module_of(
   )(Mod);
   return Mod;
 }
+
+/** The text of a reply. */
+const text_of = (reply: Reply | undefined) =>
+  reply === undefined ? undefined : new TextDecoder().decode(reply.value);
 
 /** A middleware that records its name, then runs the rest of the chain. */
 function recorder(seen: string[]) {
@@ -292,10 +297,8 @@ describe("handlers", () => {
     assert.equal(done, true);
   });
 
-  it("ignores what the handler returns", async () => {
-    const app = await ChoMessage.create(module_of([
-      controller("orders", () => ({ status: "done" })),
-    ]));
+  it("gives no reply for a handler that returns nothing", async () => {
+    const app = await ChoMessage.create(module_of([controller("orders")]));
     assert.equal(await app.handle("orders"), undefined);
   });
 
@@ -532,9 +535,9 @@ describe("error handlers", () => {
     await async_app.handle("orders.created");
   });
 
-  it("leaves the message failed when the handler returns anything else", async () => {
+  it("leaves the message failed when the handler returns nothing, or false", async () => {
     const failure = new Error("boom");
-    for (const returned of [undefined, null, false, 1, "true", {}]) {
+    for (const returned of [undefined, false]) {
       const app = await ChoMessage.create(
         failing({ method: () => returned }, failure),
       );
@@ -637,5 +640,238 @@ describe("error handlers", () => {
       code: "CHO_MESSAGE_CREATE_FAILED",
       message: "Failed to create error handler Missing in module Mod",
     });
+  });
+});
+
+describe("replies", () => {
+  /** The reply of the handler of `orders`, as text. */
+  async function reply_of(
+    handler: (ctx: ChoMessageContext) => unknown,
+    ...middlewares: ChoMessageMiddlewareFn[]
+  ) {
+    const Ctrl = controller("orders", handler);
+    if (middlewares.length > 0) {
+      Middlewares(...middlewares)(Ctrl);
+    }
+    const app = await ChoMessage.create(module_of([Ctrl]));
+    return text_of(await app.handle("orders", { value: "42" }));
+  }
+
+  it("gives what the handler returns: a string, bytes, or JSON", async () => {
+    assert.equal(await reply_of(() => "done"), "done");
+    assert.equal(await reply_of(() => new Uint8Array([104, 105])), "hi");
+    assert.equal(
+      await reply_of((ctx) => ({ id: ctx.text(), total: 12 })),
+      '{"id":"42","total":12}',
+    );
+  });
+
+  it("gives what an async handler resolves with", async () => {
+    assert.equal(
+      await reply_of(async () => {
+        await Promise.resolve();
+        return [1, 2];
+      }),
+      "[1,2]",
+    );
+  });
+
+  it("gives a reply for every value but undefined", async () => {
+    for (
+      const [value, text] of [
+        [null, "null"],
+        [0, "0"],
+        [false, "false"],
+        ["", ""],
+      ] as [unknown, string][]
+    ) {
+      assert.equal(await reply_of(() => value), text);
+    }
+    assert.equal(await reply_of(() => undefined), undefined);
+  });
+
+  it("gives the reply as an object with the bytes, and nothing else", async () => {
+    const app = await ChoMessage.create(module_of([
+      controller("orders", () => "ok"),
+    ]));
+    const reply = await app.handle("orders");
+    assert.deepEqual(Object.keys(reply!), ["value"]);
+    assert.ok(reply!.value instanceof Uint8Array);
+  });
+
+  it("gives the reply through the middlewares", async () => {
+    const seen: string[] = [];
+    const mw = recorder(seen);
+    assert.equal(await reply_of(() => "done", mw("a"), mw("b")), "done");
+    assert.deepEqual(seen, ["a orders", "b orders"]);
+  });
+
+  it("gives no reply when a middleware skips the handler", async () => {
+    let called = false;
+    assert.equal(
+      await reply_of(() => {
+        called = true;
+        return "never";
+      }, () => {}),
+      undefined,
+    );
+    assert.equal(called, false);
+  });
+
+  it("does not show the reply to a middleware, and takes none from it", async () => {
+    let seen: unknown = "not called";
+    assert.equal(
+      await reply_of(() => "of the handler", async (_ctx, next) => {
+        seen = await next();
+        return "of the middleware";
+      }),
+      "of the handler",
+    );
+    assert.equal(seen, undefined);
+  });
+
+  it("gives each message its own reply, when they run together", async () => {
+    const pass: ChoMessageMiddlewareFn = (_ctx, next) => next();
+    const Ctrl = controller("orders", async (ctx) => {
+      // The first message ends after the second.
+      await new Promise((resolve) =>
+        setTimeout(resolve, ctx.text() === "1" ? 20 : 0)
+      );
+      return ctx.text();
+    });
+    Middlewares(pass)(Ctrl);
+    const app = await ChoMessage.create(module_of([Ctrl]));
+    const replies = await Promise.all([
+      app.handle("orders", { value: "1" }),
+      app.handle("orders", { value: "2" }),
+    ]);
+    assert.deepEqual(replies.map(text_of), ["1", "2"]);
+  });
+
+  /** An app whose handler returns `returned`, with an error handler. */
+  function replying(returned: unknown, on_error?: unknown) {
+    class Orders {
+      price() {
+        return returned;
+      }
+    }
+    if (on_error) {
+      legacy(Catch(loose(on_error)), Orders, "price");
+    }
+    legacy(Subscribe("price"), Orders, "price");
+    Controller({ topic: "orders" })(Orders);
+    return module_of([Orders]);
+  }
+
+  it("fails the message for a value that cannot be a reply", async () => {
+    const { output } = await capture(async () => {
+      const app = await ChoMessage.create(replying(10n));
+      await assert.rejects(app.handle("orders.price"), {
+        code: "CHO_MESSAGE_INVALID_REPLY",
+        message:
+          "Invalid reply of Orders.price: 10 cannot be serialized as JSON",
+      });
+      const fn = await ChoMessage.create(replying(() => {}));
+      await assert.rejects(fn.handle("orders.price"), {
+        code: "CHO_MESSAGE_INVALID_REPLY",
+      });
+    });
+    assert.deepEqual(output.error, []);
+  });
+
+  it("gives such a value to the error handler, like an error of the handler", async () => {
+    const seen: unknown[] = [];
+    const app = await ChoMessage.create(
+      replying(10n, (error: { code?: string }, ctx: ChoMessageContext) => {
+        seen.push(error.code, ctx.topic);
+        return { error: "no price" };
+      }),
+    );
+    assert.equal(
+      text_of(await app.handle("orders.price")),
+      '{"error":"no price"}',
+    );
+    assert.deepEqual(seen, ["CHO_MESSAGE_INVALID_REPLY", "orders.price"]);
+  });
+});
+
+describe("replies of an error handler", () => {
+  /** An app whose handler fails, with an error handler on it. */
+  function failing(on_error: unknown, failure: unknown = new Error("boom")) {
+    class Orders {
+      price() {
+        throw failure;
+      }
+    }
+    legacy(Catch(loose(on_error)), Orders, "price");
+    legacy(Subscribe("price"), Orders, "price");
+    Controller({ topic: "orders" })(Orders);
+    return module_of([Orders]);
+  }
+
+  it("handles the message with no reply, for true", async () => {
+    const app = await ChoMessage.create(failing(() => true));
+    assert.equal(await app.handle("orders.price"), undefined);
+  });
+
+  it("handles the message with a reply, for any other value", async () => {
+    for (
+      const [returned, text] of [
+        [{ error: "not found" }, '{"error":"not found"}'],
+        ["failed", "failed"],
+        [new Uint8Array([110, 111]), "no"],
+        [null, "null"],
+        [0, "0"],
+        ["", ""],
+      ] as [unknown, string][]
+    ) {
+      const app = await ChoMessage.create(failing(() => returned));
+      assert.equal(text_of(await app.handle("orders.price")), text);
+    }
+  });
+
+  it("gives what an async error handler resolves with", async () => {
+    const app = await ChoMessage.create(
+      failing((error: Error) => Promise.resolve({ error: error.message })),
+    );
+    assert.equal(
+      text_of(await app.handle("orders.price")),
+      '{"error":"boom"}',
+    );
+  });
+
+  it("leaves the message failed for nothing, and for false", async () => {
+    const failure = new Error("boom");
+    for (const returned of [undefined, false]) {
+      const app = await ChoMessage.create(failing(() => returned, failure));
+      await assert.rejects(
+        app.handle("orders.price"),
+        (error) => error === failure,
+      );
+    }
+  });
+
+  it("fails the message with its own error, when the reply cannot be made", async () => {
+    const failure = new Error("boom");
+    let calls = 0;
+    const app = await ChoMessage.create(
+      failing(() => {
+        calls++;
+        return 10n;
+      }, failure),
+    );
+    const { output } = await capture(() =>
+      assert.rejects(app.handle("orders.price"), (error) => error === failure)
+    );
+    // The error handler is not called again for its own reply.
+    assert.equal(calls, 1);
+    assert.equal(
+      output.error[0],
+      "The error handler of Orders.price failed:",
+    );
+    assert.equal(
+      (output.error[1] as { code?: string }).code,
+      "CHO_MESSAGE_INVALID_REPLY",
+    );
   });
 });

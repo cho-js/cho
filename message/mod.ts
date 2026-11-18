@@ -66,7 +66,7 @@ export {
 // What `ChoMessage` exposes: its routes, its graph and its linked
 // application. They are also in `@chojs/message/linker` and
 // `@chojs/message/graph`, for adapters.
-export type { Delivery, Linked, Linker, Route } from "./linker.ts";
+export type { Delivery, Linked, Linker, Reply, Route } from "./linker.ts";
 export type {
   AppRef,
   ControllerRef,

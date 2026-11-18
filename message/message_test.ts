@@ -295,6 +295,26 @@ describe("handle", () => {
     );
   });
 
+  it("resolves with the reply of the handler", async () => {
+    const { App } = orders_app([], (ctx) => ({ id: ctx.text() }));
+    const app = await ChoMessage.create(App);
+    const reply = await app.handle("orders.created", { value: "42" });
+    assert.equal(new TextDecoder().decode(reply?.value), '{"id":"42"}');
+    // No reply for a handler that returns nothing.
+    const quiet = await ChoMessage.create(orders_app().App);
+    assert.equal(await quiet.handle("orders.created"), undefined);
+  });
+
+  it("gives the reply to the linker, through the routes it was given", async () => {
+    const linker = new FakeLinker();
+    const { App } = orders_app([], () => "pong");
+    const app = await ChoMessage.create(App, { linker });
+    const [route] = linker.calls[0]!;
+    const reply = await route!.handle({ value: "ping" }, { from: "broker" });
+    assert.equal(new TextDecoder().decode(reply?.value), "pong");
+    await app.close();
+  });
+
   it("rejects a topic that has no handler", async () => {
     const app = await ChoMessage.create(orders_app().App, {
       prefix: "staging",
