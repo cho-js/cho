@@ -5,30 +5,42 @@
  * What the adapter does with messages is tested in `consume_test.ts`, and
  * against a broker in `kafka_test.ts`.
  *
- * The adapter supports Node.js only: on the other runtimes the tests are
- * skipped, and the adapter and its client library are not loaded.
+ * They need no broker, and run on Node.js, Deno and Bun: the client library
+ * is written for Node.js, and the adapter is tested on the other two too. The
+ * client library reads a file when it loads, so on Deno they need
+ * `--allow-read`, and are skipped without it.
  */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { engine } from "@chojs/core/utils";
 import { loose } from "@chojs/core/utils/test_utils";
 import type { Route } from "@chojs/message/linker";
 import type { KafkaLinked as Linked, KafkaLinkerOptions } from "./mod.ts";
 
-/** Whether the adapter runs here. */
-const NODE = engine() === "node";
+/**
+ * The client library and the adapter, or `undefined` where the client library
+ * cannot read its files: Deno without `--allow-read`.
+ */
+const loaded = await (async () => {
+  try {
+    return {
+      ...await import("@platformatic/kafka"),
+      ...await import("./mod.ts"),
+    };
+  } catch (error) {
+    const name = (error as { name?: unknown } | null)?.name;
+    if (name === "NotCapable" || name === "PermissionDenied") {
+      return undefined;
+    }
+    throw error;
+  }
+})();
 
-/** `describe`, skipped on a runtime the adapter does not support. */
-const suite = NODE ? describe : describe.skip;
+/** `describe`, skipped where the client library cannot be loaded. */
+const suite = loaded ? describe : describe.skip;
 
-// Loaded on Node.js only: the client library reads its files when it loads.
-const { Consumer, Producer } = NODE
-  ? await import("@platformatic/kafka")
-  : loose({});
-const { KafkaLinked, KafkaLinker } = NODE
-  ? await import("./mod.ts")
-  : loose({}) as typeof import("./mod.ts");
+const { Consumer, Producer, KafkaLinked, KafkaLinker } = loaded ??
+  loose({}) as NonNullable<typeof loaded>;
 
 /** Options that are right. Nothing listens on the broker. */
 const OPTIONS: KafkaLinkerOptions = {

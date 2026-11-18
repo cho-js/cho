@@ -24,30 +24,30 @@ library through three small interfaces, so its tests need no broker.
 
 `→` marks the choice.
 
-| #  | Question                             | → Chosen                                                                                                              | Alternative                                                             |
-| -- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| 1  | The client library                   | `@platformatic/kafka`: JavaScript only, typed, maintained                                                             | `@confluentinc/kafka-javascript` (native), `kafkajs`                    |
-| 2  | The runtimes                         | Node.js only (22.22, 24.6 and later), as the client library                                                           | none                                                                    |
-| 3  | How the application is identified    | one consumer group, the required `groupId` option                                                                     | a group for each controller or topic                                    |
-| 4  | How a topic is named                 | as it is: the syntax of a CHO topic is one of Kafka                                                                   | a mapping of names                                                      |
-| 5  | Who creates the topics               | not the adapter                                                                                                       | the adapter creates what is missing                                     |
-| 6  | Where a new group starts             | `from: "latest"`, the default of Kafka                                                                                | `"earliest"` by default                                                 |
-| 7  | When an offset is committed          | after the message is settled, each message by itself                                                                  | autocommit on a timer                                                   |
-| 8  | A failed message, first              | tried again in place: `retries` (3), `retryDelay` (1000 ms)                                                           | a retry topic, which loses the order of the partition                   |
-| 9  | A failed message, after the retries  | sent to the `deadLetter` topic, and committed                                                                         | logged and passed over                                                  |
-| 10 | The same, with no `deadLetter`       | the consumer stops, the offset is not committed, `onFatal`                                                            | passed over: a message would be lost silently                           |
-| 11 | A dead letter that cannot be sent    | the consumer stops, as in 10                                                                                          | passed over                                                             |
-| 12 | How the application learns of a stop | `onFatal(error)`; by default the error is thrown, uncaught                                                            | an event emitter; a rejected promise nobody holds                       |
-| 13 | How many messages run at once        | one for each partition, `concurrency` (1) partitions together                                                         | unbounded; or a pool that ignores the partitions                        |
-| 14 | What `ctx.native` is                 | `{ message, attempt }`: the message of the client, and the attempt                                                    | the message alone                                                       |
-| 15 | The value, the key and the headers   | the value as bytes; the key and the headers decoded as UTF-8                                                          | deserializers chosen by the application                                 |
-| 16 | A commit that fails                  | logged; the consumer goes on (at least once)                                                                          | the consumer stops                                                      |
-| 17 | A stream of messages that fails      | read again after `retryDelay`; if that fails, the consumer stops                                                      | the consumer stops at once                                              |
-| 18 | A message in hand at `stop()`        | awaited; one that waits for a retry is left uncommitted                                                               | every retry is finished first                                           |
-| 19 | Sending messages                     | `linker.sender`, for a `ChoMessageClient`: it publishes with the producer of the adapter, which is also on `instance` | a producer of its own for the sender                                    |
-| 20 | What a handler returns               | dropped: Kafka has no replies                                                                                         | sent to a reply topic named by a header of the message                  |
-| 21 | A message that is not valid          | not tried again: dead at once                                                                                         | tried again as any failed message, which waits for what cannot work     |
-| 22 | A request                            | none: the sender has no `request`, and `ChoMessageClient.request` throws                                              | a reply topic named by a header, which each organization has its own of |
+| #  | Question                             | → Chosen                                                                                                              | Alternative                                                                                 |
+| -- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 1  | The client library                   | `@platformatic/kafka`: JavaScript only, typed, maintained                                                             | `@confluentinc/kafka-javascript` (native), `kafkajs`                                        |
+| 2  | The runtimes                         | Node.js (22.22, 24.6 and later), as the client library; tested on Deno and Bun too, and not promised there            | a client of its own for Deno and Bun: months of work, for what the tests show is not needed |
+| 3  | How the application is identified    | one consumer group, the required `groupId` option                                                                     | a group for each controller or topic                                                        |
+| 4  | How a topic is named                 | as it is: the syntax of a CHO topic is one of Kafka                                                                   | a mapping of names                                                                          |
+| 5  | Who creates the topics               | not the adapter                                                                                                       | the adapter creates what is missing                                                         |
+| 6  | Where a new group starts             | `from: "latest"`, the default of Kafka                                                                                | `"earliest"` by default                                                                     |
+| 7  | When an offset is committed          | after the message is settled, each message by itself                                                                  | autocommit on a timer                                                                       |
+| 8  | A failed message, first              | tried again in place: `retries` (3), `retryDelay` (1000 ms)                                                           | a retry topic, which loses the order of the partition                                       |
+| 9  | A failed message, after the retries  | sent to the `deadLetter` topic, and committed                                                                         | logged and passed over                                                                      |
+| 10 | The same, with no `deadLetter`       | the consumer stops, the offset is not committed, `onFatal`                                                            | passed over: a message would be lost silently                                               |
+| 11 | A dead letter that cannot be sent    | the consumer stops, as in 10                                                                                          | passed over                                                                                 |
+| 12 | How the application learns of a stop | `onFatal(error)`; by default the error is thrown, uncaught                                                            | an event emitter; a rejected promise nobody holds                                           |
+| 13 | How many messages run at once        | one for each partition, `concurrency` (1) partitions together                                                         | unbounded; or a pool that ignores the partitions                                            |
+| 14 | What `ctx.native` is                 | `{ message, attempt }`: the message of the client, and the attempt                                                    | the message alone                                                                           |
+| 15 | The value, the key and the headers   | the value as bytes; the key and the headers decoded as UTF-8                                                          | deserializers chosen by the application                                                     |
+| 16 | A commit that fails                  | logged; the consumer goes on (at least once)                                                                          | the consumer stops                                                                          |
+| 17 | A stream of messages that fails      | read again after `retryDelay`; if that fails, the consumer stops                                                      | the consumer stops at once                                                                  |
+| 18 | A message in hand at `stop()`        | awaited; one that waits for a retry is left uncommitted                                                               | every retry is finished first                                                               |
+| 19 | Sending messages                     | `linker.sender`, for a `ChoMessageClient`: it publishes with the producer of the adapter, which is also on `instance` | a producer of its own for the sender                                                        |
+| 20 | What a handler returns               | dropped: Kafka has no replies                                                                                         | sent to a reply topic named by a header of the message                                      |
+| 21 | A message that is not valid          | not tried again: dead at once                                                                                         | tried again as any failed message, which waits for what cannot work                         |
+| 22 | A request                            | none: the sender has no `request`, and `ChoMessageClient.request` throws                                              | a reply topic named by a header, which each organization has its own of                     |
 
 ## 3. A message, step by step
 
@@ -113,4 +113,9 @@ one of these reaches `onFatal` as it is, without a code.
   by a header of the message, is a convention each organization has its own of.
 - **The schema registry** of the client library.
 - **Static membership and the new group protocol**, except through `consume`.
-- **Deno and Bun.**
+- **A promise for Deno and Bun.** The tests of the adapter pass on them, against
+  a broker (Deno 2.9, Bun 1.4): the client library uses only what they have of
+  Node.js. It names Node.js alone, so the adapter says "tested", not
+  "supported". On Deno it needs `--allow-read`: the client library reads a file
+  when it loads.
+- **Tests of TLS, SASL and compression**, on any runtime.

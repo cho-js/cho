@@ -12,10 +12,9 @@ controllers, middlewares and error handlers, with a topic where `@chojs/web` has
 a route.
 
 > **Broker adapters:** [`@chojs/vendor-kafka`](../vendor/kafka/README.md), for
-> Apache Kafka, on Node.js, and
-> [`@chojs/vendor-nats`](../vendor/nats/README.md), for NATS, which sends
-> [replies](#replying). Without an adapter, an application delivers its messages
-> [by hand](#delivering-a-message-by-hand), or with a
+> Apache Kafka, and [`@chojs/vendor-nats`](../vendor/nats/README.md), for NATS,
+> which sends [replies](#replying). Without an adapter, an application delivers
+> its messages [by hand](#delivering-a-message-by-hand), or with a
 > [linker of its own](#broker-adapters).
 
 ## Contents
@@ -784,10 +783,10 @@ Every code is listed with its mistake in the
 
 An adapter is a package of its own, named after its broker:
 
-| Adapter                                            | Broker       | Runs on               | What a handler returns                                          |
-| -------------------------------------------------- | ------------ | --------------------- | --------------------------------------------------------------- |
-| [`@chojs/vendor-kafka`](../vendor/kafka/README.md) | Apache Kafka | Node.js only          | dropped                                                         |
-| [`@chojs/vendor-nats`](../vendor/nats/README.md)   | NATS         | Deno, Node.js and Bun | sent, as the reply; dropped for a message of a JetStream stream |
+| Adapter                                            | Broker       | Runs on                         | What a handler returns                                          |
+| -------------------------------------------------- | ------------ | ------------------------------- | --------------------------------------------------------------- |
+| [`@chojs/vendor-kafka`](../vendor/kafka/README.md) | Apache Kafka | Node.js; tested on Deno and Bun | dropped                                                         |
+| [`@chojs/vendor-nats`](../vendor/nats/README.md)   | NATS         | Deno, Node.js and Bun           | sent, as the reply; dropped for a message of a JetStream stream |
 
 An adapter implements `Linker`, from `@chojs/message/linker`: it receives the
 topics of the application, and returns what connects them to the broker.

@@ -25,15 +25,26 @@ message application to Kafka, as one consumer group.
 
 ## Runtime support
 
-**Node.js only**: 22.22, or 24.6 and later. The client library,
+**Node.js**: 22.22, or 24.6 and later. The client library,
 [`@platformatic/kafka`](https://github.com/platformatic/kafka), is written for
-Node.js, and this adapter is tested on Node.js alone. It works with Apache Kafka
-3.5 to 4.2.
+Node.js.
+
+**Deno and Bun: tested, not promised.** The tests of the adapter pass on Deno
+2.9 and on Bun 1.4, against a broker, with no change: the client library uses
+only what the two have of Node.js. It names Node.js alone, though, so a release
+of it can change that: run the tests on your runtime before you rely on it. On
+Deno, the client library reads a file when it loads: the application needs
+`--allow-read`, with `--allow-net` and `--allow-env`.
+
+The tests use a plain connection: TLS, SASL and compression are tested on no
+runtime here. The adapter works with Apache Kafka 3.5 to 4.2.
 
 ## Installation
 
 ```sh
-npx jsr add @chojs/message @chojs/vendor-kafka
+npx jsr add @chojs/message @chojs/vendor-kafka         # Node.js
+deno add jsr:@chojs/message jsr:@chojs/vendor-kafka    # Deno
+bunx jsr add @chojs/message @chojs/vendor-kafka        # Bun
 ```
 
 The client library comes with the adapter.
@@ -310,13 +321,15 @@ new KafkaLinker({
 Handlers need no broker to be tested: `app.handle(topic, message)` of
 `@chojs/message` delivers a message by hand, with no linker.
 
-The tests of the adapter itself are in two parts. `consume_test.ts` and
-`mod_test.ts` need no broker. `kafka_test.ts` runs against a real one, when
-`KAFKA_BROKERS` is set:
+The tests of the adapter itself are in two parts. `consume_test.ts`,
+`send_test.ts` and `mod_test.ts` need no broker. `kafka_test.ts` runs against a
+real one, on each runtime, when `KAFKA_BROKERS` is set:
 
 ```sh
 docker run -d --rm -p 9092:9092 apache/kafka:4.1.0
 KAFKA_BROKERS=localhost:9092 npx tsx --test vendor/kafka/kafka_test.ts
+KAFKA_BROKERS=localhost:9092 deno test --allow-all vendor/kafka/kafka_test.ts
+KAFKA_BROKERS=localhost:9092 bun test --timeout 120000 vendor/kafka/kafka_test.ts
 ```
 
 ## Documentation

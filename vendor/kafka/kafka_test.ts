@@ -4,11 +4,14 @@
  * goes to the dead-letter topic, a partition keeps its order, and a second
  * start of the group does not read what was committed.
  *
- * They run on Node.js, when `KAFKA_BROKERS` is set, and are skipped otherwise:
+ * They run when `KAFKA_BROKERS` is set, on Node.js, Deno and Bun, and are
+ * skipped otherwise:
  *
  * ```sh
  * docker run -d --rm -p 9092:9092 apache/kafka:4.1.0
  * KAFKA_BROKERS=localhost:9092 npx tsx --test vendor/kafka/kafka_test.ts
+ * KAFKA_BROKERS=localhost:9092 deno test --allow-all vendor/kafka/kafka_test.ts
+ * KAFKA_BROKERS=localhost:9092 bun test --timeout 120000 vendor/kafka/kafka_test.ts
  * ```
  *
  * Decorators are applied as plain function calls.
@@ -23,16 +26,16 @@ import {
   Module,
   Subscribe,
 } from "@chojs/message";
-import { engine, env } from "@chojs/core/utils";
+import { env } from "@chojs/core/utils";
 import { legacy, loose } from "@chojs/core/utils/test_utils";
 import type { KafkaNative } from "./mod.ts";
 
 const BROKERS = (env("KAFKA_BROKERS") ?? "").split(",").filter(Boolean);
 
-/** Whether the tests run: on Node.js, with a broker. */
-const RUN = engine() === "node" && BROKERS.length > 0;
+/** Whether the tests run: with a broker. */
+const RUN = BROKERS.length > 0;
 
-/** `describe`, skipped without a broker, or off Node.js. */
+/** `describe`, skipped without a broker. */
 const suite = RUN ? describe : describe.skip;
 
 // Loaded only when the tests run: the client library reads its files when

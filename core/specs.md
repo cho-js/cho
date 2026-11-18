@@ -852,4 +852,5 @@ creating an instance needs no lookup.
   of them and no other, and gives them to `check_codes`: every code is in a
   table of the document, the document has no other code of the package, and
   every code is named by a test. The check reads files: it is skipped where that
-  is not permitted (Deno without `--allow-read`), and runs on Node.js and Bun.
+  is not permitted (Deno without `--allow-read`). The test task of the
+  repository gives the permission, so it runs on the three runtimes.

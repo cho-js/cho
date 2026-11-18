@@ -3,11 +3,12 @@
 > **Status: the package is implemented, with two broker adapters.**
 > `@chojs/message` does what this document says, and `message/tasks.md` lists
 > what was done and what is left. `@chojs/vendor-kafka`, which the examples
-> name, is the adapter of Apache Kafka, on Node.js (`vendor/kafka/specs.md`).
-> `@chojs/vendor-nats` is the adapter of NATS, on Deno, Node.js and Bun, and the
-> one that sends replies (`vendor/nats/specs.md`). Without an adapter, an
-> application delivers its messages with `app.handle`, or with a linker of its
-> own (`examples/hello-world-message.ts`). Section 11 lists every decision this
+> name, is the adapter of Apache Kafka, written for Node.js and tested on Deno
+> and Bun too (`vendor/kafka/specs.md`). `@chojs/vendor-nats` is the adapter of
+> NATS, on Deno, Node.js and Bun, and the one that sends replies
+> (`vendor/nats/specs.md`). Without an adapter, an application delivers its
+> messages with `app.handle`, or with a linker of its own
+> (`examples/hello-world-message.ts`). Section 11 lists every decision this
 > document makes, with the alternative that was not chosen, and section 12 what
 > it changed in the other packages.
 

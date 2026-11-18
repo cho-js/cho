@@ -1,14 +1,14 @@
 /**
- * @chojs/vendor-kafka — runs CHO message applications on Apache Kafka, on
- * Node.js.
+ * @chojs/vendor-kafka — runs CHO message applications on Apache Kafka.
  *
  * {@link KafkaLinker} subscribes the topics of a `@chojs/message` application
  * to Kafka, as one consumer group. Pass it to `ChoMessage.create` as `linker`,
  * and start the application.
  *
  * The client library is
- * [`@platformatic/kafka`](https://github.com/platformatic/kafka), which runs
- * on Node.js only: so does this adapter.
+ * [`@platformatic/kafka`](https://github.com/platformatic/kafka), which is
+ * written for Node.js. The adapter is tested on Deno and Bun too, against a
+ * broker: it runs there on what they have of Node.js.
  *
  * @example
  * ```ts
@@ -274,7 +274,8 @@ export class KafkaLinked implements Linked<KafkaClient> {
 
 /**
  * Subscribes the topics of a CHO message application to Apache Kafka. The
- * client library runs on Node.js: so does this adapter.
+ * client library is written for Node.js; the adapter is tested on Deno and
+ * Bun too.
  *
  * Kafka only delivers: each message goes to `Route.handle`, which
  * `@chojs/message` built. Middlewares and error handlers are

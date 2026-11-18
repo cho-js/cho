@@ -93,7 +93,7 @@ tests.
 | `vendor/cho/`     | `@chojs/vendor-cho`     | Middlewares for the built-in router of `@chojs/web`                        |
 | `vendor/hono/`    | `@chojs/vendor-hono`    | Web adapter on Hono                                                        |
 | `vendor/fastify/` | `@chojs/vendor-fastify` | Web adapter on Fastify (Node.js only)                                      |
-| `vendor/kafka/`   | `@chojs/vendor-kafka`   | Message adapter on Apache Kafka (Node.js only)                             |
+| `vendor/kafka/`   | `@chojs/vendor-kafka`   | Message adapter on Apache Kafka (Node.js; tested on Deno and Bun)          |
 | `vendor/nats/`    | `@chojs/vendor-nats`    | Message adapter on NATS, with replies                                      |
 | `extras/`         |                         | Modules built on the graph of an application ([rules](./extras/README.md)) |
 | `extras/openapi/` | `@chojs/openapi`        | The OpenAPI document of a web application, and its page                    |
