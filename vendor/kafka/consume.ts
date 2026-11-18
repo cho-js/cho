@@ -183,6 +183,8 @@ export class Pump {
   readonly #active = new Set<Promise<void>>();
   /** The last message in hand of each partition: the next one waits for it. */
   readonly #lanes = new Map<string, Promise<void>>();
+  /** The routes whose reply was dropped, and said so. */
+  readonly #replied = new WeakSet<Route>();
   #stream: KafkaStreamLike | undefined;
   #reading: Promise<void> | undefined;
   #stopped: Promise<void> | undefined;
@@ -344,7 +346,18 @@ export class Pump {
         return; // not committed: delivered again
       }
       try {
-        await route.handle(delivery, { message, attempt } as KafkaNative);
+        const reply = await route.handle(
+          delivery,
+          { message, attempt } as KafkaNative,
+        );
+        if (reply && !this.#replied.has(route)) {
+          // Said once for a route, not for each message.
+          this.#replied.add(route);
+          log(
+            route.name,
+            "returned a reply: Kafka has no replies, what a handler returns is dropped",
+          );
+        }
         return this.#commit(message);
       } catch (error) {
         if (this.#stopping) {

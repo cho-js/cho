@@ -12,14 +12,17 @@ import type { ChoMessageContext } from "./context.ts";
  * A message handler: a controller method marked with `@Subscribe`.
  *
  * When it returns (or resolves), the message is handled. What it returns is
- * ignored. When it throws (or rejects), the error goes to the nearest error
- * handler.
+ * the reply of the message: bytes and strings as they are, anything else as
+ * JSON, and nothing for no reply. It is sent when the message asks for one,
+ * by an adapter whose broker has replies; otherwise it is dropped. When it
+ * throws (or rejects), the error goes to the nearest error handler.
  */
 export type ChoMessageHandler = (ctx: ChoMessageContext) => unknown;
 
 /**
  * Runs the rest of the chain. It resolves when the rest is done, and rejects
- * with its error.
+ * with its error. It does not give the reply: the reply is the handler's, and
+ * a middleware neither reads nor replaces it.
  */
 export type ChoMessageNext = () => Promise<void>;
 
@@ -29,7 +32,7 @@ export type ChoMessageNext = () => Promise<void>;
  *
  * - `next()` runs the rest of the chain;
  * - returning without calling `next()` skips the handler: the message is
- *   handled;
+ *   handled, and has no reply;
  * - what it returns is ignored.
  *
  * A middleware cannot hide the failure of the rest of the chain: when
@@ -64,10 +67,13 @@ export type ChoMessageMiddleware =
   | Ctr<{ handle: ChoMessageMiddlewareFn }>;
 
 /**
- * An error handler function. It settles the message as handled by returning
- * `true`. Anything else, nothing included, leaves the message failed: an
- * error handler that only logs does not turn a failed message into a handled
- * one.
+ * An error handler function. What it returns settles the message:
+ *
+ * - nothing, or `false`: the message failed. An error handler that only logs
+ *   does not turn a failed message into a handled one;
+ * - `true`: the message is handled, and has no reply;
+ * - any other value: the message is handled, and the value is its reply,
+ *   converted as what a handler returns is.
  *
  * @example
  * ```ts
@@ -76,6 +82,11 @@ export type ChoMessageMiddleware =
  *   console.error(ctx.topic, error);
  *   return error instanceof SyntaxError;
  * };
+ *
+ * // tells who asked what went wrong
+ * const answer: ChoMessageErrorHandlerFn = (error) => ({
+ *   error: error instanceof NotFound ? "not found" : "failed",
+ * });
  * ```
  */
 export type ChoMessageErrorHandlerFn = (

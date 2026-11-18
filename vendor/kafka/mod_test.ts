@@ -40,7 +40,7 @@ const OPTIONS: KafkaLinkerOptions = {
 const route = (topic: string): Route => ({
   topic,
   name: `Test.${topic}`,
-  handle: () => Promise.resolve(),
+  handle: () => Promise.resolve(undefined),
 });
 
 /** Close the clients of a linked application that was never started. */

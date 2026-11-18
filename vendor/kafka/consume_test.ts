@@ -174,6 +174,7 @@ function route(
         ? new TextDecoder().decode(value)
         : "";
       await handler(text, native as KafkaNative, delivery);
+      return undefined;
     },
   };
 }
@@ -349,6 +350,40 @@ describe("Pump", () => {
     // Committed after the handler, not before.
     assert.deepEqual(seen, [["one", "k", 1, 0]]);
     assert.deepEqual(commits, ["orders/0@7"]);
+    await pump.stop();
+  });
+
+  it("commits a message whose handler gave a reply, and drops the reply", async () => {
+    const commits: Commits = [];
+    const lines: string[] = [];
+    const log = Object.assign(
+      (...args: unknown[]) => void lines.push(args.join(" ")),
+      { error: () => {}, start: () => () => {}, enabled: true },
+    );
+    const replying: Route = {
+      topic: "orders",
+      name: "Test.orders",
+      handle: () =>
+        Promise.resolve({ value: new TextEncoder().encode("a reply") }),
+    };
+    const { pump, consumer, producer, fatal } = pump_of([replying], { log });
+    await pump.start();
+    consumer.stream.push(
+      message(commits, "one", { offset: 1 }),
+      message(commits, "two", { offset: 2 }),
+    );
+    await until(() => commits.length === 2);
+    // Kafka has no replies: the message is handled, and nothing is sent.
+    assert.deepEqual(commits, ["orders/0@1", "orders/0@2"]);
+    assert.deepEqual(producer.sent, []);
+    assert.deepEqual(fatal, []);
+    // Said once for the route, not for each message.
+    assert.deepEqual(
+      lines.filter((line) => line.includes("returned a reply")),
+      [
+        "Test.orders returned a reply: Kafka has no replies, what a handler returns is dropped",
+      ],
+    );
     await pump.stop();
   });
 

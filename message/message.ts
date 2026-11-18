@@ -20,7 +20,7 @@ import {
 import { type Debuglog, debuglog, describe } from "@chojs/core/utils";
 import { build_message_graph } from "./build-graph.ts";
 import type { AppRef } from "./graph.ts";
-import type { Delivery, Linked, Linker, Route } from "./linker.ts";
+import type { Delivery, Linked, Linker, Reply, Route } from "./linker.ts";
 import { compile_routes } from "./routes.ts";
 import type { ChoMessageErrorHandler } from "./types.ts";
 
@@ -184,7 +184,7 @@ export class ChoMessage<T = unknown> {
   /** The route of each topic. */
   readonly #topics = new Map<string, Route>();
   /** The messages that are being handled. */
-  readonly #in_hand = new Set<Promise<void>>();
+  readonly #in_hand = new Set<Promise<unknown>>();
   /** The one start of the application. */
   #start: Promise<void> | undefined;
   /** The one close of the application. */
@@ -435,7 +435,7 @@ export class ChoMessage<T = unknown> {
    * @returns What `handle` returns. It rejects once the application is
    *   closed.
    */
-  #track(handle: () => Promise<void>): Promise<void> {
+  #track<T>(handle: () => Promise<T>): Promise<T> {
     if (this.#closed) {
       return closed();
     }
@@ -480,9 +480,11 @@ export class ChoMessage<T = unknown> {
    * @param topic The full topic, global prefix included.
    * @param message The message: its `value` (bytes, or a string), its `key`
    *   and its `headers`, each optional. Default: a message with none of them.
-   * @returns A promise that resolves when the message is handled. It rejects,
-   *   with the error, when the message failed, when the topic has no handler,
-   *   and once the application is closed.
+   * @returns A promise that resolves when the message is handled, with its
+   *   reply: what the handler returned, as bytes (`reply.value`), or
+   *   `undefined` when it returned nothing. It rejects, with the error, when
+   *   the message failed, when the topic has no handler, and once the
+   *   application is closed.
    *
    * @example
    * ```ts
@@ -492,8 +494,14 @@ export class ChoMessage<T = unknown> {
    *   headers: { "message-id": "abc" },
    * });
    * ```
+   *
+   * @example The reply of a handler
+   * ```ts
+   * const reply = await app.handle("orders.price", { value: "42" });
+   * JSON.parse(new TextDecoder().decode(reply?.value)); // { total: 12 }
+   * ```
    */
-  handle(topic: string, message: Delivery = {}): Promise<void> {
+  handle(topic: string, message: Delivery = {}): Promise<Reply | undefined> {
     if (this.#close) {
       return closed();
     }

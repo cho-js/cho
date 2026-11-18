@@ -273,6 +273,10 @@ new KafkaLinker({
 - **A message with no value** (a tombstone) reaches its handler with an empty
   value: `ctx.value` has no bytes, `ctx.text()` is `""` and `ctx.json()` is
   `undefined`.
+- **What a handler returns is dropped.** Kafka has no replies: a handler that
+  answers another application sends a message, with the
+  [producer](#sending-messages). The debug log says once that a handler returned
+  a value.
 - **A linker serves one application.** `link()` throws the second time.
 - **Logs** go to the `cho:kafka` debug context: `CHO_DEBUGLOG=cho:kafka`.
 

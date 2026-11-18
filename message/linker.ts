@@ -4,10 +4,11 @@
  * {@link Linker} and {@link Linked}.
  *
  * A linker does no plumbing: every {@link Route} is ready to call.
- * `@chojs/message` creates the context of a message and runs the middlewares,
- * the handler and the error handler; the adapter only subscribes to the topic
- * of each route, gives it its messages, and acknowledges the ones that were
- * handled.
+ * `@chojs/message` creates the context of a message, runs the middlewares,
+ * the handler and the error handler, and makes the reply; the adapter only
+ * subscribes to the topic of each route, gives it its messages, acknowledges
+ * the ones that were handled and, when its broker has replies, sends the
+ * {@link Reply} of a message to who asked for it.
  *
  * `@chojs/message` does not depend on any adapter: the application passes the
  * linker to `ChoMessage.create`, and the adapters depend on `@chojs/message`.
@@ -28,6 +29,19 @@ export type Delivery = {
   readonly headers?: Readonly<Record<string, string>> | undefined;
 };
 
+/**
+ * The reply of a message, as plain data: what a route gives back to an
+ * adapter. It is a {@link Delivery} in the other direction.
+ *
+ * A handler does not make one: it returns a value, and `@chojs/message`
+ * makes the reply of it (bytes and strings as they are, anything else as
+ * JSON).
+ */
+export type Reply = {
+  /** The value of the reply, as bytes. */
+  readonly value: Uint8Array;
+};
+
 /** A route of the application: a topic, ready to subscribe to. */
 export type Route = {
   /** The full topic, global prefix included: `"staging.orders.created"`. */
@@ -42,10 +56,13 @@ export type Route = {
    * @param native The adapter's own message, if any; handlers see it as
    *   `ctx.native`.
    * @returns A promise that resolves when the message is handled: the adapter
-   *   acknowledges it. It rejects, with the error, when the message failed:
-   *   the adapter does what its broker does with such a message.
+   *   acknowledges it. It resolves with the reply of the message, when its
+   *   handler returned one: an adapter whose broker has replies sends it to
+   *   who asked, and any other adapter ignores it. It rejects, with the
+   *   error, when the message failed: the adapter does what its broker does
+   *   with such a message.
    */
-  handle(delivery: Delivery, native?: unknown): Promise<void>;
+  handle(delivery: Delivery, native?: unknown): Promise<Reply | undefined>;
 };
 
 /**
@@ -92,8 +109,15 @@ export interface Linked<T> {
  *         for (const route of routes) {
  *           await client.subscribe(route.topic, async (message) => {
  *             try {
- *               await route.handle({ value: message.data }, message);
+ *               const reply = await route.handle(
+ *                 { value: message.data },
+ *                 message,
+ *               );
  *               await message.ack();
+ *               // only for a broker that has replies
+ *               if (reply && message.replyTo) {
+ *                 await client.publish(message.replyTo, reply.value);
+ *               }
  *             } catch {
  *               await message.retryLater();
  *             }

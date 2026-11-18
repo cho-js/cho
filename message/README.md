@@ -25,6 +25,7 @@ a route.
   - [Topics](#topics)
   - [The message context](#the-message-context)
   - [Handled, or failed](#handled-or-failed)
+  - [Replying](#replying)
   - [Middlewares](#middlewares)
   - [Error handling](#error-handling)
   - [Starting and stopping](#starting-and-stopping)
@@ -49,8 +50,10 @@ a route.
   subscribes, and acknowledges.
 - **No message is lost silently.** A message is acknowledged after its handler
   has returned, and an error handler that only logs leaves it failed.
+- **A reply is what a handler returns.** An adapter whose broker has replies
+  sends it to who asked; the handler is the same either way.
 - **Testable with no broker.** `app.handle(topic, message)` gives a message to
-  its handler.
+  its handler, and resolves with its reply.
 - **One set of instances with a web application.** `ChoMessage.from` builds a
   message application on the injector of a `ChoWeb`.
 - **Fails early.** A bad topic, a duplicate topic or a missing provider is
@@ -174,19 +177,59 @@ created(ctx: ChoMessageContext) {
 
 ### Handled, or failed
 
-A handler has no response to give. A message has one of two outcomes:
+A message has one of two outcomes:
 
 | Outcome     | When                                                       | The adapter                                         |
 | ----------- | ---------------------------------------------------------- | --------------------------------------------------- |
 | **handled** | The handler returns, or an error handler handles its error | Acknowledges the message: it is not delivered again |
 | **failed**  | The handler throws, and no error handler handles the error | Does what its broker does with such a message       |
 
-- What a handler returns is ignored.
+- What a handler returns is the [reply](#replying) of the message. A reply is
+  more than "handled", not a third outcome.
 - What "failed" leads to is the adapter's decision: delivering the message
   again, moving it to a dead-letter topic, or stopping.
 - A message is acknowledged **after** its handler has returned. A process that
   stops in the middle of a handler gets the message again, so a handler should
   be safe to run twice for the same message.
+
+### Replying
+
+What a handler returns is the reply of the message. There is no decorator for
+it: the same handler answers a message that asks for a reply and one that does
+not.
+
+```ts
+@Controller({ topic: "orders" })
+class OrdersController {
+  @Subscribe("price")
+  async price(ctx: ChoMessageContext) {
+    const { id } = ctx.json<{ id: string }>();
+    return { id, total: await this.prices.of(id) }; // the reply, as JSON
+  }
+
+  @Subscribe("created")
+  created(ctx: ChoMessageContext) {
+    this.mailer.confirm(ctx.json<Order>()); // nothing returned: no reply
+  }
+}
+```
+
+| The handler returns                                     | The reply              |
+| ------------------------------------------------------- | ---------------------- |
+| Nothing                                                 | None                   |
+| Bytes (a `Uint8Array`, a typed array, an `ArrayBuffer`) | The bytes, as they are |
+| A string                                                | Its UTF-8 bytes        |
+| Anything else: an object, an array, a number, `null`    | Its JSON               |
+
+- **Only `undefined` is "no reply".** `null`, `0`, `false` and `""` are replies.
+- **The adapter sends it** to who asked for one, when its broker has replies.
+  When nobody asked, or when the broker has none (Kafka), it is dropped. So do
+  what must be done in the handler, and do not depend on the reply being read.
+- **A value that cannot be a reply fails the message**: a function, a `bigint`,
+  an object with a cycle. The error has the code `CHO_MESSAGE_INVALID_REPLY`,
+  and goes to the [error handler](#error-handling) like an error of the handler.
+- **A middleware does not see the reply**, and cannot replace it. One that skips
+  the handler gives no reply.
 
 ### Middlewares
 
@@ -272,6 +315,23 @@ class OrdersController {
 
 So an error handler that only logs never loses a message.
 
+Any other value an error handler returns is the [reply](#replying) of the
+message, which is then handled. It is how who asked is told what went wrong:
+
+```ts
+@Catch((error) => ({
+  error: error instanceof NotFound ? "not found" : "failed",
+}))
+@Subscribe("price")
+price(ctx: ChoMessageContext) {/* ... */}
+```
+
+| The error handler returns | The message                         |
+| ------------------------- | ----------------------------------- |
+| Nothing, or `false`       | Failed, with the original error     |
+| `true`                    | Handled, with no reply              |
+| Any other value           | Handled, and the value is its reply |
+
 ### Starting and stopping
 
 A broker is not called, it is connected to: the application starts and stops
@@ -308,10 +368,11 @@ await app.handle("orders.created", {
 });
 ```
 
-It resolves when the message is handled, and rejects, with the error, when it
-failed. It is how an application is [tested](#testing), and how messages that
-arrive another way are handled: a broker that pushes its messages over HTTP is
-served by a web handler that calls `app.handle`.
+It resolves when the message is handled, with its [reply](#replying) when the
+handler returned one, and rejects, with the error, when it failed. It is how an
+application is [tested](#testing), and how messages that arrive another way are
+handled: a broker that pushes its messages over HTTP is served by a web handler
+that calls `app.handle`.
 
 ### With a web application
 
@@ -366,6 +427,13 @@ assert.deepEqual(mailer.sent, ["42"]);
 
 // a message that fails rejects, with its error
 await assert.rejects(app.handle("orders.created", { value: "not json" }));
+
+// the reply of a handler: its bytes are in `value`
+const reply = await app.handle("orders.price", { value: '{"id":"42"}' });
+assert.deepEqual(JSON.parse(new TextDecoder().decode(reply?.value)), {
+  id: "42",
+  total: 12,
+});
 ```
 
 ## Options
@@ -427,7 +495,7 @@ An adapter implements `Linker`, from `@chojs/message/linker`: it receives the
 topics of the application, and returns what connects them to the broker.
 
 ```ts
-import type { Linked, Linker, Route } from "@chojs/message/linker";
+import type { Linked, Linker, Reply, Route } from "@chojs/message/linker";
 
 class MyLinker implements Linker<MyClient> {
   link(routes: readonly Route[]): Linked<MyClient> {
@@ -440,11 +508,15 @@ class MyLinker implements Linker<MyClient> {
           await client.subscribe(route.topic, async (message) => {
             try {
               // the message as plain data, and the adapter's own: ctx.native
-              await route.handle(
+              const reply = await route.handle(
                 { value: message.data, key: message.key },
                 message,
               );
               await message.ack(); //        handled
+              // only for a broker that has replies
+              if (reply && message.replyTo) {
+                await client.publish(message.replyTo, reply.value);
+              }
             } catch {
               await message.retryLater(); // failed: the adapter's decision
             }
@@ -458,8 +530,10 @@ class MyLinker implements Linker<MyClient> {
 ```
 
 `route.handle` runs the middlewares, the handler and the error handler. It
-resolves when the message is handled, and rejects, with the error, when it
-failed. `link()` does no I/O: `start()` connects.
+resolves when the message is handled, with the reply of the handler (a `Reply`,
+`{ value }`) or with `undefined`, and rejects, with the error, when it failed.
+An adapter whose broker has no replies ignores what it resolves with. `link()`
+does no I/O: `start()` connects.
 
 [`examples/hello-world-message.ts`](../examples/hello-world-message.ts) has a
 whole adapter for a broker in memory.

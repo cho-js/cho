@@ -69,7 +69,9 @@ export class MemoryBroker {
         continue; // nobody subscribed: a broker would not deliver it
       }
       try {
-        // The message, as plain data, and the broker's own message.
+        // The message, as plain data, and the broker's own message. What it
+        // resolves with is the reply of the handler: this broker has no
+        // replies, so it is not read.
         await route.handle(message, message);
         // handled: acknowledged, so it is not delivered again
       } catch {

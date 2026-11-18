@@ -4,7 +4,8 @@
  *
  * Each route is one function that does all the plumbing of a message: it
  * creates the context, runs the middlewares of the feature, the controller
- * and the handler, and hands errors to the nearest error handler.
+ * and the handler, makes the reply of what the handler returned, and hands
+ * errors to the nearest error handler.
  *
  * @module
  */
@@ -15,6 +16,7 @@ import { compose } from "./compose.ts";
 import { create_context } from "./context.ts";
 import type { AppRef } from "./graph.ts";
 import type { Route } from "./linker.ts";
+import { to_reply } from "./reply.ts";
 import { join_topic } from "./topic.ts";
 
 /**
@@ -51,12 +53,16 @@ export function assert_no_duplicate_topics(routes: readonly Route[]): void {
  * - the topic joins the global prefix and the feature's, the controller's and
  *   the handler's topics, with `.`;
  * - the chain is the feature's, the controller's, then the handler's
- *   middlewares, then the handler, whose result is ignored;
+ *   middlewares, then the handler. What the handler returns is the reply of
+ *   the message (see `to_reply`): the route resolves with it;
  * - an error thrown anywhere in the chain goes to the nearest error handler
- *   (the handler's, the controller's, the feature's, then the application's).
- *   When it returns `true`, the message is handled. Otherwise, without one, or
- *   when it throws too, the route rejects with the original error: the
- *   message failed.
+ *   (the handler's, the controller's, the feature's, then the application's),
+ *   and so does a value the handler returned that cannot be a reply. When the
+ *   error handler returns `true`, the message is handled, with no reply. When
+ *   it returns a value, the message is handled, and the value is the reply.
+ *   When it returns nothing or `false`, without an error handler, or when it
+ *   throws too, the route rejects with the original error: the message
+ *   failed.
  *
  * @param graph The message graph of the application.
  * @param log The `cho:message` debug logger: each message that fails is
@@ -96,9 +102,7 @@ export function compile_routes(
             ...controller.middlewares,
             ...method.middlewares,
           ],
-          async (ctx) => {
-            await method.handler(ctx);
-          },
+          async (ctx) => await method.handler(ctx),
         );
 
         routes.push({
@@ -107,7 +111,9 @@ export function compile_routes(
           async handle(delivery, native) {
             const ctx = create_context(topic, delivery, native);
             try {
-              await run(ctx);
+              // Inside the `try`: a value that cannot be a reply is an error
+              // of the handler.
+              return to_reply(await run(ctx), name);
             } catch (error) {
               log.error(`${topic} (${name}) failed:`, error);
               if (!on_error) {
@@ -125,10 +131,21 @@ export function compile_routes(
                 );
                 throw error;
               }
-              // Only `true` settles the message. Anything else, nothing
-              // included, leaves it failed: an error handler that only logs
-              // must not lose the message.
-              if (handled !== true) {
+              // Nothing, or `false`, leaves the message failed: an error
+              // handler that only logs must not lose the message.
+              if (handled === undefined || handled === false) {
+                throw error;
+              }
+              // `true` settles it with no reply. Anything else is the reply.
+              if (handled === true) {
+                return undefined;
+              }
+              try {
+                return to_reply(handled, `the error handler of ${name}`);
+              } catch (cause) {
+                // As when the error handler throws: the message failed with
+                // its own error.
+                console.error(`The error handler of ${name} failed:`, cause);
                 throw error;
               }
             }
