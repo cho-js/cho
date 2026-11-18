@@ -116,6 +116,37 @@ function to_request(request: FastifyRequest, reply: FastifyReply): Request {
   } as RequestInit);
 }
 
+/** Answer a Fastify request with a route. */
+function answer(route: Route, bodiless: boolean) {
+  return async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<FastifyReply> => {
+    const params = request.params as Record<string, string>;
+    // Fastify matches an empty parameter (`/users/`): a parameter is one
+    // segment, as on every adapter.
+    if (Object.values(params).includes("")) {
+      reply.callNotFound();
+      return reply;
+    }
+    const native: FastifyNative = { request, reply };
+    const response = await route.handle(
+      to_request(request, reply),
+      params,
+      native,
+    );
+    // A Fastify hook (`fromFastify`) answered: the response is Fastify's.
+    if (ANSWERED.has(reply)) {
+      return reply;
+    }
+    return reply.send(
+      bodiless && response.body !== null
+        ? new Response(null, response)
+        : response,
+    );
+  };
+}
+
 /**
  * A Fastify application linked by {@link FastifyLinker}.
  *
@@ -138,6 +169,66 @@ export class FastifyLinked implements Linked<FastifyInstance> {
    * of the response are read whole, not streamed.
    */
   readonly handler: (req: Request) => Promise<Response>;
+
+  /** The routes to register when Fastify loads its plugins. */
+  readonly #routes: Route[] = [];
+  /** Whether the plugin of the routes was given to Fastify. */
+  #registered = false;
+  /** Whether Fastify loaded the plugin: the routes are registered. */
+  #loaded = false;
+
+  /**
+   * Register one more route on the Fastify application, after the routes it
+   * has: what `app.mount` of `ChoWeb` calls.
+   *
+   * The routes are registered when Fastify loads its plugins: on `listen()`,
+   * on `ready()`, and on the first call of {@link handler}. A route is taken
+   * until then.
+   *
+   * @param route The route to register.
+   * @throws {Error} When Fastify has loaded its plugins.
+   */
+  mount(route: Route): void {
+    if (this.#loaded) {
+      throw new Error(
+        `FastifyLinked.mount(): cannot add ${route.method} ${route.path}: the Fastify application is ready. Mount routes before listen(), ready() and the first request`,
+      );
+    }
+    this.#routes.push(route);
+    if (this.#registered) {
+      return;
+    }
+    this.#registered = true;
+    // In a plugin, so that what is set here stays here: Fastify parses no
+    // body for these routes, and leaves the stream to the `Request`. Fastify
+    // loads it when it gets ready: the routes are those mounted until then.
+    this.instance.register((scope, _options, done) => {
+      this.#loaded = true;
+      scope.removeAllContentTypeParsers();
+      scope.addContentTypeParser("*", (_request, _payload, parsed) => {
+        parsed(null);
+      });
+      // A HEAD request is answered by the HEAD route of the path or, without
+      // one, by its GET route, without the body. Fastify's own HEAD routes
+      // are turned off: they do not take a `Response`.
+      const with_head = new Set(
+        this.#routes.filter((r) => r.method === "HEAD").map((r) => r.path),
+      );
+      for (const route of this.#routes) {
+        const url = fastify_path(route.path);
+        scope.route({
+          method: route.method as HTTPMethods,
+          url,
+          exposeHeadRoute: false,
+          handler: answer(route, false),
+        });
+        if (route.method === "GET" && !with_head.has(route.path)) {
+          scope.route({ method: "HEAD", url, handler: answer(route, true) });
+        }
+      }
+      done();
+    });
+  }
 
   /**
    * Wrap a Fastify application.
@@ -196,6 +287,8 @@ export class FastifyLinked implements Linked<FastifyInstance> {
  * - A route that fails without a `@Catch` handler goes to Fastify's error
  *   handler (see `setErrorHandler`), and a request no route matches to its
  *   not-found handler (see `setNotFoundHandler`).
+ * - A route mounted on the application (`app.mount`) is taken until the
+ *   Fastify application is ready, and not after.
  * - Fastify plugins and hooks are not CHO middlewares. To use them, add them
  *   to a Fastify application and give it to the linker: they apply to every
  *   route.
@@ -256,64 +349,11 @@ export class FastifyLinker implements Linker<FastifyInstance> {
     }
     this.#linked = true;
 
-    /** Answer a Fastify request with a route. */
-    const answer = (route: Route, bodiless: boolean) =>
-    async (
-      request: FastifyRequest,
-      reply: FastifyReply,
-    ): Promise<FastifyReply> => {
-      const params = request.params as Record<string, string>;
-      // Fastify matches an empty parameter (`/users/`): a parameter is one
-      // segment, as on every adapter.
-      if (Object.values(params).includes("")) {
-        reply.callNotFound();
-        return reply;
-      }
-      const native: FastifyNative = { request, reply };
-      const response = await route.handle(
-        to_request(request, reply),
-        params,
-        native,
-      );
-      // A Fastify hook (`fromFastify`) answered: the response is Fastify's.
-      if (ANSWERED.has(reply)) {
-        return reply;
-      }
-      return reply.send(
-        bodiless && response.body !== null
-          ? new Response(null, response)
-          : response,
-      );
-    };
-
-    // A HEAD request is answered by the HEAD route of the path or, without
-    // one, by its GET route, without the body. Fastify's own HEAD routes are
-    // turned off: they do not take a `Response`.
-    const with_head = new Set(
-      routes.filter((r) => r.method === "HEAD").map((r) => r.path),
-    );
-    // In a plugin, so that what is set here stays here: Fastify parses no
-    // body for these routes, and leaves the stream to the `Request`.
-    this.#app.register((scope, _options, done) => {
-      scope.removeAllContentTypeParsers();
-      scope.addContentTypeParser("*", (_request, _payload, parsed) => {
-        parsed(null);
-      });
-      for (const route of routes) {
-        const url = fastify_path(route.path);
-        scope.route({
-          method: route.method as HTTPMethods,
-          url,
-          exposeHeadRoute: false,
-          handler: answer(route, false),
-        });
-        if (route.method === "GET" && !with_head.has(route.path)) {
-          scope.route({ method: "HEAD", url, handler: answer(route, true) });
-        }
-      }
-      done();
-    });
-    return new FastifyLinked(this.#app);
+    const linked = new FastifyLinked(this.#app);
+    for (const route of routes) {
+      linked.mount(route);
+    }
+    return linked;
   }
 }
 

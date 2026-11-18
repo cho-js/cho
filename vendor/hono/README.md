@@ -121,16 +121,21 @@ the raw `Request`, Hono's decoded path parameters and Hono's context.
 Middlewares, error handling and the conversion of results are therefore the same
 as on any other adapter.
 
+A route that `app.mount` adds after the application is created is registered the
+same way, after the others. Hono takes routes until it answers its first
+request: mount before the application serves.
+
 ## Behavior
 
-| Topic               | Behavior                                                                                                                   |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Matching order      | Routes are matched in declaration order: declare static routes before parameter routes (`@Get("me")` before `@Get(":id")`) |
-| `HEAD` requests     | Run the `@Head` handler of the route, matched before the others. Without one, Hono answers from `@Get`, without the body   |
-| Unhandled errors    | A route that fails with no `@Catch` and no `onError` goes to Hono's error handler, which logs it and answers `500`         |
-| Unmatched requests  | Answered by Hono's `notFound`                                                                                              |
-| HTTP methods        | Any method is registered as given                                                                                          |
-| One linker, one app | A second `link()` on the same linker throws: its Hono application already holds the routes of the first                    |
+| Topic               | Behavior                                                                                                                    |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Matching order      | Routes are matched in declaration order: declare static routes before parameter routes (`@Get("me")` before `@Get(":id")`)  |
+| `HEAD` requests     | Run the `@Head` handler of the route, matched before the others. Without one, Hono answers from `@Get`, without the body    |
+| Unhandled errors    | A route that fails with no `@Catch` and no `onError` goes to Hono's error handler, which logs it and answers `500`          |
+| Unmatched requests  | Answered by Hono's `notFound`                                                                                               |
+| HTTP methods        | Any method is registered as given                                                                                           |
+| Mounted routes      | `app.mount` registers a route after the others, until the Hono application answers its first request: after it, Hono throws |
+| One linker, one app | A second `link()` on the same linker throws: its Hono application already holds the routes of the first                     |
 
 ## Documentation
 

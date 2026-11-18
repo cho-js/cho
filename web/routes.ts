@@ -11,9 +11,9 @@
  */
 
 import { type Debuglog, debuglog, describe } from "@chojs/core/utils";
-import { compose } from "./compose.ts";
+import { compose, type Endpoint } from "./compose.ts";
 import { type ChoWebContext, create_context } from "./context.ts";
-import type { AppRef } from "./graph.ts";
+import type { AppRef, ErrorHandlerRef } from "./graph.ts";
 import type { Route } from "./linker.ts";
 import { to_response } from "./response.ts";
 import { is_async_iterable, sse_response } from "./sse.ts";
@@ -22,7 +22,7 @@ import { is_async_iterable, sse_response } from "./sse.ts";
  * What identifies a route for a router: its method and path, with every
  * parameter name removed (`:id` and `:name` match the same requests).
  */
-function route_key(route: Route): string {
+export function route_key(route: Pick<Route, "method" | "path">): string {
   const path = route.path
     .split("/")
     .map((segment) => segment.startsWith(":") ? ":" : segment)
@@ -55,6 +55,63 @@ export function assert_no_duplicate_routes(routes: readonly Route[]): void {
     }
     seen.set(key, route);
   }
+}
+
+/**
+ * Make a route of a chain: the middlewares and the handler of the route, as
+ * one function of the context.
+ *
+ * The route creates the context of each request and runs the chain. An error
+ * thrown anywhere in the chain goes to the error handler, whose result is
+ * converted by `to_response`. Without one, when it returns nothing, or when
+ * it throws too, the route rejects. The response of a `HEAD` route is sent
+ * without its body.
+ *
+ * @param method The HTTP method, upper case.
+ * @param path The full path, starting with `/`.
+ * @param name Where the route comes from, for logs.
+ * @param run The chain of the route.
+ * @param on_error The error handler of the route, if any.
+ * @param log The `cho:web` debug logger.
+ * @returns The route.
+ */
+export function make_route(
+  method: string,
+  path: string,
+  name: string,
+  run: Endpoint,
+  on_error: ErrorHandlerRef,
+  log: Debuglog,
+): Route {
+  // A HEAD response has no body, whatever produced it.
+  const finish = method === "HEAD"
+    ? (response: Response) =>
+      response.body === null ? response : new Response(null, response)
+    : (response: Response) => response;
+  return {
+    method,
+    path,
+    name,
+    async handle(req, params, native, state) {
+      const ctx = create_context(req, params, native, state);
+      try {
+        return finish(await run(ctx));
+      } catch (error) {
+        if (!on_error) {
+          throw error;
+        }
+        log.error(`${req.method} ${ctx.url.pathname} failed:`, error);
+        const handled = await on_error(error, ctx);
+        // Nothing returned is no response: the error is still
+        // unhandled. Answering 204, as for a handler that returns
+        // nothing, would report a failed request as a success.
+        if (handled === undefined) {
+          throw error;
+        }
+        return finish(to_response(handled));
+      }
+    },
+  };
 }
 
 /**
@@ -133,11 +190,6 @@ export function compile_routes(
             ? async (ctx) => to_response(await method.handler(ctx))
             : async (ctx) => to_events(await method.handler(ctx), ctx),
         );
-        // A HEAD response has no body, whatever produced it.
-        const finish = method.method === "HEAD"
-          ? (response: Response) =>
-            response.body === null ? response : new Response(null, response)
-          : (response: Response) => response;
         if (
           log.enabled && !method.validated &&
           method.args.some((arg) => arg.info?.validator)
@@ -147,30 +199,9 @@ export function compile_routes(
           );
         }
 
-        routes.push({
-          method: method.method,
-          path,
-          name,
-          async handle(req, params, native, state) {
-            const ctx = create_context(req, params, native, state);
-            try {
-              return finish(await run(ctx));
-            } catch (error) {
-              if (!on_error) {
-                throw error;
-              }
-              log.error(`${req.method} ${ctx.url.pathname} failed:`, error);
-              const handled = await on_error(error, ctx);
-              // Nothing returned is no response: the error is still
-              // unhandled. Answering 204, as for a handler that returns
-              // nothing, would report a failed request as a success.
-              if (handled === undefined) {
-                throw error;
-              }
-              return finish(to_response(handled));
-            }
-          },
-        });
+        routes.push(
+          make_route(method.method, path, name, run, on_error, log),
+        );
       }
     }
   }

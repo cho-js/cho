@@ -54,6 +54,7 @@ import type {
   ChoWebArgsDecorator,
   ChoWebArgValues,
   ChoWebDoc,
+  ChoWebDocResponse,
   ChoWebErrorHandler,
   ChoWebMiddleware,
   ChoWebSseDecorator,
@@ -691,7 +692,57 @@ export function Args<const A extends readonly ChoWebArg[]>(
 }
 
 /** The options of `@Doc` that are for a handler only. */
-const HANDLER_DOC = ["summary", "responses"] as const;
+const HANDLER_DOC = ["summary", "responses", "operationId"] as const;
+
+/** Whether a value is a list of strings. */
+function is_strings(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === "string");
+}
+
+/**
+ * Check the options of `@Doc` that have a shape of their own.
+ *
+ * @throws {TypeError} When `operationId`, `security` or the `contentType` of
+ *   a response is not what it should be.
+ */
+function assert_doc(options: ChoWebDoc): void {
+  const { operationId, security, responses } = options;
+  if (
+    operationId !== undefined &&
+    (typeof operationId !== "string" || operationId === "")
+  ) {
+    throw new TypeError(
+      `@Doc(): operationId must be a non-empty string, got ${
+        describe(operationId)
+      }`,
+    );
+  }
+  if (
+    security !== undefined &&
+    !(Array.isArray(security) &&
+      security.every((requirement) =>
+        typeof requirement === "object" && requirement !== null &&
+        !Array.isArray(requirement) &&
+        Object.values(requirement).every(is_strings)
+      ))
+  ) {
+    throw new TypeError(
+      `@Doc(): security must be a list of objects of lists of strings, such as [{ bearer: [] }], got ${
+        describe(security)
+      }`,
+    );
+  }
+  for (const [status, response] of Object.entries(responses ?? {})) {
+    const type = (response as ChoWebDocResponse | undefined)?.contentType;
+    if (type !== undefined && (typeof type !== "string" || type === "")) {
+      throw new TypeError(
+        `@Doc(): the contentType of response ${status} must be a non-empty string, got ${
+          describe(type)
+        }`,
+      );
+    }
+  }
+}
 
 /**
  * Describe a handler, a controller or a feature module for the documentation
@@ -701,7 +752,9 @@ const HANDLER_DOC = ["summary", "responses"] as const;
  * What is declared is exposed on the graph of the application (`app.graph`),
  * as the `doc` of the feature, of the controller and of the handler.
  *
- * @param options The description: `summary` and `responses` on a handler;
+ * @param options The description: `summary`, `responses` and `operationId`
+ *   on a handler; `security`, on any of the three, says what the handlers
+ *   under it require, the nearest one winning;
  *   `description`, `tags`, `deprecated` and `hidden` on a handler, a
  *   controller or a feature module.
  * @returns A class or method decorator.
@@ -731,10 +784,13 @@ export function Doc(options: ChoWebDoc): ChoClassOrMethodDecorator {
     "deprecated",
     "description",
     "hidden",
+    "operationId",
     "responses",
+    "security",
     "summary",
     "tags",
   ]);
+  assert_doc(options);
   return (target, context, descriptor) => {
     const meta = decorated_target("@Doc()", target, context, descriptor);
     let what: string;

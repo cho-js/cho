@@ -87,8 +87,10 @@ function decode_parameter(value: string): string {
  * ```
  */
 export class ChoRouter {
-  /** The routes, in declaration order. */
+  /** The routes, in declaration order; the mounted ones come last. */
   readonly routes: readonly Route[];
+  /** The same list, to add a mounted route to. */
+  readonly #routes: Route[];
   /** The routes and their patterns, by HTTP method. */
   readonly #table = new Map<string, { route: Route; pattern: URLPattern }[]>();
   /** Answers a request no route matches. */
@@ -112,7 +114,7 @@ export class ChoRouter {
         "ChoLinker needs the URL Pattern API (URLPattern), which this runtime does not have: give ChoWeb.create another linker, such as HonoLinker",
       );
     }
-    this.routes = routes;
+    this.routes = this.#routes = [];
     this.#not_found = options.notFound ??
       (() => new Response("Not Found", { status: 404 }));
     const middlewares = options.middlewares ?? [];
@@ -132,16 +134,27 @@ export class ChoRouter {
       (ctx) => this.#answer(ctx.req, this.#found.get(ctx), ctx.state),
     );
     for (const route of routes) {
-      const pattern = new URLPattern({
-        pathname: pattern_pathname(route.path),
-      });
-      const of_method = this.#table.get(route.method);
-      if (of_method) {
-        of_method.push({ route, pattern });
-      } else {
-        this.#table.set(route.method, [{ route, pattern }]);
-      }
+      this.mount(route);
     }
+  }
+
+  /**
+   * Add a route, after the ones the router has: it is matched last. A router
+   * takes a route at any time, also after it answered requests.
+   *
+   * @param route The route to add.
+   */
+  mount(route: Route): void {
+    const pattern = new URLPattern({
+      pathname: pattern_pathname(route.path),
+    });
+    const of_method = this.#table.get(route.method);
+    if (of_method) {
+      of_method.push({ route, pattern });
+    } else {
+      this.#table.set(route.method, [{ route, pattern }]);
+    }
+    this.#routes.push(route);
   }
 
   /**
@@ -243,6 +256,8 @@ export class ChoRouter {
  * - A route that fails without a `@Catch` handler is logged with
  *   `console.error`, and answered with `500`.
  * - There is no runtime context: `ctx.native` is `undefined`.
+ * - A route mounted on the application (`app.mount`) is taken at any time,
+ *   and matched after the others.
  *
  * It needs the global `URLPattern`, and is the linker of `ChoWeb.create`
  * when no linker is given.
@@ -291,6 +306,10 @@ export class ChoLinker implements Linker<ChoRouter> {
    */
   link(routes: readonly Route[]): Linked<ChoRouter> {
     const instance = new ChoRouter(routes, this.#options);
-    return { instance, handler: instance.fetch };
+    return {
+      instance,
+      handler: instance.fetch,
+      mount: (route) => instance.mount(route),
+    };
   }
 }

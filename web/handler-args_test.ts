@@ -481,7 +481,7 @@ describe("@Doc", () => {
   it("rejects an unknown option", () => {
     assert.throws(() => Doc(loose({ tag: ["users"] })), {
       message:
-        '@Doc(): unknown option "tag". Known options: deprecated, description, hidden, responses, summary, tags',
+        '@Doc(): unknown option "tag". Known options: deprecated, description, hidden, operationId, responses, security, summary, tags',
     });
   });
 
@@ -493,6 +493,84 @@ describe("@Doc", () => {
           `@Doc(): option "${key}" is for a handler, not for a class (class Users)`,
       });
     }
+  });
+
+  it("takes an operationId, what is required, and the type of a response", async () => {
+    const responses = {
+      200: { description: "The avatar", contentType: "image/png" },
+    };
+    class Users {
+      list() {}
+      avatar() {}
+    }
+    legacy(Get(""), Users, "list");
+    legacy(Doc({ operationId: "listUsers", security: [] }), Users, "list");
+    legacy(Get("avatar"), Users, "avatar");
+    legacy(Doc({ responses }), Users, "avatar");
+    Doc({ security: [{ bearer: [] }, { oauth: ["read", "write"] }] })(Users);
+    Controller({ route: "users" })(Users);
+    class Feature {}
+    Module({ controllers: [Users] })(Feature);
+    Doc({ security: [{ key: [] }] })(Feature);
+
+    const app = await create(Feature);
+    const [feat] = app.graph.features;
+    assert.deepEqual(feat!.doc, { security: [{ key: [] }] });
+    const [controller] = feat!.controllers;
+    assert.deepEqual(controller!.doc, {
+      security: [{ bearer: [] }, { oauth: ["read", "write"] }],
+    });
+    const [list, avatar] = controller!.methods;
+    assert.deepEqual(list!.doc, { operationId: "listUsers", security: [] });
+    assert.deepEqual(avatar!.doc, { responses });
+  });
+
+  it("rejects an operationId on a class", () => {
+    class Users {}
+    assert.throws(() => Doc(loose({ operationId: "x" }))(Users), {
+      message:
+        '@Doc(): option "operationId" is for a handler, not for a class (class Users)',
+    });
+  });
+
+  it("rejects an operationId, a security or a contentType of the wrong shape", () => {
+    for (const operationId of ["", 7, null]) {
+      assert.throws(() => Doc(loose({ operationId })), {
+        name: "TypeError",
+        message: /^@Doc\(\): operationId must be a non-empty string, got /,
+      });
+    }
+    for (
+      const security of [
+        "bearer",
+        { bearer: [] },
+        ["bearer"],
+        [{ bearer: "read" }],
+        [{ bearer: [1] }],
+        [null],
+        [[]],
+      ]
+    ) {
+      assert.throws(() => Doc(loose({ security })), {
+        name: "TypeError",
+        message:
+          /^@Doc\(\): security must be a list of objects of lists of strings, such as \[\{ bearer: \[\] \}\], got /,
+      }, JSON.stringify(security));
+    }
+    for (const contentType of ["", 7, null]) {
+      assert.throws(
+        () => Doc(loose({ responses: { 404: { contentType } } })),
+        {
+          name: "TypeError",
+          message:
+            /^@Doc\(\): the contentType of response 404 must be a non-empty string, got /,
+        },
+      );
+    }
+    // what is right
+    Doc({ security: [] });
+    Doc({ security: [{}] });
+    Doc({ responses: { 200: {} } });
   });
 
   it("rejects a second @Doc", () => {

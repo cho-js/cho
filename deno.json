@@ -12,7 +12,8 @@
     "./vendor/hono",
     "./vendor/cho",
     "./vendor/fastify",
-    "./vendor/kafka"
+    "./vendor/kafka",
+    "./extras/openapi"
   ],
   "fmt": {
     "lineWidth": 80,

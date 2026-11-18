@@ -180,20 +180,26 @@ so the body of the request reaches the handler untouched, as the stream of
 and so on. Routes you add to the Fastify application yourself keep Fastify's
 body parsing.
 
+Fastify runs the plugin when it gets ready: on `listen()`, on `ready()`, and on
+the first call of `app.handler`. The routes it registers are those the
+application has then, so a route that `app.mount` adds after the application is
+created is one of them. Once Fastify is ready, `app.mount` throws.
+
 ## Behavior
 
-| Topic               | Behavior                                                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Matching order      | Fastify's router decides: a static path wins over a parameter, wherever they are declared (`me` wins over `:id`)               |
-| Paths               | Matched as written: case and a trailing slash count, unless the Fastify application is set otherwise                           |
-| Path parameters     | Percent-decoded. A parameter matches one segment, never an empty one. Fastify answers `400` to a path that cannot be decoded   |
-| Request body        | Not parsed by Fastify: `ctx.req` reads the stream                                                                              |
-| Client disconnects  | `ctx.req.signal` is aborted when the connection closes before the response is sent                                             |
-| `HEAD` requests     | Run the `@Head` handler of the route. Without one, the `@Get` handler answers, without the body                                |
-| Unhandled errors    | A route that fails with no `@Catch` and no `onError` goes to Fastify's error handler: `500`, logged when the logger is enabled |
-| Unmatched requests  | Answered by Fastify's not-found handler                                                                                        |
-| When routes exist   | Once the Fastify application is ready: `listen()`, `ready()` and `app.handler` wait for it                                     |
-| One linker, one app | A second `link()` on the same linker throws: its Fastify application already holds the routes of the first                     |
+| Topic               | Behavior                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Matching order      | Fastify's router decides: a static path wins over a parameter, wherever they are declared (`me` wins over `:id`)                 |
+| Paths               | Matched as written: case and a trailing slash count, unless the Fastify application is set otherwise                             |
+| Path parameters     | Percent-decoded. A parameter matches one segment, never an empty one. Fastify answers `400` to a path that cannot be decoded     |
+| Request body        | Not parsed by Fastify: `ctx.req` reads the stream                                                                                |
+| Client disconnects  | `ctx.req.signal` is aborted when the connection closes before the response is sent                                               |
+| `HEAD` requests     | Run the `@Head` handler of the route. Without one, the `@Get` handler answers, without the body                                  |
+| Unhandled errors    | A route that fails with no `@Catch` and no `onError` goes to Fastify's error handler: `500`, logged when the logger is enabled   |
+| Unmatched requests  | Answered by Fastify's not-found handler                                                                                          |
+| When routes exist   | Once the Fastify application is ready: `listen()`, `ready()` and `app.handler` wait for it                                       |
+| Mounted routes      | `app.mount` adds a route until the Fastify application is ready: after `listen()`, `ready()` or a first `app.handler`, it throws |
+| One linker, one app | A second `link()` on the same linker throws: its Fastify application already holds the routes of the first                       |
 
 ## Documentation
 

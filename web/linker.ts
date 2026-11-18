@@ -61,6 +61,9 @@ export type Route = {
  * const linked: Linked<Hono> = {
  *   instance: app,
  *   handler: (req) => Promise.resolve(app.fetch(req)),
+ *   mount: (route) =>
+ *     app.on(route.method, route.path, (ctx) =>
+ *       route.handle(ctx.req.raw, ctx.req.param(), ctx)),
  * };
  * ```
  */
@@ -73,6 +76,20 @@ export interface Linked<T> {
    * resolves to a `Response`.
    */
   readonly handler: (req: Request) => Promise<Response>;
+
+  /**
+   * Register one more route, after {@link Linker.link}: what `app.mount` of
+   * `ChoWeb` calls.
+   *
+   * The route behaves like one that was given to `link()`: the same answer
+   * to a `HEAD` request, the same `ctx.native`, and the same order when two
+   * routes match, after the routes the runtime already has.
+   *
+   * @param route The route to register.
+   * @throws {Error} When the runtime can no longer take a route: its server
+   *   is ready, or it answered a request.
+   */
+  mount(route: Route): void;
 }
 
 /**
@@ -86,11 +103,11 @@ export interface Linked<T> {
  * class MyLinker implements Linker<MyServer> {
  *   link(routes: readonly Route[]): Linked<MyServer> {
  *     const server = new MyServer();
- *     for (const route of routes) {
+ *     const mount = (route: Route) =>
  *       server.on(route.method, route.path, (req, params) =>
  *         route.handle(req, params));
- *     }
- *     return { instance: server, handler: (req) => server.fetch(req) };
+ *     routes.forEach(mount);
+ *     return { instance: server, handler: (req) => server.fetch(req), mount };
  *   }
  * }
  *

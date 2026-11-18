@@ -91,7 +91,7 @@ suite("ChoLinker.link", () => {
     const routes = [echo("GET", "/x")];
     const linked = new ChoLinker().link(routes);
     assert.ok(linked.instance instanceof ChoRouter);
-    assert.equal(linked.instance.routes, routes);
+    assert.deepEqual(linked.instance.routes, routes);
     assert.equal(linked.handler, linked.instance.fetch);
     assert.equal(linked.handler.length, 1);
     assert.equal((await send(linked, "/x")).status, 200);
@@ -240,6 +240,77 @@ suite("ChoLinker.link", () => {
       [500, "Internal Server Error"],
     );
     assert.equal((output.error[0] as Error).message, "boom");
+  });
+});
+
+suite("ChoLinker, mounting a route", () => {
+  it("adds the route after the others, at any time", async () => {
+    const linked = new ChoLinker().link([named("GET", "/a", "a")]);
+    assert.equal((await send(linked, "/b")).status, 404); // it has answered
+
+    const route = named("GET", "/b", "b");
+    linked.mount(route);
+
+    assert.equal(await (await send(linked, "/b")).text(), "b");
+    assert.equal(await (await send(linked, "/a")).text(), "a");
+    assert.deepEqual(linked.instance.routes.map((r) => r.path), ["/a", "/b"]);
+    assert.equal(linked.instance.match("GET", "/b")?.route, route);
+  });
+
+  it("matches a mounted route last", async () => {
+    const linked = new ChoLinker().link([named("GET", "/:slug", "declared")]);
+    linked.mount(named("GET", "/docs", "mounted"));
+    linked.mount(named("GET", "/docs/openapi.json", "document"));
+    assert.equal(await (await send(linked, "/docs")).text(), "declared");
+    assert.equal(
+      await (await send(linked, "/docs/openapi.json")).text(),
+      "document",
+    );
+  });
+
+  it("answers a HEAD request with a mounted GET route, or with a mounted HEAD route", async () => {
+    const linked = new ChoLinker().link([named("GET", "/a", "get a")]);
+    linked.mount(named("GET", "/b", "get b"));
+    const from_get = await send(linked, "/b", "HEAD");
+    assert.deepEqual(
+      [from_get.status, from_get.headers.get("x-route"), from_get.body],
+      [200, "get b", null],
+    );
+    // a HEAD route mounted after the GET route of its path answers first
+    linked.mount(named("HEAD", "/a", "head a"));
+    const head = await send(linked, "/a", "HEAD");
+    assert.equal(head.headers.get("x-route"), "head a");
+    assert.equal(
+      (await send(linked, "/a")).headers.get("x-route"),
+      "get a",
+    );
+  });
+
+  it("runs the middlewares of the router around a mounted route", async () => {
+    const seen: string[] = [];
+    const linked = new ChoLinker({
+      middlewares: [async (ctx, next) => {
+        seen.push(`in ${ctx.url.pathname}`);
+        const response = await next();
+        seen.push(`out ${response.status}`);
+        return response;
+      }],
+    }).link([]);
+    linked.mount(named("GET", "/x/:id", "x"));
+    assert.equal(await (await send(linked, "/x/1")).text(), "x");
+    assert.deepEqual(seen, ["in /x/1", "out 200"]);
+  });
+
+  it("serves the routes ChoWeb mounts", async () => {
+    class App {}
+    Module({})(App);
+    const app = await ChoWeb.create(App, { prefix: "api" });
+    app.mount("GET", "docs/:page", (ctx) => ({ page: ctx.params.page }));
+    assert.deepEqual(await (await send(app, "/docs/intro")).json(), {
+      page: "intro",
+    });
+    assert.equal(app.linked.instance.routes.length, 1);
+    assert.equal((await send(app, "/docs/intro", "HEAD")).body, null);
   });
 });
 

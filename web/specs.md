@@ -383,8 +383,8 @@ debug context:
 
 Everything declared about a handler is kept, and exposed, so that tools can use
 it. The first one it is meant for is an OpenAPI document of the application, for
-Swagger UI and the like. Generating that document is not specified yet; this
-section says what it will be built from.
+Swagger UI and the like. `@chojs/openapi` generates it
+(`extras/openapi/specs.md`); this section says what it is built from.
 
 **Collected from what is already declared:**
 
@@ -442,14 +442,39 @@ class UsersController {
 }
 ```
 
-| Option        | On                                 | Holds                                                                |
-| ------------- | ---------------------------------- | -------------------------------------------------------------------- |
-| `summary`     | a handler                          | one line about the operation                                         |
-| `description` | a handler, a controller, a feature | a longer text                                                        |
-| `tags`        | a handler, a controller, a feature | the tags of the handlers under it; they add up, feature first        |
-| `deprecated`  | a handler, a controller, a feature | `true` when it should no longer be used                              |
-| `responses`   | a handler                          | by status: a `description`, and a `schema` (a validator) of the body |
-| `hidden`      | a handler, a controller, a feature | `true` to leave it out of the document                               |
+| Option        | On                                 | Holds                                                                                    |
+| ------------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| `summary`     | a handler                          | one line about the operation                                                             |
+| `description` | a handler, a controller, a feature | a longer text                                                                            |
+| `tags`        | a handler, a controller, a feature | the tags of the handlers under it; they add up, feature first                            |
+| `deprecated`  | a handler, a controller, a feature | `true` when it should no longer be used                                                  |
+| `responses`   | a handler                          | by status: a `description`, and a `schema` (a validator) of the body                     |
+| `hidden`      | a handler, a controller, a feature | `true` to leave it out of the document                                                   |
+| `operationId` | a handler                          | the id of the operation; default: `UsersController.update`                               |
+| `security`    | a handler, a controller, a feature | what it requires: a list of `{ scheme: scopes }`; the nearest one wins, and `[]` is none |
+
+A response also takes a `contentType`: the media type of its body,
+`application/json` by default.
+
+```ts
+@Doc({ security: [{ bearer: [] }] })
+@Controller({ route: "users" })
+class UsersController {
+  @Doc({ operationId: "listUsers", security: [] }) // public
+  @Get("")
+  list() {}
+
+  @Doc({
+    responses: { 200: { description: "The avatar", contentType: "image/png" } },
+  })
+  @Get(":id/avatar")
+  avatar() {}
+}
+```
+
+`security` documents what a middleware enforces: it changes nothing in how a
+request is handled. `@chojs/web` checks its shape, a list of objects of lists of
+strings, and does not know the schemes: what generates the document does.
 
 An unknown option throws when the decorator is called, like the options of
 `@Module` and `@Controller`. A class or a method has one `@Doc`.
@@ -794,7 +819,8 @@ const app = await ChoWeb.create(App, {
 app.handler; // (req: Request) => Promise<Response>
 app.linked.instance; // the runtime's own application (a Hono app)
 app.routes; // every route: method, path, name
-app.graph; // the same routes as a tree: features, controllers, handlers
+app.graph; // the declared routes as a tree: features, controllers, handlers
+app.mount("GET", "health", () => "ok"); // one more route
 app.injector; // the injector: the instances of the application
 await app.close(); // when the server has stopped: release the instances
 ```
@@ -810,6 +836,65 @@ there for another CHO module to build a second application on the same
 instances: `ChoMessage.from(app.injector)` of `@chojs/message`
 (`message/specs.md`, section 6.5). The web application owns it: `app.close()`
 disposes it, after the other application is closed.
+
+**Mounting a route.** The routes of an application are declared: they come from
+its controllers, and they are known when `ChoWeb.create` returns. `app.mount`
+adds one more route to an application that is created. It is for what cannot be
+declared, because it is made from the application itself: the documentation of
+its routes (`@chojs/openapi`), which reads `app.graph`.
+
+```ts
+const app = await ChoWeb.create(App, { prefix: "api" });
+
+app.mount("GET", "health", () => ({ status: "ok" }));
+app.mount("GET", "internal/routes", () => app.routes.map((r) => r.path), {
+  middlewares: [onlyAdmins],
+});
+
+await serve(app.handler);
+```
+
+```ts
+mount(
+  method: string,
+  route: string,
+  handler: (ctx: ChoWebContext) => unknown,
+  options?: { middlewares?: ChoWebMiddlewareFn[]; name?: string },
+): void;
+```
+
+| Argument      | What it is                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| `method`      | `"GET"`, `"POST"`, `"PUT"`, `"PATCH"`, `"DELETE"`, `"HEAD"` or `"OPTIONS"`                       |
+| `route`       | the whole route, written like the route of a decorator: `"internal/docs"`, `"users/:id"`, `""`   |
+| `handler`     | a function of the context; what it returns is converted like the result of a handler (section 3) |
+| `middlewares` | middleware functions `(ctx, next)`, in order, around the handler                                 |
+| `name`        | the name of the route, for logs and errors; default: the name of the handler, or `mounted`       |
+
+- **The route is not under the global prefix.** The prefix is the application's:
+  it belongs to the routes the application declares. A mounted route says its
+  whole path: `app.mount("GET", "docs", …)` answers `/docs`, whatever the
+  `prefix` is.
+- **It is a route of the application**: it is added to `app.routes`, after the
+  others, it is registered on the adapter (section 7), and it is logged to
+  `cho:web` like the others.
+- **It is not in the graph.** `app.graph` is what the application declares. So
+  no feature or controller middleware runs for it, and no `@Catch` handler of
+  the application answers for it: it has the `middlewares` it was given. When it
+  fails, the `onError` of `ChoWeb.create` answers, if there is one; without one,
+  the adapter answers `500`, as for any route.
+- **It is the last route.** Where the first declared route wins (the built-in
+  router, Hono), a declared route that matches the same path answers first: a
+  `@Get(":slug")` at the root answers `/docs`.
+- **A route that already exists throws**: the same method and path as a route of
+  the application, declared or mounted.
+- **Mount before the application serves.** `mount` is synchronous, and is called
+  between `ChoWeb.create` and the start of the server. After the first request,
+  or once the server of the adapter is ready, what happens is the adapter's: the
+  built-in router accepts the route, Hono and Fastify throw. A route the adapter
+  refuses is not added to `app.routes`. After `close()`, `mount` throws.
+- **What it does not take**: classes (a middleware class, an error handler
+  class), `@Args`, `@Sse` and `@Doc`. They are for declared routes.
 
 **The default linker.** Without a `linker` (`ChoWeb.create(App)`, or options
 that have none), the application is linked with the built-in router, a
@@ -921,6 +1006,7 @@ method and path.
 | A route rejects          | logged with `console.error`; `500`                       | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`              |
 | An event stream (`@Sse`) | streamed by the server that runs `app.handler`           | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end |
 | Its own middlewares      | `@chojs/vendor-cho` (`cors`)                             | `fromHono(middleware)`                           | `fromFastify(hook)`                                              |
+| A route mounted late     | accepted                                                 | throws, after the first request                  | throws, once the application is ready                            |
 
 **The middlewares of the built-in router.** `new ChoLinker({ middlewares })`
 takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
@@ -948,9 +1034,20 @@ response on as it is. On the other adapters, what wraps every request goes on
 the library's own application.
 
 An adapter implements `Linker` (`@chojs/web/linker`): it receives the
-application's routes and returns a `Linked`, the runtime's application object
-and its `fetch`-style handler. `@chojs/web` never imports an adapter:
-applications pass one to `ChoWeb.create`.
+application's routes and returns a `Linked`. `@chojs/web` never imports an
+adapter: applications pass one to `ChoWeb.create`.
+
+| Member of `Linked` | What it is                                                     |
+| ------------------ | -------------------------------------------------------------- |
+| `instance`         | the runtime's application object                               |
+| `handler`          | its `fetch`-style handler                                      |
+| `mount(route)`     | registers one more route, after `link()`. Every adapter has it |
+
+`mount` is what `app.mount` calls. It receives a `Route`, as `link()` does, and
+registers it the same way: the route behaves like one that was given to
+`link()`, with the same answer to a `HEAD` request, the same `ctx.native`, and
+the same order when two routes match, after the routes it already has. It is
+synchronous, and it throws when the runtime can no longer take a route.
 
 An adapter does no plumbing. Each `Route` is ready to call:
 
@@ -972,14 +1069,14 @@ when the route fails without an error handler: the adapter answers `500`.
 class MyLinker implements Linker<MyServer> {
   link(routes: readonly Route[]): Linked<MyServer> {
     const server = new MyServer();
-    for (const route of routes) {
+    const mount = (route: Route) =>
       server.on(
         route.method,
         route.path,
         (req, params) => route.handle(req, params),
       );
-    }
-    return { instance: server, handler: (req) => server.fetch(req) };
+    routes.forEach(mount);
+    return { instance: server, handler: (req) => server.fetch(req), mount };
   }
 }
 ```
@@ -988,8 +1085,9 @@ A path is `/`-separated segments; a segment that starts with `:` is a parameter
 that matches one segment. An adapter whose router uses another syntax translates
 it.
 
-The tree behind the routes is on `app.graph` (`@chojs/web/graph`), with every
-instance, middleware and error handler already created:
+The tree behind the declared routes is on `app.graph` (`@chojs/web/graph`), with
+every instance, middleware and error handler already created. A mounted route is
+not in it:
 
 | Node            | Holds                                                                                                               |
 | --------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -1000,15 +1098,15 @@ instance, middleware and error handler already created:
 
 ## 8. Public API
 
-| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Sse`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, the types `ChoWebSseEvent`, `ChoWebSseOptions`, `ChoWebSseMethod`, `ChoWebSseResult`, `ChoWebSseDecorator`, `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidator`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoWebMountOptions`, `ChoWebMountMethod`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Sse`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, the types `ChoWebSseEvent`, `ChoWebSseOptions`, `ChoWebSseMethod`, `ChoWebSseResult`, `ChoWebSseDecorator`, `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidator`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebDocSecurity`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 
@@ -1025,14 +1123,17 @@ not match on their text.
 | A handler's route is invalid                   | `Invalid route "<route>" of @Get() on method <name>: <reason>`                                                                      |
 | A second HTTP method decorator on a method     | `Cannot add @Get() to method <name>: it already handles POST "<route>". A method can have one HTTP method decorator.`               |
 | An unknown option of `@Module` / `@Controller` | `@Controller(): unknown option "deps". Known options: dependencies, route`                                                          |
-| An unknown option of `@Doc`                    | `@Doc(): unknown option "tag". Known options: deprecated, description, hidden, responses, summary, tags`                            |
+| An unknown option of `@Doc`                    | `@Doc(): unknown option "tag". Known options: deprecated, description, hidden, operationId, responses, security, summary, tags`     |
 | A static, private or symbol-named handler      | `TypeError: @Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`)         |
 | A second `@Args` on a method                   | `Cannot add @Args() to method <name>: it already has one.`                                                                          |
 | An argument of `@Args` is not a function       | `TypeError: @Args() on method <name>: argument <n> must be made with Param, Query, Header, Body or Form, or be a function, got <v>` |
 | A key or a validator of the wrong type         | `TypeError: Body(): expected a key (a string) or a validator (an object with a parse method), got <v>`                              |
 | Something after a validator                    | `TypeError: Body(): a validator is the last argument, got <v> after it`                                                             |
 | A second `@Doc` on a class or a method         | `Cannot add @Doc() to class <Name>: it already has one.` (and `… to method <name> …`)                                               |
-| A handler option of `@Doc` on a class          | `@Doc(): option "summary" is for a handler, not for a class (class <Name>)`                                                         |
+| A handler option of `@Doc` on a class          | `@Doc(): option "summary" is for a handler, not for a class (class <Name>)` (and `"responses"`, `"operationId"`)                    |
+| An `operationId` that is not a string          | `TypeError: @Doc(): operationId must be a non-empty string, got <v>`                                                                |
+| A `security` of the wrong shape                | `TypeError: @Doc(): security must be a list of objects of lists of strings, such as [{ bearer: [] }], got <v>`                      |
+| A `contentType` that is not a string           | `TypeError: @Doc(): the contentType of response <status> must be a non-empty string, got <v>`                                       |
 | An unknown option of `@Sse`                    | `@Sse(): unknown option "keepalive". Known options: keepAlive, method`                                                              |
 | A `method` a stream cannot answer              | `TypeError: @Sse(): method must be one of GET, POST, PUT, PATCH, DELETE, got <v>`                                                   |
 | A `keepAlive` that is not a time               | `TypeError: @Sse(): keepAlive must be a positive whole number of milliseconds, got <v>`                                             |
@@ -1057,6 +1158,19 @@ not match on their text.
 
 `<where>` names the declaration: `the global prefix`, `feature <Module>`,
 `controller <Controller>` or `method <name> of controller <Controller>`.
+
+**Thrown by `app.mount`**:
+
+| Mistake                                  | Message                                                                                                                      |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| A method that is not an HTTP method      | `TypeError: ChoWeb.mount(): method must be one of GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, got <v>`                     |
+| A route that breaks a rule (section 2.3) | `Invalid route "<route>" of ChoWeb.mount(): <reason>`                                                                        |
+| A handler that is not a function         | `TypeError: ChoWeb.mount(): the handler of <METHOD> <path> must be a function, got <v>`                                      |
+| A middleware that is not a function      | `TypeError: ChoWeb.mount(): middleware <n> of <METHOD> <path> must be a function, got <v>`                                   |
+| An unknown option                        | `ChoWeb.mount(): unknown option "<name>". Known options: middlewares, name`                                                  |
+| The route already exists                 | `Duplicate route "<METHOD> <path>": declared by <name> and mounted as <name>` (or `mounted as <name> and mounted as <name>`) |
+| The application is closed                | `The application is closed`                                                                                                  |
+| The adapter can no longer take a route   | the error of the adapter                                                                                                     |
 
 **Failing a request** (given to the route's error handler, section 5):
 
@@ -1117,16 +1231,28 @@ middleware, when it is on the route (section 3.2).
   core's `compose`, through `web/compose.ts`), converts the result
   (`web/response.ts`), and gives an error to the nearest error handler.
   Duplicate routes are rejected here.
+- **Mounting a route** (`web/web.ts`). `app.mount` makes a `Route` with the
+  function that makes the declared ones (`make_route`, in `web/routes.ts`),
+  around its own middlewares and handler, with the error handler of the
+  application. It compares the route with those the application has, gives it to
+  the `mount` of the adapter, and only then adds it to `app.routes`.
 - **The Hono adapter** registers each route on one Hono application with
   `app.on(method, path, …)`, and calls `route.handle` with the raw `Request`,
-  Hono's decoded parameters and Hono's context.
+  Hono's decoded parameters and Hono's context. Hono answers a `HEAD` request
+  with its `GET` routes: a `HEAD` route is a `GET` route that only answers
+  `HEAD` requests, and the `GET` route of a path looks, for each `HEAD` request,
+  for a `HEAD` route of that path, so that one mounted later still answers.
 - **The built-in router** (`web/router.ts`) makes one `URLPattern` for each
   route, and calls the `route.handle` of the first route whose method and
-  pattern match, with the `Request` and the decoded parameters.
+  pattern match, with the `Request` and the decoded parameters. A mounted route
+  is one more pattern, at the end.
 - **The Fastify adapter** registers the routes as one Fastify plugin, in which
   Fastify parses no body. It builds a standard `Request` from Fastify's (its
   body is the raw stream), calls `route.handle` with it, Fastify's decoded
   parameters and Fastify's request and reply, and lets Fastify send the
-  `Response`.
+  `Response`. The plugin runs when Fastify gets ready, and registers the routes
+  the adapter holds then: those of `link()`, and those mounted since. That is
+  why a route is taken until Fastify is ready, and not after.
 - **Testing without an adapter.** `web/testing.ts` (not published) has a linker
-  that matches requests itself; the tests of `@chojs/web` use it.
+  that matches requests itself, mounted routes included; the tests of
+  `@chojs/web` use it.

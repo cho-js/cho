@@ -330,6 +330,124 @@ suite("FastifyLinker.link", () => {
   });
 });
 
+suite("FastifyLinked.mount", () => {
+  it("registers one more route, like those of link()", async () => {
+    const linked = new FastifyLinker().link([echo("GET", "/a")]);
+    linked.mount(echo("POST", "/b/:id"));
+
+    const response = await send(linked, "/b/7?x=1", "POST", {
+      body: "hello",
+      headers: { "content-type": "text/plain" },
+    });
+    assert.deepEqual(await response.json(), {
+      method: "POST",
+      url: "http://localhost/b/7?x=1",
+      type: "text/plain",
+      body: "hello", // Fastify parsed no body: the route read the stream
+      params: { id: "7" },
+      native: ["object", "function"],
+    });
+    assert.equal((await send(linked, "/a")).status, 200);
+  });
+
+  it("takes a route until Fastify is ready, also after a while", async () => {
+    const linked = new FastifyLinker().link([named("GET", "/a", "a")]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    linked.mount(named("GET", "/b", "b"));
+    await linked.instance.ready();
+    assert.equal(await (await send(linked, "/a")).text(), "a");
+    assert.equal(await (await send(linked, "/b")).text(), "b");
+  });
+
+  it("registers the routes of a linker that was given none", async () => {
+    const linked = new FastifyLinker().link([]);
+    linked.mount(named("GET", "/only", "only"));
+    assert.equal(await (await send(linked, "/only")).text(), "only");
+  });
+
+  it("answers a HEAD request with a mounted GET route, without the body", async () => {
+    const linked = new FastifyLinker().link([named("GET", "/a", "a")]);
+    linked.mount(named("GET", "/x", "get x"));
+    const response = await send(linked, "/x", "HEAD");
+    assert.deepEqual(
+      [response.status, response.headers.get("x-route"), response.body],
+      [200, "get x", null],
+    );
+  });
+
+  it("runs a mounted HEAD route, though the GET route of its path came first", async () => {
+    const linked = new FastifyLinker().link([named("GET", "/x", "get x")]);
+    linked.mount(named("HEAD", "/x", "head x"));
+    const head = await send(linked, "/x", "HEAD");
+    assert.deepEqual(
+      [head.status, head.headers.get("x-route")],
+      [200, "head x"],
+    );
+    assert.equal(await (await send(linked, "/x")).text(), "get x");
+  });
+
+  it("lets the static route win, wherever it was mounted", async () => {
+    const linked = new FastifyLinker().link([named("GET", "/:slug", "param")]);
+    linked.mount(named("GET", "/docs", "docs"));
+    assert.equal(await (await send(linked, "/docs")).text(), "docs");
+    assert.equal(await (await send(linked, "/other")).text(), "param");
+  });
+
+  it("throws once Fastify is ready", async () => {
+    const ready = new FastifyLinker().link([echo("GET", "/a")]);
+    await ready.instance.ready();
+    assert.throws(() => ready.mount(echo("GET", "/b")), {
+      message:
+        "FastifyLinked.mount(): cannot add GET /b: the Fastify application is ready. Mount routes before listen(), ready() and the first request",
+    });
+    // the first call of the handler makes it ready too
+    const served = new FastifyLinker().link([echo("GET", "/a")]);
+    await send(served, "/a");
+    assert.throws(() => served.mount(echo("GET", "/b")), {
+      message: /^FastifyLinked\.mount\(\): cannot add GET \/b/,
+    });
+    assert.equal((await send(served, "/b")).status, 404);
+  });
+
+  it("throws Fastify's error for a first route, once Fastify is ready", async () => {
+    const linked = new FastifyLinker().link([]);
+    await linked.instance.ready();
+    assert.throws(() => linked.mount(echo("GET", "/b")));
+  });
+
+  it("serves the routes ChoWeb mounts, over HTTP", async () => {
+    class App {}
+    Module({})(App);
+    const app = await ChoWeb.create(App, {
+      linker: new FastifyLinker(),
+      prefix: "api",
+    });
+    app.mount("GET", "docs/:page", (ctx) => ({
+      page: ctx.params.page,
+      native: typeof (ctx.native as FastifyNative).reply.send,
+    }));
+    const address = await app.linked.instance.listen({
+      port: 0,
+      host: "127.0.0.1",
+    });
+    try {
+      const response = await fetch(`${address}/docs/intro`);
+      assert.deepEqual(await response.json(), {
+        page: "intro",
+        native: "function",
+      });
+      assert.equal((await fetch(`${address}/api/docs/intro`)).status, 404);
+      assert.throws(() => app.mount("GET", "late", () => "late"), {
+        message: /^FastifyLinked\.mount\(\): cannot add GET \/late/,
+      });
+      // refused by Fastify: the application has not got the route either
+      assert.deepEqual(app.routes.map((r) => r.path), ["/docs/:page"]);
+    } finally {
+      await app.linked.instance.close();
+    }
+  });
+});
+
 suite("FastifyLinker, on a listening server", () => {
   it("serves requests over HTTP, and streams the body to the route", async () => {
     const linked = new FastifyLinker().link([echo("POST", "/x/:id")]);
@@ -829,6 +947,7 @@ suite("fromFastify", () => {
         link: (routes) => ({
           instance: routes,
           handler: (req) => routes[0]!.handle(req),
+          mount: () => {},
         }),
       },
     });
