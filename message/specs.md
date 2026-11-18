@@ -1,13 +1,15 @@
 # @chojs/message
 
-> **Status: the package is implemented, with one broker adapter.**
+> **Status: the package is implemented, with two broker adapters.**
 > `@chojs/message` does what this document says, and `message/tasks.md` lists
 > what was done and what is left. `@chojs/vendor-kafka`, which the examples
 > name, is the adapter of Apache Kafka, on Node.js (`vendor/kafka/specs.md`).
-> Without an adapter, an application delivers its messages with `app.handle`, or
-> with a linker of its own (`examples/hello-world-message.ts`). Section 11 lists
-> every decision this document makes, with the alternative that was not chosen,
-> and section 12 what it changed in the other packages.
+> `@chojs/vendor-nats` is the adapter of NATS, on Deno, Node.js and Bun, and the
+> one that sends replies (`vendor/nats/specs.md`). Without an adapter, an
+> application delivers its messages with `app.handle`, or with a linker of its
+> own (`examples/hello-world-message.ts`). Section 11 lists every decision this
+> document makes, with the alternative that was not chosen, and section 12 what
+> it changed in the other packages.
 
 Applications that handle messages from a broker, such as Kafka, built with
 decorators: controllers declare message handlers, and `ChoMessage` subscribes
@@ -265,8 +267,41 @@ class OrdersController {
   has replies sends it to who asked for it; when nobody asked, or when the
   broker has none (Kafka), it is dropped. So a handler should not depend on its
   reply being read: what must happen happens in the handler.
-- **A reply is a `Reply`**: `{ value: Uint8Array }`, a `Delivery` in the other
-  direction. It is what `route.handle` and `app.handle` resolve with.
+- **A reply is a `Reply`**: `{ value: Uint8Array, headers? }`, a `Delivery` in
+  the other direction. It is what `route.handle` and `app.handle` resolve with.
+
+**A reply with headers** is a `ChoMessageReply`: a handler returns one when the
+reply needs more than its value, as a handler of `@chojs/web` returns a
+`Response`.
+
+```ts
+@Subscribe("price")
+async price(ctx: ChoMessageContext) {
+  const { id } = ctx.json<{ id: string }>();
+  return new ChoMessageReply({ id, total: await this.prices.of(id) }, {
+    headers: { "content-type": "application/json" },
+  });
+}
+```
+
+- **Its value is converted as a returned value is**: bytes and strings as they
+  are, anything else as JSON. With no value, the reply is empty: a
+  `ChoMessageReply` is always a reply, so `new ChoMessageReply()` is the way to
+  answer with nothing.
+- **Its headers are names and values, as strings.** They are checked when the
+  reply is made: options that are not an object, headers that are not an object
+  of strings, a header with no name, and another `ChoMessageReply` as the value
+  throw `CHO_MESSAGE_INVALID_REPLY`; an option that does not exist throws
+  `CHO_CORE_UNKNOWN_OPTION`. In a handler, that is an error of the handler.
+- **`Reply.headers` is there only when there are some.** A reply that was
+  returned as a plain value, or a `ChoMessageReply` with no header, has none.
+- **Which headers a broker accepts is the adapter's.** One whose broker has no
+  headers for a reply ignores them; one that cannot send a header says what it
+  does then (`vendor/nats/specs.md`).
+- A `ChoMessageReply` is recognized by a mark on its prototype, under
+  `Symbol.for("cho.message.reply")`, not with `instanceof`: one made by another
+  copy of the package is still a reply.
+- An error handler returns one too (section 5).
 - It is the counterpart of what a handler of `@chojs/web` returns, and
   `to_reply` is what `to_response` is there.
 
@@ -631,8 +666,8 @@ version (section 12).
 ## 7. Broker adapters
 
 An adapter is a package of its own, named after its broker:
-`@chojs/vendor-kafka` is the first planned. `@chojs/message` never imports an
-adapter: applications pass one to `ChoMessage.create`. An adapter can run on
+`@chojs/vendor-kafka` and `@chojs/vendor-nats`. `@chojs/message` never imports
+an adapter: applications pass one to `ChoMessage.create`. An adapter can run on
 some runtimes only, when the client library of its broker does; it says which.
 
 An adapter implements `Linker` (`@chojs/message/linker`): it receives the topics
@@ -671,9 +706,10 @@ A `Delivery` is one message, as plain data:
 A `Reply` is the reply of a message, as plain data: a `Delivery` in the other
 direction.
 
-| Property | Holds                  |
-| -------- | ---------------------- |
-| `value`  | the bytes of the reply |
+| Property  | Holds                                                                |
+| --------- | -------------------------------------------------------------------- |
+| `value`   | the bytes of the reply                                               |
+| `headers` | the headers, as an object of strings; absent when the reply has none |
 
 `handle` runs the route's middlewares, its handler and its error handler. It
 **resolves** when the message is handled, and the adapter acknowledges it. It
@@ -710,7 +746,9 @@ class MyLinker implements Linker<MyClient> {
               await message.ack();
               // only for a broker that has replies
               if (reply && message.replyTo) {
-                await client.publish(message.replyTo, reply.value);
+                await client.publish(message.replyTo, reply.value, {
+                  headers: reply.headers ?? {},
+                });
               }
             } catch {
               await message.retryLater();
@@ -742,6 +780,12 @@ what a failed message leads to, since Kafka cannot refuse one message without
 holding back the ones after it in its partition. It is tried again in place,
 then sent to a dead-letter topic.
 
+`@chojs/vendor-nats` has one too, `vendor/nats/specs.md`. It is core NATS, where
+a message can ask for a reply: the reply of a handler is sent to who asked, a
+request whose handler returned nothing is answered with an empty reply, and one
+that failed with an error reply. The application gives the connection, so the
+adapter imports no transport and runs on Deno, Node.js and Bun.
+
 The tree behind the topics is on `app.graph` (`@chojs/message/graph`), with
 every instance, middleware and error handler already created: `AppRef`,
 `FeatureRef`, `ControllerRef` and `MethodRef`, as in `@chojs/web`, with `topic`
@@ -749,12 +793,13 @@ in place of `route`.
 
 ## 8. Public API
 
-| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/message`        | `ChoMessage`, `ChoMessageOptions`, `ChoMessageFromOptions`, `Subscribe`, `Middlewares`, `Catch`, `ChoError`, `isChoError` (the core's), `ChoMessageErrorCode`, `ChoCoreErrorCode`, the types `Reply`, `ChoMessageContext`, `ChoMessageHandler`, `ChoMessageNext`, `ChoMessageMiddlewareFn`, `ChoMessageMiddleware`, `ChoMessageErrorHandlerFn`, `ChoMessageErrorHandler`, `Module`, `Controller` (the core's, with the `topic` option), `MessageModuleOptions`, `MessageControllerOptions`, `TopicOption`, the types of the two other entry points, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/message/linker` | `Linker`, `Linked`, `Route`, `Delivery`, `Reply`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `@chojs/message/graph`  | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `@chojs/vendor-kafka`   | `KafkaLinker`, `KafkaLinked`, and their types (`vendor/kafka/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/message`        | `ChoMessage`, `ChoMessageOptions`, `ChoMessageFromOptions`, `ChoMessageReply`, `ChoMessageReplyOptions`, `Subscribe`, `Middlewares`, `Catch`, `ChoError`, `isChoError` (the core's), `ChoMessageErrorCode`, `ChoCoreErrorCode`, the types `Reply`, `ChoMessageContext`, `ChoMessageHandler`, `ChoMessageNext`, `ChoMessageMiddlewareFn`, `ChoMessageMiddleware`, `ChoMessageErrorHandlerFn`, `ChoMessageErrorHandler`, `Module`, `Controller` (the core's, with the `topic` option), `MessageModuleOptions`, `MessageControllerOptions`, `TopicOption`, the types of the two other entry points, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/message/linker` | `Linker`, `Linked`, `Route`, `Delivery`, `Reply`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `@chojs/message/graph`  | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `@chojs/vendor-kafka`   | `KafkaLinker`, `KafkaLinked`, and their types (`vendor/kafka/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `@chojs/vendor-nats`    | `NatsLinker`, `NatsLinked`, and their types (`vendor/nats/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for
 `@chojs/message`.
@@ -831,10 +876,11 @@ error of the core (`core/specs.md`, section 2.8), and:
 
 **Failing a message** (given to the handler's error handler, section 5):
 
-| Mistake                                   | Code                         | Message                                                                                                                                                                                     |
-| ----------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A middleware calls `next()` twice         | `CHO_CORE_NEXT_CALLED_TWICE` | `middleware <name>: next() called more than once`                                                                                                                                           |
-| What a handler returned cannot be a reply | `CHO_MESSAGE_INVALID_REPLY`  | `Invalid reply of <Controller.method>: <v> cannot be serialized as JSON`, with the error of `JSON.stringify` as `cause` (or `… expected bytes, a string or a value JSON can hold, got <v>`) |
+| Mistake                                              | Code                         | Message                                                                                                                                                                                                                            |
+| ---------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A middleware calls `next()` twice                    | `CHO_CORE_NEXT_CALLED_TWICE` | `middleware <name>: next() called more than once`                                                                                                                                                                                  |
+| What a handler returned cannot be a reply            | `CHO_MESSAGE_INVALID_REPLY`  | `Invalid reply of <Controller.method>: <v> cannot be serialized as JSON`, with the error of `JSON.stringify` as `cause` (or `… expected bytes, a string or a value JSON can hold, got <v>`)                                        |
+| A `ChoMessageReply` is made with what it cannot hold | `CHO_MESSAGE_INVALID_REPLY`  | `new ChoMessageReply(): the header "status" is a string, got 404` (or `… "headers" is an object of strings, got <v>`, `… a header has no name`, `… expected options, such as …`, `… the value of a reply cannot be another reply`) |
 
 **What has no code**: what a handler or a middleware throws is the application's
 error: it is given to the error handler as it is, and a message that fails
@@ -858,8 +904,6 @@ small. The design leaves room for them.
 - **Wildcards and parameters** in a topic (the `orders.*` of NATS).
 - **Sending messages.** An application sends with the client of its broker,
   provided like any dependency.
-- **Headers of a reply.** A reply is its value. `Reply` is an object, so that
-  headers can join it without a change for the adapters.
 - **A middleware that reads or replaces the reply.** The reply is the handler's.
 - **Knowing in a handler whether a reply is asked for.** The handler returns its
   value either way; an adapter that knows has it in `ctx.native`.
@@ -878,35 +922,36 @@ small. The design leaves room for them.
 Every choice this document makes, with the alternative. `→` marks the choice,
 which is what the package does.
 
-| #  | Question                                  | → Chosen                                                       | Alternative                                                               | Section |
-| -- | ----------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------- | ------- |
-| 1  | The name of the package and of the class  | `@chojs/message`, `ChoMessage`                                 | `@chojs/messaging`, `ChoMessaging`                                        | 1       |
-| 2  | The decorator of a handler                | `@Subscribe(topic)`                                            | `@On(topic)`                                                              | 2.1     |
-| 3  | What a route is                           | a topic, and nothing else                                      | a topic and a type of message                                             | 2.1, 10 |
-| 4  | How the levels are joined                 | with `.`                                                       | not joined: every handler writes its full topic                           | 2.2     |
-| 5  | Patterns in a topic                       | none: a topic is a name                                        | the wildcards of the broker, where it has them                            | 2.3     |
-| 6  | Two handlers on one topic                 | an error when the application is created                       | both get every message                                                    | 2.3     |
-| 7  | Where the consumer group is declared      | an option of the adapter                                       | an option of `@Controller` or `@Subscribe`                                | 2.4     |
-| 8  | Who decodes the value                     | the handler: `ctx.json()`, `ctx.text()`                        | the adapter: `ctx.value` is already an object                             | 3.1     |
-| 9  | A message without a value                 | an empty `value`; `json()` gives `undefined`                   | `value` is `null`                                                         | 3       |
-| 10 | What a handler returns                    | the reply of the message                                       | ignored; or a decorator that says a handler replies                       | 3.3     |
-| 11 | When a message is acknowledged            | after its handler has returned                                 | when it is received                                                       | 3.2     |
-| 12 | A middleware that does not call `next()`  | the handler is skipped, and the message is handled             | an error, as in `@chojs/web`                                              | 4       |
-| 13 | An error handler that returns nothing     | the message failed; `true` settles it as handled               | any return settles it as handled                                          | 5       |
-| 14 | What a failed message leads to            | the adapter decides, and documents it                          | `@chojs/message` retries by itself                                        | 3.2, 7  |
-| 15 | Who starts listening                      | the application: `app.start()`, `app.close()`                  | a function of the adapter, like `serve`                                   | 6.2     |
-| 16 | Delivering a message by hand              | `app.handle(topic, message)`, with no linker needed            | only through a linker written for tests                                   | 6.3     |
-| 17 | A default linker                          | none                                                           | an in-memory broker                                                       | 6.1     |
-| 18 | Sharing instances with a web application  | `ChoMessage.from(web.injector, options)`                       | `ChoMessage.from(web, options)`; or both made from an injector you create | 6.5     |
-| 19 | Who disposes a shared injector            | the application that created it                                | the last one that is closed                                               | 6.5     |
-| 20 | Web and message controllers in one module | allowed; the rules of section 6.5 are documented, not enforced | rejected: a module is of one kind                                         | 6.5     |
-| 21 | The name of the adapters                  | `@chojs/vendor-<broker>`, a `<Broker>Linker` class             | `@chojs/message-<broker>`                                                 | 7       |
-| 22 | Who makes the bytes of a reply            | `@chojs/message`: bytes, strings, and JSON for the rest        | each adapter; or the handler, which returns bytes only                    | 3.3     |
-| 23 | What "no reply" is                        | `undefined`, and nothing else: `null` is the reply `null`      | every value that is not truthy                                            | 3.3     |
-| 24 | What an adapter is given                  | a `Reply` object, `{ value }`                                  | the bytes alone, which leaves no room for headers                         | 3.3, 7  |
-| 25 | A reply nobody asked for                  | dropped by the adapter                                         | an error                                                                  | 3.3, 7  |
-| 26 | What an error handler returns             | `true`: handled, no reply; a value: its reply; `false`: failed | any value handles the message                                             | 5       |
-| 27 | Whether a middleware sees the reply       | no                                                             | `next()` resolves with it, and a middleware can replace it                | 4       |
+| #  | Question                                   | → Chosen                                                              | Alternative                                                                                     | Section |
+| -- | ------------------------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------- |
+| 1  | The name of the package and of the class   | `@chojs/message`, `ChoMessage`                                        | `@chojs/messaging`, `ChoMessaging`                                                              | 1       |
+| 2  | The decorator of a handler                 | `@Subscribe(topic)`                                                   | `@On(topic)`                                                                                    | 2.1     |
+| 3  | What a route is                            | a topic, and nothing else                                             | a topic and a type of message                                                                   | 2.1, 10 |
+| 4  | How the levels are joined                  | with `.`                                                              | not joined: every handler writes its full topic                                                 | 2.2     |
+| 5  | Patterns in a topic                        | none: a topic is a name                                               | the wildcards of the broker, where it has them                                                  | 2.3     |
+| 6  | Two handlers on one topic                  | an error when the application is created                              | both get every message                                                                          | 2.3     |
+| 7  | Where the consumer group is declared       | an option of the adapter                                              | an option of `@Controller` or `@Subscribe`                                                      | 2.4     |
+| 8  | Who decodes the value                      | the handler: `ctx.json()`, `ctx.text()`                               | the adapter: `ctx.value` is already an object                                                   | 3.1     |
+| 9  | A message without a value                  | an empty `value`; `json()` gives `undefined`                          | `value` is `null`                                                                               | 3       |
+| 10 | What a handler returns                     | the reply of the message                                              | ignored; or a decorator that says a handler replies                                             | 3.3     |
+| 11 | When a message is acknowledged             | after its handler has returned                                        | when it is received                                                                             | 3.2     |
+| 12 | A middleware that does not call `next()`   | the handler is skipped, and the message is handled                    | an error, as in `@chojs/web`                                                                    | 4       |
+| 13 | An error handler that returns nothing      | the message failed; `true` settles it as handled                      | any return settles it as handled                                                                | 5       |
+| 14 | What a failed message leads to             | the adapter decides, and documents it                                 | `@chojs/message` retries by itself                                                              | 3.2, 7  |
+| 15 | Who starts listening                       | the application: `app.start()`, `app.close()`                         | a function of the adapter, like `serve`                                                         | 6.2     |
+| 16 | Delivering a message by hand               | `app.handle(topic, message)`, with no linker needed                   | only through a linker written for tests                                                         | 6.3     |
+| 17 | A default linker                           | none                                                                  | an in-memory broker                                                                             | 6.1     |
+| 18 | Sharing instances with a web application   | `ChoMessage.from(web.injector, options)`                              | `ChoMessage.from(web, options)`; or both made from an injector you create                       | 6.5     |
+| 19 | Who disposes a shared injector             | the application that created it                                       | the last one that is closed                                                                     | 6.5     |
+| 20 | Web and message controllers in one module  | allowed; the rules of section 6.5 are documented, not enforced        | rejected: a module is of one kind                                                               | 6.5     |
+| 21 | The name of the adapters                   | `@chojs/vendor-<broker>`, a `<Broker>Linker` class                    | `@chojs/message-<broker>`                                                                       | 7       |
+| 22 | Who makes the bytes of a reply             | `@chojs/message`: bytes, strings, and JSON for the rest               | each adapter; or the handler, which returns bytes only                                          | 3.3     |
+| 23 | What "no reply" is                         | `undefined`, and nothing else: `null` is the reply `null`             | every value that is not truthy                                                                  | 3.3     |
+| 24 | What an adapter is given                   | a `Reply` object, `{ value, headers? }`                               | the bytes alone, which leaves no room for headers                                               | 3.3, 7  |
+| 25 | A reply nobody asked for                   | dropped by the adapter                                                | an error                                                                                        | 3.3, 7  |
+| 26 | What an error handler returns              | `true`: handled, no reply; a value: its reply; `false`: failed        | any value handles the message                                                                   | 5       |
+| 27 | Whether a middleware sees the reply        | no                                                                    | `next()` resolves with it, and a middleware can replace it                                      | 4       |
+| 28 | How a handler gives the headers of a reply | it returns a `ChoMessageReply`, as a web handler returns a `Response` | a method of the context; or a plain `{ value, headers }`, which is also a value to send as JSON | 3.3     |
 
 ## 12. What changed in the other packages
 
@@ -921,6 +966,9 @@ which is what the package does.
 - **`@chojs/vendor-kafka`: a reply is dropped.** Kafka has none. The adapter did
   not change for replies, apart from a line of its debug log that says so, once
   for each handler that returns one.
+- **`@chojs/vendor-nats`: a reply is sent.** It is the first adapter that uses
+  what `route.handle` resolves with. `./vendor/nats` is in the `workspace` and
+  in the release configuration, with the linked versions.
 - **`@chojs/core`: `compose` runs a chain that has no result**, when it is given
   no `kind` (`core/specs.md`, section 3.3). It is the chain of section 4: what a
   middleware returns is ignored, and one that returns without calling `next()`

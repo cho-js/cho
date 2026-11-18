@@ -7,5 +7,6 @@
   "vendor/fastify": "3.4.0",
   "vendor/cho": "3.4.0",
   "vendor/kafka": "3.4.0",
+  "vendor/nats": "3.4.0",
   "extras/openapi": "3.4.0"
 }

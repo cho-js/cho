@@ -7,7 +7,8 @@
       "@chojs/core/utils/test_utils": ["./core/utils/test_utils.ts"],
       "@chojs/web": ["./web/mod.ts"],
       "@chojs/message": ["./message/mod.ts"],
-      "@chojs/message/linker": ["./message/linker.ts"]
+      "@chojs/message/linker": ["./message/linker.ts"],
+      "@chojs/vendor-nats": ["./vendor/nats/mod.ts"]
     }
   }
 }

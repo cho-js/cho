@@ -6,6 +6,8 @@
   "dependencies": {
     "hono": "^4.13.18",
     "fastify": "^5.12.8",
-    "@platformatic/kafka": "^2.15.0"
+    "@platformatic/kafka": "^2.15.0",
+    "@nats-io/nats-core": "^3.4.0",
+    "@nats-io/transport-node": "^3.4.0"
   }
 }

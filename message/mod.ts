@@ -67,6 +67,7 @@ export {
 // application. They are also in `@chojs/message/linker` and
 // `@chojs/message/graph`, for adapters.
 export type { Delivery, Linked, Linker, Reply, Route } from "./linker.ts";
+export { ChoMessageReply, type ChoMessageReplyOptions } from "./reply.ts";
 export type {
   AppRef,
   ControllerRef,

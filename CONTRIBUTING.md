@@ -76,7 +76,7 @@ Node.js and Bun are needed only to run the tests on those runtimes.
 ```sh
 git clone https://github.com/cho-js/cho.git
 cd cho
-deno install   # installs the npm dependencies (hono, fastify, the Kafka client) into node_modules
+deno install   # installs the npm dependencies (hono, fastify, the Kafka and NATS clients) into node_modules
 ```
 
 ### Project layout
@@ -94,14 +94,15 @@ tests.
 | `vendor/hono/`    | `@chojs/vendor-hono`    | Web adapter on Hono                                                        |
 | `vendor/fastify/` | `@chojs/vendor-fastify` | Web adapter on Fastify (Node.js only)                                      |
 | `vendor/kafka/`   | `@chojs/vendor-kafka`   | Message adapter on Apache Kafka (Node.js only)                             |
+| `vendor/nats/`    | `@chojs/vendor-nats`    | Message adapter on NATS, with replies                                      |
 | `extras/`         |                         | Modules built on the graph of an application ([rules](./extras/README.md)) |
 | `extras/openapi/` | `@chojs/openapi`        | The OpenAPI document of a web application, and its page                    |
 | `examples/`       |                         | Runnable examples                                                          |
 
-`core`, `command`, `web`, `message`, `vendor/kafka` and `extras/openapi` each
-have a `specs.md`: the specification of the package, and the place to look for
-how something is meant to behave. A package that has work planned lists it in a
-`tasks.md`.
+`core`, `command`, `web`, `message`, `vendor/kafka`, `vendor/nats` and
+`extras/openapi` each have a `specs.md`: the specification of the package, and
+the place to look for how something is meant to behave. A package that has work
+planned lists it in a `tasks.md`.
 
 ### Checks
 
@@ -126,6 +127,10 @@ or run them with `npx tsx --test`.
 - Tests are written with `node:test` and `node:assert/strict`, so the same file
   runs on Deno, Node.js and Bun. Do not use a runtime's own test API.
 - A test file sits next to the code it tests, and is named `<file>_test.ts`.
+- Tests that need a broker (`vendor/kafka/kafka_test.ts`,
+  `vendor/nats/nats_test.ts`) run only when the address of one is given
+  (`KAFKA_BROKERS`, `NATS_URL`), and are skipped otherwise. They are run
+  locally, against Docker: the CI runs the tests that need no Docker.
 - Decorators are applied as plain function calls in tests (see `legacy` and
   `tc39` in `core/utils/test_utils.ts`), so that both decorator proposals are
   covered on every runtime. Decorator **syntax** is tested only in the

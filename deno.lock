@@ -1,10 +1,53 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@nats-io/nats-core@3.5.0": "3.5.0",
+    "jsr:@nats-io/nkeys@2.1.0": "2.1.0",
+    "jsr:@nats-io/nuid@3.1.0": "3.1.0",
+    "jsr:@nats-io/transport-deno@^3.4.0": "3.5.0",
+    "jsr:@std/bytes@^1.0.6": "1.0.6",
+    "jsr:@std/io@0.225.3": "0.225.3",
+    "npm:@nats-io/nats-core@^3.4.0": "3.5.0",
+    "npm:@nats-io/transport-node@^3.4.0": "3.5.0",
     "npm:@platformatic/kafka@^2.15.0": "2.15.0",
     "npm:@types/node@*": "24.2.0",
     "npm:fastify@^5.12.8": "5.12.8",
-    "npm:hono@^4.13.18": "4.13.18"
+    "npm:hono@^4.13.18": "4.13.18",
+    "npm:tweetnacl@1.0.3": "1.0.3"
+  },
+  "jsr": {
+    "@nats-io/nats-core@3.5.0": {
+      "integrity": "195e29e464a7001433ba22be60caed4681f44f57345ba01c11b6485dc96c8029",
+      "dependencies": [
+        "jsr:@nats-io/nkeys",
+        "jsr:@nats-io/nuid"
+      ]
+    },
+    "@nats-io/nkeys@2.1.0": {
+      "integrity": "e0f1988e342695f5bfcaf400652b7f103e67189fe252b1d7a741f45790a4eeb4",
+      "dependencies": [
+        "npm:tweetnacl"
+      ]
+    },
+    "@nats-io/nuid@3.1.0": {
+      "integrity": "ebd5fac37850648d48980b40baf1f67d9811aa855d6dce2fd5b54f91de4911e2"
+    },
+    "@nats-io/transport-deno@3.5.0": {
+      "integrity": "40942329834172a32af4634a7ef94623951f048e12b7f23b33d554bd4f1aa64a",
+      "dependencies": [
+        "jsr:@nats-io/nats-core@3.5.0",
+        "jsr:@std/io"
+      ]
+    },
+    "@std/bytes@1.0.6": {
+      "integrity": "f6ac6adbd8ccd99314045f5703e23af0a68d7f7e58364b47d2c7f408aeb5820a"
+    },
+    "@std/io@0.225.3": {
+      "integrity": "27b07b591384d12d7b568f39e61dff966b8230559122df1e9fd11cc068f7ddd1",
+      "dependencies": [
+        "jsr:@std/bytes"
+      ]
+    }
   },
   "npm": {
     "@fastify/ajv-compiler@4.0.7": {
@@ -41,6 +84,30 @@
       "dependencies": [
         "@fastify/forwarded",
         "ipaddr.js"
+      ]
+    },
+    "@nats-io/nats-core@3.5.0": {
+      "integrity": "sha512-iHsKhlzINdpL27pxvbHhBLRs4mnAKDfYrXMReBDNqvhKb/yVxz+Vz2rXujBAUiMsfOXFzixUK4Uu/qNnDRjZvA==",
+      "dependencies": [
+        "@nats-io/nkeys",
+        "@nats-io/nuid"
+      ]
+    },
+    "@nats-io/nkeys@2.1.0": {
+      "integrity": "sha512-vLMgwfPouG2Utp3hHUfdmMVEGEQ202tLES/pOAOfTJR5hwWGymm2mKuo3UMYv9kNw7awpcTBfEAljFqZcFm1lA==",
+      "dependencies": [
+        "tweetnacl"
+      ]
+    },
+    "@nats-io/nuid@3.1.0": {
+      "integrity": "sha512-NC+JksVZl0zwpwsO6aIvsivqcqzgI2db0gCris/bSdZx56CdyniphijTfcjieUpR4HwZEiiid67NEviQ16sveA=="
+    },
+    "@nats-io/transport-node@3.5.0": {
+      "integrity": "sha512-5Ebt62tnQsrrb3p+aHJt0+zRHAkxbUhhD+8HnHNBTYRgXJ2X2LgvOD19EiiAISdW7yR4IQSmsdvpfX+I5oG5ew==",
+      "dependencies": [
+        "@nats-io/nats-core",
+        "@nats-io/nkeys",
+        "@nats-io/nuid"
       ]
     },
     "@node-rs/crc32-android-arm-eabi@1.10.8": {
@@ -416,13 +483,21 @@
     "toad-cache@3.7.4": {
       "integrity": "sha512-m1TdR/rvT7kgGJZhspNtXdsdYk0fddFpJJFlG5s+UkPFo6lkLoZ3YLOaovPYjq1R75NP5JfeTlSHaOsE09peCg=="
     },
+    "tweetnacl@1.0.3": {
+      "integrity": "sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw=="
+    },
     "undici-types@7.10.0": {
       "integrity": "sha512-t5Fy/nfn+14LuOc2KNYg75vZqClpAiqscVvMygNnlsHBFpSXdJaYtXMcdNLpl/Qvc3P2cB3s6lOV51nqsFq4ag=="
     }
   },
   "workspace": {
+    "dependencies": [
+      "jsr:@nats-io/transport-deno@^3.4.0"
+    ],
     "packageJson": {
       "dependencies": [
+        "npm:@nats-io/nats-core@^3.4.0",
+        "npm:@nats-io/transport-node@^3.4.0",
         "npm:@platformatic/kafka@^2.15.0",
         "npm:fastify@^5.12.8",
         "npm:hono@^4.13.18"
@@ -442,6 +517,11 @@
       "vendor/kafka": {
         "dependencies": [
           "npm:@platformatic/kafka@^2.15.0"
+        ]
+      },
+      "vendor/nats": {
+        "dependencies": [
+          "npm:@nats-io/nats-core@^3.4.0"
         ]
       }
     }

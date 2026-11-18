@@ -12,8 +12,10 @@ controllers, middlewares and error handlers, with a topic where `@chojs/web` has
 a route.
 
 > **Broker adapters:** [`@chojs/vendor-kafka`](../vendor/kafka/README.md), for
-> Apache Kafka, on Node.js. Without an adapter, an application delivers its
-> messages [by hand](#delivering-a-message-by-hand), or with a
+> Apache Kafka, on Node.js, and
+> [`@chojs/vendor-nats`](../vendor/nats/README.md), for NATS, which sends
+> [replies](#replying). Without an adapter, an application delivers its messages
+> [by hand](#delivering-a-message-by-hand), or with a
 > [linker of its own](#broker-adapters).
 
 ## Contents
@@ -230,6 +232,30 @@ class OrdersController {
   and goes to the [error handler](#error-handling) like an error of the handler.
 - **A middleware does not see the reply**, and cannot replace it. One that skips
   the handler gives no reply.
+
+**A reply with headers** is a `ChoMessageReply`: return one when the reply needs
+more than its value.
+
+```ts
+import { ChoMessageReply } from "@chojs/message";
+
+@Subscribe("price")
+async price(ctx: ChoMessageContext) {
+  const { id } = ctx.json<{ id: string }>();
+  return new ChoMessageReply({ id, total: await this.prices.of(id) }, {
+    headers: { "content-type": "application/json" },
+  });
+}
+```
+
+- Its value becomes the bytes of the reply by the rules of the table. With no
+  value (`new ChoMessageReply()`), the reply is empty: it is still a reply.
+- Its headers are names and values, as strings. Anything else throws when the
+  reply is made, with the code `CHO_MESSAGE_INVALID_REPLY`.
+- The adapter sends them when its broker has headers for a reply, as
+  [NATS](../vendor/nats/README.md#replying) does. Which names and values a
+  broker accepts is its own.
+- An error handler returns one too.
 
 ### Middlewares
 
@@ -487,9 +513,10 @@ Every code is listed with its mistake in the
 
 An adapter is a package of its own, named after its broker:
 
-| Adapter                                            | Broker       | Runs on      |
-| -------------------------------------------------- | ------------ | ------------ |
-| [`@chojs/vendor-kafka`](../vendor/kafka/README.md) | Apache Kafka | Node.js only |
+| Adapter                                            | Broker       | Runs on               | What a handler returns |
+| -------------------------------------------------- | ------------ | --------------------- | ---------------------- |
+| [`@chojs/vendor-kafka`](../vendor/kafka/README.md) | Apache Kafka | Node.js only          | dropped                |
+| [`@chojs/vendor-nats`](../vendor/nats/README.md)   | NATS         | Deno, Node.js and Bun | sent, as the reply     |
 
 An adapter implements `Linker`, from `@chojs/message/linker`: it receives the
 topics of the application, and returns what connects them to the broker.
@@ -515,7 +542,9 @@ class MyLinker implements Linker<MyClient> {
               await message.ack(); //        handled
               // only for a broker that has replies
               if (reply && message.replyTo) {
-                await client.publish(message.replyTo, reply.value);
+                await client.publish(message.replyTo, reply.value, {
+                  headers: reply.headers ?? {},
+                });
               }
             } catch {
               await message.retryLater(); // failed: the adapter's decision

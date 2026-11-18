@@ -35,11 +35,16 @@ export type Delivery = {
  *
  * A handler does not make one: it returns a value, and `@chojs/message`
  * makes the reply of it (bytes and strings as they are, anything else as
- * JSON).
+ * JSON). A handler that returns a `ChoMessageReply` gives the headers.
  */
 export type Reply = {
   /** The value of the reply, as bytes. */
   readonly value: Uint8Array;
+  /**
+   * The headers of the reply, when the handler gave some: absent otherwise.
+   * An adapter whose broker has no headers for a reply ignores them.
+   */
+  readonly headers?: Readonly<Record<string, string>> | undefined;
 };
 
 /** A route of the application: a topic, ready to subscribe to. */
@@ -116,7 +121,9 @@ export interface Linked<T> {
  *               await message.ack();
  *               // only for a broker that has replies
  *               if (reply && message.replyTo) {
- *                 await client.publish(message.replyTo, reply.value);
+ *                 await client.publish(message.replyTo, reply.value, {
+ *                   headers: reply.headers ?? {},
+ *                 });
  *               }
  *             } catch {
  *               await message.retryLater();
