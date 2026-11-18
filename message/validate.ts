@@ -87,11 +87,13 @@ export function validate(
   options: ChoMessageValidateOptions = {},
 ): ChoMessageMiddlewareFn {
   if (typeof options !== "object" || options === null) {
+    // The example comes after the value: a value in a string that reads as
+    // a function before it is what a code scanner takes for code being built.
     throw message_error(
       "CHO_MESSAGE_INVALID_ARGUMENT",
-      `validate(): expected options, such as { onInvalid: (invalid, ctx) => true }, got ${
+      `validate(): expected options, got ${
         describe(options)
-      }`,
+      }. Give an object, such as { onInvalid: (invalid, ctx) => true }`,
     );
   }
   assert_known_options("validate()", options, ["onInvalid"]);

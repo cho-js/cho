@@ -303,7 +303,8 @@ describe("validate", () => {
     for (const options of [null, "strict", 5]) {
       assert.throws(() => validate(loose(options)), {
         code: "CHO_MESSAGE_INVALID_ARGUMENT",
-        message: /^validate\(\): expected options, such as/,
+        message:
+          /^validate\(\): expected options, got .+\. Give an object, such as \{ onInvalid: /,
       });
     }
     assert.throws(() => validate(loose({ invalid: () => true })), {
