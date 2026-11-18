@@ -75,7 +75,7 @@ Node.js and Bun are needed only to run the tests on those runtimes.
 ```sh
 git clone https://github.com/cho-js/cho.git
 cd cho
-deno install   # installs the npm dependencies (hono, fastify) into node_modules
+deno install   # installs the npm dependencies (hono, fastify, the Kafka client) into node_modules
 ```
 
 ### Project layout
@@ -83,18 +83,22 @@ deno install   # installs the npm dependencies (hono, fastify) into node_modules
 Each package is a workspace member with its own `deno.json`, `README.md` and
 tests.
 
-| Folder            | Package                 | What it is                                            |
-| ----------------- | ----------------------- | ----------------------------------------------------- |
-| `core/`           | `@chojs/core`           | The dependency injection engine, and shared utilities |
-| `command/`        | `@chojs/command`        | Command-line applications                             |
-| `web/`            | `@chojs/web`            | HTTP applications                                     |
-| `vendor/cho/`     | `@chojs/vendor-cho`     | Middlewares for the built-in router of `@chojs/web`   |
-| `vendor/hono/`    | `@chojs/vendor-hono`    | Web adapter on Hono                                   |
-| `vendor/fastify/` | `@chojs/vendor-fastify` | Web adapter on Fastify (Node.js only)                 |
-| `examples/`       |                         | Runnable examples                                     |
+| Folder            | Package                 | What it is                                                                 |
+| ----------------- | ----------------------- | -------------------------------------------------------------------------- |
+| `core/`           | `@chojs/core`           | The dependency injection engine, and shared utilities                      |
+| `command/`        | `@chojs/command`        | Command-line applications                                                  |
+| `web/`            | `@chojs/web`            | HTTP applications                                                          |
+| `message/`        | `@chojs/message`        | Applications that handle the messages of a broker                          |
+| `vendor/cho/`     | `@chojs/vendor-cho`     | Middlewares for the built-in router of `@chojs/web`                        |
+| `vendor/hono/`    | `@chojs/vendor-hono`    | Web adapter on Hono                                                        |
+| `vendor/fastify/` | `@chojs/vendor-fastify` | Web adapter on Fastify (Node.js only)                                      |
+| `vendor/kafka/`   | `@chojs/vendor-kafka`   | Message adapter on Apache Kafka (Node.js only)                             |
+| `extras/`         |                         | Modules built on the graph of an application ([rules](./extras/README.md)) |
+| `examples/`       |                         | Runnable examples                                                          |
 
-`core`, `command` and `web` each have a `specs.md`: the specification of the
-package, and the place to look for how something is meant to behave.
+`core`, `command`, `web`, `message` and `vendor/kafka` each have a `specs.md`:
+the specification of the package, and the place to look for how something is
+meant to behave. A package that has work planned lists it in a `tasks.md`.
 
 ### Checks
 

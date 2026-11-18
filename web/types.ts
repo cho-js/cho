@@ -297,7 +297,21 @@ export type ChoWebDocResponse = {
   readonly description?: string;
   /** The schema of its body: a validator. */
   readonly schema?: ChoWebValidator;
+  /** The media type of its body. Default: `application/json`. */
+  readonly contentType?: string;
 };
+
+/**
+ * What a handler requires of a request, for the documentation: the name of a
+ * security scheme, and the scopes it needs (an empty list when it has none).
+ * It is the Security Requirement Object of OpenAPI.
+ *
+ * @example
+ * ```ts
+ * const admin: ChoWebDocSecurity = { oauth: ["admin"] };
+ * ```
+ */
+export type ChoWebDocSecurity = Readonly<Record<string, readonly string[]>>;
 
 /**
  * The options of `@Doc`: what the code cannot tell about a handler, a
@@ -316,4 +330,16 @@ export type ChoWebDoc = {
   readonly responses?: Readonly<Record<number, ChoWebDocResponse>>;
   /** Whether it is left out of the documentation. */
   readonly hidden?: boolean;
+  /**
+   * The id of the operation. On a handler only. Default, for what generates
+   * the documentation: the controller and the method, `UsersController.get`.
+   */
+  readonly operationId?: string;
+  /**
+   * What the handlers under it require: any one of the listed requirements.
+   * The nearest one wins (the handler's, then the controller's, then the
+   * feature's), and an empty list says that nothing is required. It only
+   * documents what a middleware enforces.
+   */
+  readonly security?: readonly ChoWebDocSecurity[];
 };

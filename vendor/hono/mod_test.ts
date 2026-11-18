@@ -161,6 +161,117 @@ describe("HonoLinker.link", () => {
   });
 });
 
+describe("HonoLinked.mount", () => {
+  /** A route that answers with a name, in the body and in `x-route`. */
+  const named = (method: string, path: string, name: string): Route => ({
+    ...echo(method, path),
+    handle: () =>
+      Promise.resolve(new Response(name, { headers: { "x-route": name } })),
+  });
+
+  it("registers one more route, like those of link()", async () => {
+    const linked = new HonoLinker().link([echo("GET", "/a")]);
+    linked.mount(echo("POST", "/b/:id"));
+
+    const response = await send(linked, "/b/a%20b", "POST");
+    assert.deepEqual(await response.json(), {
+      method: "POST",
+      params: { id: "a b" },
+      native: "object",
+    });
+    assert.equal((await send(linked, "/a")).status, 200);
+    assert.equal((await send(linked, "/b/1")).status, 404);
+  });
+
+  it("matches a mounted route after the others", async () => {
+    const linked = new HonoLinker().link([named("GET", "/:slug", "declared")]);
+    linked.mount(named("GET", "/docs", "mounted"));
+    linked.mount(named("GET", "/docs/openapi.json", "document"));
+    assert.equal(await (await send(linked, "/docs")).text(), "declared");
+    assert.equal(
+      await (await send(linked, "/docs/openapi.json")).text(),
+      "document",
+    );
+  });
+
+  it("answers a HEAD request with a mounted GET route, without the body", async () => {
+    const linked = new HonoLinker().link([]);
+    linked.mount(named("GET", "/x", "get x"));
+    const response = await send(linked, "/x", "HEAD");
+    assert.deepEqual(
+      [response.status, response.headers.get("x-route"), response.body],
+      [200, "get x", null],
+    );
+  });
+
+  it("runs a mounted HEAD route, though the GET route of its path came first", async () => {
+    const linked = new HonoLinker().link([
+      named("GET", "/x", "get x"),
+      named("GET", "/y/:id", "get y"),
+    ]);
+    linked.mount(named("HEAD", "/x", "head x"));
+    linked.mount(named("HEAD", "/y/:id", "head y"));
+
+    const head = await send(linked, "/x", "HEAD");
+    assert.deepEqual(
+      [head.headers.get("x-route"), head.body],
+      ["head x", null],
+    );
+    assert.equal(
+      (await send(linked, "/y/7", "HEAD")).headers.get("x-route"),
+      "head y",
+    );
+    // the GET routes still answer GET requests
+    assert.equal(await (await send(linked, "/x")).text(), "get x");
+    assert.equal(await (await send(linked, "/y/7")).text(), "get y");
+  });
+
+  it("runs a mounted HEAD route that has no GET route", async () => {
+    const linked = new HonoLinker().link([]);
+    linked.mount(named("HEAD", "/only", "head only"));
+    assert.equal(
+      (await send(linked, "/only", "HEAD")).headers.get("x-route"),
+      "head only",
+    );
+    assert.equal((await send(linked, "/only")).status, 404);
+  });
+
+  it("throws Hono's error once the application has answered a request", async () => {
+    const linked = new HonoLinker().link([echo("GET", "/a")]);
+    await send(linked, "/a");
+    assert.throws(() => linked.mount(echo("GET", "/b")), {
+      message: /Can not add a route since the matcher is already built/,
+    });
+  });
+
+  it("serves the routes ChoWeb mounts, under the middlewares of Hono", async () => {
+    class App {}
+    Module({})(App);
+    const hono = new Hono();
+    hono.use(async (ctx, next) => {
+      await next();
+      ctx.header("x-hono", "yes");
+    });
+    const app = await ChoWeb.create(App, {
+      linker: new HonoLinker(hono),
+      prefix: "api",
+    });
+    app.mount("GET", "docs/:page", (ctx) => ({
+      page: ctx.params.page,
+      native: typeof (ctx.native as { req?: unknown }).req,
+    }));
+
+    const response = await send(app, "/docs/intro");
+    assert.deepEqual(await response.json(), {
+      page: "intro",
+      native: "object",
+    });
+    assert.equal(response.headers.get("x-hono"), "yes");
+    assert.equal((await send(app, "/api/docs/intro")).status, 404);
+    assert.deepEqual(app.routes.map((r) => r.path), ["/docs/:page"]);
+  });
+});
+
 describe("HonoLinker, HEAD and OPTIONS with ChoWeb", () => {
   it("serves @Head and @Options handlers", async () => {
     class Files {
@@ -589,6 +700,7 @@ describe("fromHono", () => {
         link: (routes) => ({
           instance: routes,
           handler: (req) => routes[0]!.handle(req),
+          mount: () => {},
         }),
       },
     });

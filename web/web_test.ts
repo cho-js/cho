@@ -10,10 +10,12 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Injectable, Injector, provider, token } from "@chojs/core/di";
 import { capture, legacy, with_env } from "@chojs/core/utils/test_utils";
-import { Controller, Get, Module } from "./decorators.ts";
+import { Controller, Get, Middlewares, Module } from "./decorators.ts";
 import type { Ctr } from "@chojs/core/di";
 import type { Linked, Linker, Route } from "./linker.ts";
 import { ChoRouter } from "./router.ts";
+import { TestLinker } from "./testing.ts";
+import type { ChoWebMiddlewareFn } from "./types.ts";
 import { ChoWeb } from "./web.ts";
 
 /** What the fake linker links: the routes, kept for the assertions. */
@@ -22,11 +24,21 @@ type Fake = { routes: readonly Route[] };
 /** A linker that keeps the routes, with a handler that answers "linked". */
 class FakeLinker implements Linker<Fake> {
   calls: (readonly Route[])[] = [];
+  /** The routes given to `mount`, in order. */
+  mounted: Route[] = [];
+  /** When set, `mount` throws it: a runtime that takes no more routes. */
+  refuse: Error | undefined;
   link(routes: readonly Route[]): Linked<Fake> {
     this.calls.push(routes);
     return {
       instance: { routes },
       handler: () => Promise.resolve(new Response("linked")),
+      mount: (route) => {
+        if (this.refuse) {
+          throw this.refuse;
+        }
+        this.mounted.push(route);
+      },
     };
   }
 }
@@ -64,7 +76,9 @@ describe("ChoWeb.create", () => {
       [["GET", "/users", "Users.list"]],
     );
     assert.equal(app.linked.instance.routes, routes);
-    assert.equal(app.routes, routes);
+    // a list of its own: mounted routes are added to it
+    assert.deepEqual(app.routes, routes);
+    assert.notEqual(app.routes, routes);
   });
 
   it("exposes its injector, with the instances of the application", async () => {
@@ -267,6 +281,7 @@ describe("ChoWeb, closing and overrides", () => {
           handled++;
           return Promise.resolve(new Response("ok"));
         },
+        mount: () => {},
       }),
     };
     const app = await ChoWeb.create(db_app([]).App, { linker });
@@ -291,6 +306,7 @@ describe("ChoWeb, closing and overrides", () => {
         seen.push([this === linked, ...args.slice(1)]);
         return Promise.resolve(new Response("ok"));
       },
+      mount: () => {},
     };
     const app = await ChoWeb.create(db_app([]).App, {
       linker: { link: () => linked as Linked<null> },
@@ -384,5 +400,259 @@ describe("ChoWeb, closing and overrides", () => {
       new Request("http://localhost/"),
     );
     assert.equal(await response.text(), "fake");
+  });
+});
+
+describe("ChoWeb.mount", () => {
+  /** Send a request to an application, by path and method. */
+  const send = (app: ChoWeb<unknown>, path: string, method = "GET") =>
+    app.handler(new Request(`http://localhost${path}`, { method }));
+
+  /** A middleware that records its name, then goes on. */
+  const record =
+    (seen: string[], name: string): ChoWebMiddlewareFn => (_ctx, next) => {
+      seen.push(name);
+      return next();
+    };
+
+  it("adds a route after the declared ones, and gives it to the linker", async () => {
+    const linker = new FakeLinker();
+    const app = await ChoWeb.create(users_app(), { linker });
+    const graph = JSON.stringify(app.graph.features.map((f) => f.route));
+
+    app.mount("GET", "health", function health() {
+      return "ok";
+    });
+
+    assert.deepEqual(
+      app.routes.map((r) => [r.method, r.path, r.name]),
+      [["GET", "/users", "Users.list"], ["GET", "/health", "health"]],
+    );
+    assert.deepEqual(linker.mounted, [app.routes[1]]);
+    // the linker was given the declared routes only, once
+    assert.equal(linker.calls.length, 1);
+    assert.equal(linker.calls[0]!.length, 1);
+    // not a declared route: the graph is unchanged
+    assert.equal(
+      JSON.stringify(app.graph.features.map((f) => f.route)),
+      graph,
+    );
+    assert.equal(app.graph.features[0]!.controllers[0]!.methods.length, 1);
+  });
+
+  it("does not put the route under the global prefix", async () => {
+    const app = await ChoWeb.create(users_app(), {
+      linker: new TestLinker(),
+      prefix: "api",
+    });
+    app.mount("GET", "docs", () => "docs");
+    app.mount("GET", "", () => "root");
+    app.mount("GET", " internal/docs ", () => "internal");
+
+    assert.deepEqual(app.routes.map((r) => r.path), [
+      "/api/users",
+      "/docs",
+      "/",
+      "/internal/docs",
+    ]);
+    assert.equal(await (await send(app, "/docs")).text(), "docs");
+    assert.equal(await (await send(app, "/")).text(), "root");
+    assert.equal(await (await send(app, "/internal/docs")).text(), "internal");
+    assert.equal((await send(app, "/api/docs")).status, 404);
+  });
+
+  it("converts what the handler returns, like a declared handler", async () => {
+    const app = await ChoWeb.create(users_app(), { linker: new TestLinker() });
+    app.mount("GET", "json/:id", (ctx) => ({ id: ctx.params.id }));
+    app.mount("GET", "nothing", () => {});
+    app.mount(
+      "POST",
+      "response",
+      async (ctx) => new Response(await ctx.req.text(), { status: 201 }),
+    );
+
+    const json = await send(app, "/json/42");
+    // Bun adds a charset to the type of a JSON response
+    assert.match(json.headers.get("content-type") ?? "", /^application\/json/);
+    assert.deepEqual(await json.json(), { id: "42" });
+    assert.equal((await send(app, "/nothing")).status, 204);
+    const response = await app.handler(
+      new Request("http://localhost/response", { method: "POST", body: "hi" }),
+    );
+    assert.deepEqual([response.status, await response.text()], [201, "hi"]);
+  });
+
+  it("sends the response of a HEAD route without its body", async () => {
+    const app = await ChoWeb.create(users_app(), { linker: new TestLinker() });
+    app.mount("HEAD", "x", () => new Response("body", { status: 200 }));
+    const response = await send(app, "/x", "HEAD");
+    assert.deepEqual([response.status, response.body], [200, null]);
+  });
+
+  it("runs its middlewares, in order, and none of the application's", async () => {
+    const seen: string[] = [];
+    class Users {
+      list() {
+        return "users";
+      }
+    }
+    legacy(Get(""), Users, "list");
+    Middlewares(record(seen, "controller"))(Users);
+    Controller({ route: "users" })(Users);
+    class App {}
+    Middlewares(record(seen, "feature"))(App);
+    Module({ controllers: [Users] })(App);
+    const app = await ChoWeb.create(App, { linker: new TestLinker() });
+
+    app.mount("GET", "x", () => (seen.push("handler"), "x"), {
+      middlewares: [record(seen, "a"), record(seen, "b")],
+    });
+    app.mount("GET", "stopped", () => "never", {
+      middlewares: [() => new Response("no", { status: 401 })],
+    });
+
+    assert.equal(await (await send(app, "/x")).text(), "x");
+    assert.deepEqual(seen, ["a", "b", "handler"]);
+    assert.equal((await send(app, "/stopped")).status, 401);
+    seen.length = 0;
+    assert.equal(await (await send(app, "/users")).text(), "users");
+    assert.deepEqual(seen, ["feature", "controller"]);
+  });
+
+  it("gives its errors to the error handler of the application", async () => {
+    const app = await ChoWeb.create(users_app(), {
+      linker: new TestLinker(),
+      onError: (error, ctx) =>
+        new Response(`${ctx.url.pathname}: ${(error as Error).message}`, {
+          status: 500,
+        }),
+    });
+    app.mount("GET", "boom", () => {
+      throw new Error("boom");
+    });
+    app.mount("GET", "late", () => "never", {
+      middlewares: [() => Promise.reject(new Error("refused"))],
+    });
+
+    assert.equal(await (await send(app, "/boom")).text(), "/boom: boom");
+    assert.equal(await (await send(app, "/late")).text(), "/late: refused");
+  });
+
+  it("rejects, for the runtime to answer, without an error handler", async () => {
+    const linker = new TestLinker();
+    const app = await ChoWeb.create(users_app(), { linker });
+    const error = new Error("boom");
+    app.mount("GET", "boom", () => {
+      throw error;
+    });
+    assert.equal((await send(app, "/boom")).status, 500);
+    assert.deepEqual(linker.errors, [error]);
+  });
+
+  it("names the route after its handler, or as it is told", async () => {
+    const app = await ChoWeb.create(users_app(), { linker: new FakeLinker() });
+    app.mount("GET", "a", function named() {});
+    app.mount("GET", "b", () => {});
+    app.mount("GET", "c", function ignored() {}, { name: "openapi document" });
+    assert.deepEqual(app.routes.slice(1).map((r) => r.name), [
+      "named",
+      "mounted",
+      "openapi document",
+    ]);
+  });
+
+  it("rejects a method, a route, a handler, a middleware or an option that is wrong", async () => {
+    const app = await ChoWeb.create(users_app(), { linker: new FakeLinker() });
+    const mount = app.mount.bind(app) as (...args: unknown[]) => void;
+    const ok = () => {};
+
+    assert.throws(() => mount("get", "x", ok), {
+      name: "TypeError",
+      message:
+        'ChoWeb.mount(): method must be one of GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, got "get"',
+    });
+    assert.throws(() => mount("GET", "/x", ok), {
+      message:
+        'Invalid route "/x" of ChoWeb.mount(): it must not start or end with "/"',
+    });
+    assert.throws(() => mount("GET", "a/*", ok), {
+      message: /^Invalid route "a\/\*" of ChoWeb\.mount\(\): .* wildcards/,
+    });
+    assert.throws(() => mount("GET", 7, ok), {
+      name: "TypeError",
+      message: "Invalid route of ChoWeb.mount(): expected a string, got 7",
+    });
+    assert.throws(() => mount("GET", "x", "handler"), {
+      name: "TypeError",
+      message:
+        'ChoWeb.mount(): the handler of GET /x must be a function, got "handler"',
+    });
+    assert.throws(() => mount("GET", "x", ok, { middlewares: [ok, 3] }), {
+      name: "TypeError",
+      message:
+        "ChoWeb.mount(): middleware 2 of GET /x must be a function, got 3",
+    });
+    assert.throws(() => mount("GET", "x", ok, { middleware: [] }), {
+      message:
+        'ChoWeb.mount(): unknown option "middleware". Known options: middlewares, name',
+    });
+    // nothing was mounted
+    assert.equal(app.routes.length, 1);
+  });
+
+  it("rejects a route the application already has", async () => {
+    const app = await ChoWeb.create(users_app(), { linker: new FakeLinker() });
+    assert.throws(() => app.mount("GET", "users", () => {}, { name: "mine" }), {
+      message:
+        'Duplicate route "GET /users": declared by Users.list and mounted as mine',
+    });
+    app.mount("POST", "users", () => {}); // another method: another route
+    app.mount("GET", "docs/:id", () => {}, { name: "first" });
+    // the name of a parameter makes no difference
+    assert.throws(
+      () => app.mount("GET", "docs/:name", () => {}, { name: "second" }),
+      {
+        message:
+          'Duplicate route "GET /docs/:id": mounted as first and mounted as second',
+      },
+    );
+    assert.equal(app.routes.length, 3);
+  });
+
+  it("leaves the application as it was when the runtime refuses the route", async () => {
+    const linker = new FakeLinker();
+    const app = await ChoWeb.create(users_app(), { linker });
+    linker.refuse = new Error("already serving");
+    assert.throws(() => app.mount("GET", "x", () => {}), linker.refuse);
+    assert.equal(app.routes.length, 1);
+    // so the route can be mounted once the runtime takes it
+    linker.refuse = undefined;
+    app.mount("GET", "x", () => {});
+    assert.equal(app.routes.length, 2);
+  });
+
+  it("throws once the application is closed", async () => {
+    const linker = new FakeLinker();
+    const app = await ChoWeb.create(users_app(), { linker });
+    await app.close();
+    assert.throws(() => app.mount("GET", "x", () => {}), {
+      message: "The application is closed",
+    });
+    assert.deepEqual(linker.mounted, []);
+  });
+
+  it("logs the mounted route to cho:web", async () => {
+    const app = await ChoWeb.create(users_app(), { linker: new FakeLinker() });
+    const { output } = await capture(() => {
+      with_env(
+        { CHO_DEBUG: undefined, CHO_DEBUGLOG: "cho:web" },
+        () => app.mount("GET", "docs", () => {}, { name: "docs page" }),
+      );
+      return Promise.resolve();
+    });
+    assert.match(
+      output.error.map(String).join(" "),
+      /cho:web GET \/docs -> docs page \(mounted\)/,
+    );
   });
 });

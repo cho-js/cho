@@ -14,6 +14,10 @@
  * built on the standard `Request`: application code does not depend on the
  * HTTP runtime.
  *
+ * The routes of an application are declared. {@link ChoWeb.mount} adds one
+ * more route to an application that is created, for what is made from the
+ * application itself, such as the documentation of its routes.
+ *
  * Routes have up to four levels: the global `prefix` of
  * {@link ChoWeb.create}, the `route` of the feature module (a module that
  * declares controllers), the `route` of the controller, and the route of the

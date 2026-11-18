@@ -26,6 +26,7 @@ call.
   - [Error handling](#error-handling)
   - [Serving](#serving)
   - [Dependency injection and shutdown](#dependency-injection-and-shutdown)
+  - [Mounting a route](#mounting-a-route)
   - [Testing](#testing)
 - [Options](#options)
 - [Runtime adapters](#runtime-adapters)
@@ -226,9 +227,9 @@ validator and are not covered.
 
 Everything declared about a handler is kept on `app.graph`: its method, path and
 name, its arguments with their source, key and validator, and whether it is
-validated. It is what an OpenAPI document of the application will be generated
-from. What the code cannot tell is added with `@Doc`, which changes nothing in
-how a request is handled:
+validated. It is what an OpenAPI document of the application is generated from.
+What the code cannot tell is added with `@Doc`, which changes nothing in how a
+request is handled:
 
 ```ts
 @Doc({ tags: ["users"] })
@@ -249,14 +250,38 @@ class UsersController {
 }
 ```
 
-| Option        | On                                 | Holds                                       |
-| ------------- | ---------------------------------- | ------------------------------------------- |
-| `summary`     | A handler                          | One line about the operation                |
-| `description` | A handler, a controller, a feature | A longer text                               |
-| `tags`        | A handler, a controller, a feature | The tags of the handlers under it           |
-| `deprecated`  | A handler, a controller, a feature | `true` when it should no longer be used     |
-| `responses`   | A handler                          | By status: a `description` and a `schema`   |
-| `hidden`      | A handler, a controller, a feature | `true` to leave it out of the documentation |
+| Option        | On                                 | Holds                                                                                    |
+| ------------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| `summary`     | A handler                          | One line about the operation                                                             |
+| `description` | A handler, a controller, a feature | A longer text                                                                            |
+| `tags`        | A handler, a controller, a feature | The tags of the handlers under it                                                        |
+| `deprecated`  | A handler, a controller, a feature | `true` when it should no longer be used                                                  |
+| `responses`   | A handler                          | By status: a `description` and a `schema`                                                |
+| `hidden`      | A handler, a controller, a feature | `true` to leave it out of the documentation                                              |
+| `operationId` | A handler                          | The id of the operation                                                                  |
+| `security`    | A handler, a controller, a feature | What it requires: a list of `{ scheme: scopes }`. The nearest one wins, and `[]` is none |
+
+A response also takes a `contentType`, the media type of its body
+(`application/json` by default):
+
+```ts
+@Doc({ security: [{ bearer: [] }] })
+@Controller({ route: "users" })
+class UsersController {
+  @Doc({ operationId: "listUsers", security: [] }) // public
+  @Get("")
+  list() {}
+
+  @Doc({
+    responses: { 200: { description: "The avatar", contentType: "image/png" } },
+  })
+  @Get(":id/avatar")
+  avatar() {}
+}
+```
+
+`security` documents what a middleware enforces: `@chojs/web` checks its shape,
+and nothing more.
 
 ### Responses
 
@@ -535,6 +560,50 @@ application that also handles the messages of a broker is made with
 `ChoMessage.from(app.injector)` of `@chojs/message`. The web application owns
 the injector: close the other application first, then `app.close()`.
 
+### Mounting a route
+
+The routes of an application are declared by its controllers. `app.mount` adds
+one more route to an application that is created. It is for a route that cannot
+be declared, because it is made from the application itself: the documentation
+of its routes, which reads `app.graph`.
+
+```ts
+const app = await ChoWeb.create(App, { prefix: "api" });
+
+app.mount("GET", "health", () => ({ status: "ok" })); // GET /health
+app.mount("GET", "internal/routes", () => app.routes.map((r) => r.path), {
+  middlewares: [onlyAdmins],
+});
+
+await serve(app.handler);
+```
+
+`app.mount(method, route, handler, options?)`:
+
+| Argument      | What it is                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------------- |
+| `method`      | `"GET"`, `"POST"`, `"PUT"`, `"PATCH"`, `"DELETE"`, `"HEAD"` or `"OPTIONS"`                     |
+| `route`       | The whole route, written like the route of a decorator: `"internal/docs"`, `"users/:id"`, `""` |
+| `handler`     | A function of the context. What it returns is the response, as for a declared handler          |
+| `middlewares` | Middleware functions `(ctx, next)`, in order, around the handler                               |
+| `name`        | The name of the route, for logs and errors. Default: the name of the handler, or `mounted`     |
+
+- **It is not under the global prefix.** The prefix is for the routes the
+  application declares: a mounted route says its whole path.
+- **It is a route of the application**: it is added to `app.routes`, after the
+  others. It is not in `app.graph`, which holds what is declared.
+- **Nothing of the application runs for it**: no middleware of a feature or of a
+  controller, and no `@Catch` handler. It has its own `middlewares`. When it
+  fails, the `onError` of `ChoWeb.create` answers, if there is one.
+- **It is the last route.** Where the first declared route wins (the built-in
+  router, Hono), a declared route that matches the same path answers first: a
+  `@Get(":slug")` at the root answers `/docs`.
+- **A route that already exists throws**: the same method and path as a route of
+  the application, declared or mounted.
+- **Mount before the application serves.** Later, the adapter decides: the
+  built-in router takes the route, Hono throws once it answered a request, and
+  Fastify once it is ready.
+
 ### Testing
 
 `app.handler` takes a `Request`, so a test needs no server. The `overrides`
@@ -563,10 +632,10 @@ assert.equal(response.status, 200);
 Without a `linker`, `ChoWeb.create(App)` uses the
 [built-in router](#the-built-in-router).
 
-The application exposes `handler`, `close()`, `routes` (every route with its
-method, path and name), `graph` (the same routes as a tree), `linked` (the
-adapter's own application object) and `injector` (the injector that holds its
-instances).
+The application exposes `handler`, `close()`, `mount()`
+([Mounting a route](#mounting-a-route)), `routes` (every route with its method,
+path and name), `graph` (the declared routes as a tree), `linked` (the adapter's
+own application object) and `injector` (the injector that holds its instances).
 
 ## Runtime adapters
 
@@ -582,8 +651,9 @@ middlewares and error handlers are the same on each. What differs is listed in
 the "Behavior" table of each adapter, such as which route wins when two match.
 
 To write one, implement `Linker`: it receives the application's routes, each
-ready to call, and registers them on its router. It does no plumbing, so an
-adapter is a few lines:
+ready to call, and registers them on its router. What it returns also has a
+`mount`, which registers one more route later, for `app.mount`. It does no
+plumbing, so an adapter is a few lines:
 
 ```ts
 import type { Linked, Linker, Route } from "@chojs/web/linker";
@@ -591,14 +661,14 @@ import type { Linked, Linker, Route } from "@chojs/web/linker";
 class MyLinker implements Linker<MyServer> {
   link(routes: readonly Route[]): Linked<MyServer> {
     const server = new MyServer();
-    for (const route of routes) {
+    const mount = (route: Route) =>
       server.on(
         route.method,
         route.path,
         (req, params) => route.handle(req, params),
       );
-    }
-    return { instance: server, handler: (req) => server.fetch(req) };
+    routes.forEach(mount);
+    return { instance: server, handler: (req) => server.fetch(req), mount };
   }
 }
 ```
@@ -665,6 +735,7 @@ There is no runtime context on this router: `ctx.native` is `undefined`.
 | Unmatched requests | Answered by the `notFound` option; `404` by default, also when the path exists under another method                                           |
 | Middlewares        | The `middlewares` option: they wrap every request, the `notFound` answer included. A middleware that fails is logged, and answered with `500` |
 | HTTP methods       | Any method is matched as given                                                                                                                |
+| Mounted routes     | `app.mount` adds a route at any time, also after the router answered requests. It is matched after the others                                 |
 | Several apps       | A linker can be used for several applications: each `link()` makes a new router                                                               |
 
 ## Runtime support

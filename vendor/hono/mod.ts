@@ -48,6 +48,8 @@ export type {
 export class HonoLinked implements Linked<Hono> {
   /** The Hono application. */
   readonly instance: Hono;
+  /** The `HEAD` routes, by path: the `GET` route of the path gives way. */
+  readonly #heads = new Map<string, Route>();
 
   /**
    * Wrap a Hono application.
@@ -56,6 +58,48 @@ export class HonoLinked implements Linked<Hono> {
    */
   constructor(instance: Hono) {
     this.instance = instance;
+  }
+
+  /**
+   * Register one more route on the Hono application, after the routes it
+   * has: what `app.mount` of `ChoWeb` calls.
+   *
+   * Hono takes routes until it answers its first request: after it, this
+   * throws Hono's error.
+   *
+   * @param route The route to register.
+   * @throws {Error} When the Hono application already answered a request.
+   */
+  mount(route: Route): void {
+    const app = this.instance;
+    // Hono answers a HEAD request by running the GET routes. So a HEAD route
+    // is registered as a GET route that only answers HEAD requests, and the
+    // GET route of the same path, which may be registered before it, gives
+    // way to it.
+    if (route.method === "HEAD") {
+      this.#heads.set(route.path, route);
+      app.on(
+        "GET",
+        route.path,
+        (ctx, next) =>
+          ctx.req.raw.method === "HEAD"
+            ? route.handle(ctx.req.raw, ctx.req.param(), ctx)
+            : next(),
+      );
+    } else if (route.method === "GET") {
+      app.on("GET", route.path, (ctx) => {
+        const head = ctx.req.raw.method === "HEAD"
+          ? this.#heads.get(route.path)
+          : undefined;
+        return (head ?? route).handle(ctx.req.raw, ctx.req.param(), ctx);
+      });
+    } else {
+      app.on(
+        route.method,
+        route.path,
+        (ctx) => route.handle(ctx.req.raw, ctx.req.param(), ctx),
+      );
+    }
   }
 
   /** The Hono application's `fetch`, as a request handler. */
@@ -79,6 +123,8 @@ export class HonoLinked implements Linked<Hono> {
  *   answers it from the `@Get` handler, without the body.
  * - A route that fails without a `@Catch` handler goes to Hono's error
  *   handler, which logs the error and answers `500` (see `app.onError`).
+ * - A route mounted on the application (`app.mount`) is registered after the
+ *   others, until Hono answers its first request: after it, Hono throws.
  * - Hono middlewares (`cors()`, `logger()`, ...) are not CHO middlewares. To
  *   use them, add them to a Hono application and give it to the linker: the
  *   routes are registered after them, so they wrap every route.
@@ -135,28 +181,17 @@ export class HonoLinker implements Linker<Hono> {
       );
     }
     this.#linked = true;
-    const app = this.#app;
-    // Hono answers a HEAD request by running the GET routes, so a HEAD
-    // route is registered as a GET route that only answers HEAD requests,
-    // ahead of the others: the GET route of the same path must not win.
+    const linked = new HonoLinked(this.#app);
+    // The HEAD routes first: Hono answers a HEAD request by running the GET
+    // routes, and a GET route that matches the same request, with another
+    // path (`/users/:id` for `/users/me`), must not answer before them.
     for (const route of routes.filter((r) => r.method === "HEAD")) {
-      app.on(
-        "GET",
-        route.path,
-        (ctx, next) =>
-          ctx.req.raw.method === "HEAD"
-            ? route.handle(ctx.req.raw, ctx.req.param(), ctx)
-            : next(),
-      );
+      linked.mount(route);
     }
     for (const route of routes.filter((r) => r.method !== "HEAD")) {
-      app.on(
-        route.method,
-        route.path,
-        (ctx) => route.handle(ctx.req.raw, ctx.req.param(), ctx),
-      );
+      linked.mount(route);
     }
-    return new HonoLinked(app);
+    return linked;
   }
 }
 

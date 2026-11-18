@@ -32,6 +32,7 @@ export type {
   ChoWebArgSource,
   ChoWebDoc,
   ChoWebDocResponse,
+  ChoWebDocSecurity,
   ChoWebErrorHandlerFn,
   ChoWebHandler,
   ChoWebMiddlewareFn,

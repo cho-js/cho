@@ -13,13 +13,47 @@
 
 import type { Ctr, Provider } from "@chojs/core/di";
 import { Injector } from "@chojs/core/di";
+import { assert_known_options } from "@chojs/core/di";
 import { debuglog, describe } from "@chojs/core/utils";
 import { build_http_graph } from "./build-graph.ts";
+import { compose } from "./compose.ts";
+import type { ChoWebContext } from "./context.ts";
 import type { AppRef } from "./graph.ts";
 import type { Linked, Linker, Route } from "./linker.ts";
 import { ChoLinker, type ChoRouter } from "./router.ts";
-import { compile_routes } from "./routes.ts";
-import type { ChoWebErrorHandler } from "./types.ts";
+import { normalize_route } from "./path.ts";
+import { to_response } from "./response.ts";
+import { compile_routes, make_route, route_key } from "./routes.ts";
+import type { ChoWebErrorHandler, ChoWebMiddlewareFn } from "./types.ts";
+
+/** The HTTP methods a mounted route can answer. */
+const MOUNT_METHODS = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+] as const;
+
+/** An HTTP method of a mounted route (see {@link ChoWeb.mount}). */
+export type ChoWebMountMethod = typeof MOUNT_METHODS[number];
+
+/** The options of {@link ChoWeb.mount}. */
+export type ChoWebMountOptions = {
+  /**
+   * Middleware functions `(ctx, next)`, in order, around the handler. A
+   * mounted route is not declared: no middleware of a feature or of a
+   * controller runs for it. Default: none.
+   */
+  middlewares?: readonly ChoWebMiddlewareFn[];
+  /**
+   * The name of the route, for logs and errors. Default: the name of the
+   * handler function, or `mounted`.
+   */
+  name?: string;
+};
 
 /**
  * Options of {@link ChoWeb.create}. Every option is optional.
@@ -126,7 +160,10 @@ export class ChoWeb<T = unknown> {
    * application, as a tree. For introspection, such as listing routes.
    */
   readonly graph: AppRef;
-  /** The routes of the application, as given to the linker. */
+  /**
+   * The routes of the application: those it declares, as given to the
+   * linker, then those {@link mount} added.
+   */
   readonly routes: readonly Route[];
   /**
    * The injector of the application: it holds its instances, and is disposed
@@ -138,6 +175,10 @@ export class ChoWeb<T = unknown> {
   readonly injector: Injector;
   /** Whether {@link close} was called: requests are then refused. */
   #closed = false;
+  /** The list behind {@link routes}, to add a mounted route to. */
+  readonly #routes: Route[];
+  /** The routes {@link mount} added. */
+  readonly #mounted = new Set<Route>();
   /**
    * The request handler of the application: a `fetch`-style function that
    * takes a `Request` and resolves to a `Response`. It is the handler of the
@@ -263,7 +304,8 @@ export class ChoWeb<T = unknown> {
   ) {
     this.linked = linked;
     this.graph = graph;
-    this.routes = routes;
+    // A list of its own: mounted routes are added to it.
+    this.routes = this.#routes = [...routes];
     this.injector = injector;
     // Servers call the handler with more than the request (Deno's connection
     // info, Bun's server, a Workers' env and context): pass everything on.
@@ -277,6 +319,114 @@ export class ChoWeb<T = unknown> {
           new Response("Service Unavailable", { status: 503 }),
         )
         : (linked.handler as Fetch).call(linked, req, ...rest);
+  }
+
+  /**
+   * Add one more route to the application, after it is created.
+   *
+   * The routes of an application are declared by its controllers. `mount` is
+   * for a route that cannot be declared, because it is made from the
+   * application itself: the documentation of its routes, which reads
+   * {@link graph}.
+   *
+   * - The route is written like the route of a decorator (`"internal/docs"`,
+   *   `"users/:id"`, `""`), and says its whole path: it is **not** under the
+   *   global prefix, which is for the routes the application declares.
+   * - It is added to {@link routes}, after the others, and registered on the
+   *   HTTP runtime. It is not in {@link graph}.
+   * - What the handler returns is the response, converted like the result of
+   *   a declared handler.
+   * - No middleware and no `@Catch` handler of the application runs for it:
+   *   it has the `middlewares` of the options. When it fails, the `onError`
+   *   of {@link ChoWeb.create} answers, if there is one; without one it
+   *   rejects, and the HTTP runtime answers `500`.
+   * - It is the last route: where the first declared route wins (the
+   *   built-in router, Hono), a declared route that matches the same path
+   *   answers first.
+   *
+   * Call it before the application serves. Later, the HTTP runtime decides:
+   * the built-in router takes the route, Hono and Fastify throw.
+   *
+   * @param method The HTTP method, upper case.
+   * @param route The whole route, without leading or trailing `/`.
+   * @param handler The handler: a function of the context.
+   * @param options The options: `middlewares` and `name`.
+   * @throws {TypeError} When the method is not an HTTP method, or when the
+   *   handler or a middleware is not a function.
+   * @throws {Error} When the route is invalid, when a route of the
+   *   application already has that method and path, when an option is
+   *   unknown, when the application is closed, or when the HTTP runtime can
+   *   no longer take a route.
+   *
+   * @example
+   * ```ts
+   * const app = await ChoWeb.create(AppModule, { prefix: "api" });
+   * app.mount("GET", "health", () => ({ status: "ok" })); // GET /health
+   * Deno.serve(app.handler);
+   * ```
+   */
+  mount(
+    method: ChoWebMountMethod,
+    route: string,
+    handler: (ctx: ChoWebContext) => unknown,
+    options: ChoWebMountOptions = {},
+  ): void {
+    if (this.#closed) {
+      throw new Error("The application is closed");
+    }
+    if (!(MOUNT_METHODS as readonly unknown[]).includes(method)) {
+      throw new TypeError(
+        `ChoWeb.mount(): method must be one of ${
+          MOUNT_METHODS.join(", ")
+        }, got ${describe(method)}`,
+      );
+    }
+    const path = "/" + normalize_route(route, "ChoWeb.mount()");
+    const where = `${method} ${path}`;
+    if (typeof handler !== "function") {
+      throw new TypeError(
+        `ChoWeb.mount(): the handler of ${where} must be a function, got ${
+          describe(handler)
+        }`,
+      );
+    }
+    assert_known_options("ChoWeb.mount()", options, ["middlewares", "name"]);
+    const middlewares = options.middlewares ?? [];
+    middlewares.forEach((middleware, index) => {
+      if (typeof middleware !== "function") {
+        throw new TypeError(
+          `ChoWeb.mount(): middleware ${
+            index + 1
+          } of ${where} must be a function, got ${describe(middleware)}`,
+        );
+      }
+    });
+    const name = options.name ?? (handler.name || "mounted");
+    const key = route_key({ method, path });
+    const taken = this.#routes.find((existing) => route_key(existing) === key);
+    if (taken) {
+      throw new Error(
+        `Duplicate route ${describe(`${taken.method} ${taken.path}`)}: ${
+          this.#mounted.has(taken) ? "mounted as" : "declared by"
+        } ${taken.name} and mounted as ${name}`,
+      );
+    }
+    // Created here, not when the module is loaded, so it follows `set_env`.
+    const log = debuglog("cho:web");
+    const mounted = make_route(
+      method,
+      path,
+      name,
+      compose(middlewares, async (ctx) => to_response(await handler(ctx))),
+      this.graph.errorHandler,
+      log,
+    );
+    // The runtime first: when it refuses the route, the application has not
+    // got it either.
+    this.linked.mount(mounted);
+    this.#routes.push(mounted);
+    this.#mounted.add(mounted);
+    log(`${where} -> ${name} (mounted)`);
   }
 
   /**

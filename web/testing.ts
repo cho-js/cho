@@ -44,9 +44,11 @@ export class TestLinker implements Linker<readonly Route[]> {
   /** The errors of the routes that rejected, in order. */
   readonly errors: unknown[] = [];
 
-  link(routes: readonly Route[]): Linked<readonly Route[]> {
+  link(declared: readonly Route[]): Linked<readonly Route[]> {
+    const routes = [...declared];
     return {
       instance: routes,
+      mount: (route) => void routes.push(route),
       handler: async (req) => {
         const path = new URL(req.url).pathname;
         for (const route of routes) {
