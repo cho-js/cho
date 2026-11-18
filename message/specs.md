@@ -220,6 +220,9 @@ A message has one of two outcomes:
   it to a dead-letter topic, or stopping. Each adapter says what it does, and
   takes options for it (section 7). It is the counterpart of the `500` that a
   web adapter answers when a route rejects.
+- **A message that is not valid is a failed message of its own kind**: its error
+  is a `ChoError` of the code `CHO_MESSAGE_INVALID_MESSAGE` (section 3.5). It
+  will not be valid the next time, so an adapter does not try it again.
 - A message is acknowledged **after** its handler has returned, never before: a
   process that stops in the middle of a handler gets the message again. A
   handler should therefore be safe to run twice for the same message.
@@ -304,6 +307,201 @@ async price(ctx: ChoMessageContext) {
 - An error handler returns one too (section 5).
 - It is the counterpart of what a handler of `@chojs/web` returns, and
   `to_reply` is what `to_response` is there.
+
+### 3.4 Handler arguments: `@Args`
+
+Standard decorators cannot decorate a parameter, so a handler declares what it
+receives with one decorator on the method: `@Args`, with the list of its
+arguments, in the order of the parameters. It is the `@Args` of `@chojs/web`
+(`web/specs.md`, section 3.1), for a message.
+
+```ts
+@Middlewares(validate())
+@Controller({ topic: "orders" })
+class OrdersController {
+  @Subscribe("created")
+  @Args(Value(Order), Key(), Header("tenant"))
+  created(
+    order: Order,
+    key: string | undefined,
+    tenant: string | undefined,
+    ctx: ChoMessageContext,
+  ) {
+    // …
+  }
+}
+```
+
+**The call.** With `@Args`, the handler is called with the value of each
+argument, in order, and then with the context: `handler(...values, ctx)`. The
+context is always the last argument, so a handler that declares arguments can
+still reach it; a handler can also leave it out of its parameters. Without
+`@Args`, a handler is called with the context alone, as before.
+
+**The arguments.** Three functions make an argument. Each reads one part of the
+message:
+
+| Function | Source                             | Without a key                    | With a key                     |
+| -------- | ---------------------------------- | -------------------------------- | ------------------------------ |
+| `Value`  | the value, read and parsed as JSON | the parsed value                 | that property of the value     |
+| `Header` | the headers of the message         | all of them, as an object        | that header, or `undefined`    |
+| `Key`    | the key of the message             | the key: a string or `undefined` | (a key has no keys of its own) |
+
+`Value` and `Header` have four signatures, and `Key` the first two:
+
+| Call                       | Gives                                   |
+| -------------------------- | --------------------------------------- |
+| `Value()`                  | the whole source                        |
+| `Value(validator)`         | the whole source, with a validator      |
+| `Value("name")`            | one key of the source                   |
+| `Value("name", validator)` | one key of the source, with a validator |
+
+A string is a key, and an object with a `parse` method is a validator (section
+3.5); anything else throws when the function is called. A validator is the last
+argument.
+
+- **`Value()`** is `undefined` for a message with no value, and `Value("name")`
+  is `undefined` when the value has no such property, or is not an object. The
+  value is parsed once for a message, whatever the number of `Value` arguments.
+  A value that is not JSON fails the message (section 3.5 says how).
+- **There is no argument for the text or the bytes** of the value: `ctx.text()`
+  and `ctx.value` give them.
+- **`Header("name")`** looks the name up as the broker gave it, in the same
+  case. The headers of a broker, unlike those of HTTP, tell `Tenant` from
+  `tenant`.
+- **`Key()`** is `undefined` on a broker that has no keys, as NATS.
+
+**Your own arguments.** An argument is also any function `(ctx) => value`, which
+can be `async`: it is what the three functions return. It is the way to declare
+an argument of your own, such as what a middleware put in `ctx.state`:
+
+```ts
+const Tenant = (ctx: ChoMessageContext) => ctx.state.get("tenant") as Tenant;
+
+@Subscribe("created")
+@Args(Tenant, Value(Order))
+created(tenant: Tenant, order: Order) {}
+```
+
+**Types.** The parameters of the handler are checked against the arguments at
+compile time, as the parameters of a constructor are against its `dependencies`:
+each parameter must accept the value of its argument, and the parameter after
+them the context. Without a validator the types are what the source gives:
+strings for `Key` and `Header`, and `unknown` for `Value`. A type can be given
+by hand, `Value<Order>()`; it is a promise of the caller, and nothing checks it.
+With a validator, the type is what the validator gives.
+
+**Rules.**
+
+- `@Args` goes on a handler, above or below `@Subscribe`. On a method that is
+  not a handler it has no effect.
+- A method has one `@Args`: a second one throws when the class is defined.
+- A handler inherited from a base class keeps its arguments. An override that
+  declares `@Args` replaces them; one that does not keeps them.
+- The arguments are evaluated in order, after the middlewares of the route and
+  just before the handler: a middleware that skips the handler never parses the
+  value. An argument that throws stops there; the ones after it are not
+  evaluated, and its error is an error of the handler (section 5).
+- Middlewares and error handlers are not handlers: they always receive the
+  context.
+
+### 3.5 Validation
+
+**Validators.** A validator is any object with a `parse(value)` method that
+returns the value, or throws: the shape of a [zod](https://zod.dev) schema, so a
+zod schema is a validator, and so is any other object of that shape.
+`@chojs/message` does not depend on zod.
+
+```ts
+type ChoMessageValidator<T> = { parse(value: unknown): T | Promise<T> };
+```
+
+A validator given to an argument does two things: it describes the argument
+(section 6.6), and it validates it **when the validation middleware is on the
+route**.
+
+**The validation middleware.** `validate()` is declared like any middleware,
+with `@Middlewares`, on a handler, on a controller or on a feature module, and
+covers the handlers under it. There is no application-wide setting.
+
+```ts
+const Order = z.object({ id: z.string(), total: z.number() });
+
+@Middlewares(validate()) // every handler of the controller is validated
+@Controller({ topic: "orders" })
+class OrdersController {
+  @Subscribe("created")
+  @Args(Value(Order), Header("attempt", z.coerce.number()))
+  created(order: z.infer<typeof Order>, attempt: number) {
+    // …
+  }
+}
+```
+
+With the middleware on the route:
+
+- Every argument that has a validator goes through its `parse` before the
+  handler is called. What `parse` returns is what the handler receives, so a
+  validator can also convert: `Header("attempt", z.coerce.number())` gives a
+  number.
+- `parse` can return a promise. For a zod schema with asynchronous checks, give
+  `{ parse: (value) => schema.parseAsync(value) }`.
+- Wherever the middleware is declared, validation happens at the same moment:
+  after every middleware of the route, just before the handler.
+- **When an argument is not valid, the handler is not called, and the message
+  fails**, with a `ChoError` of the code `CHO_MESSAGE_INVALID_MESSAGE`. Its
+  message says what is not valid (`the value`,
+  `the property "id" of the
+  value`, `the key`, `the header "attempt"`), and
+  its `cause` is the error the validator threw. A value that is not JSON, for a
+  `Value` argument, is the same error, with the error of `JSON.parse` as its
+  `cause`.
+- That error is an error of the handler: it goes to the nearest error handler
+  (section 5), then to the adapter.
+- **An adapter does not try such a message again** (section 7): it will not be
+  valid the second time.
+
+`onInvalid` decides otherwise. It receives what failed and the context, and what
+it returns settles the message, by the rule of an error handler (section 5):
+
+| `onInvalid` returns | The message                                          |
+| ------------------- | ---------------------------------------------------- |
+| nothing, or `false` | fails, with `CHO_MESSAGE_INVALID_MESSAGE`            |
+| `true`              | is handled, with no reply: it is skipped             |
+| any other value     | is handled, and the value is its reply (section 3.3) |
+
+```ts
+validate({
+  onInvalid: ({ source, key, error }, ctx) => {
+    logger.warn(ctx.topic, source, key, error);
+    return true; // skipped, and not delivered again
+  },
+});
+```
+
+`source` is `value`, `key` or `header`; `key` is there when the argument has
+one; `error` is what the validator threw. What `onInvalid` throws is an error of
+the handler. When several `validate()` cover a handler, the nearest one decides:
+the handler's, then the controller's, then the feature's.
+
+**The middleware only marks its place.** A chain of `@chojs/message` has no
+result, so a middleware cannot turn a failed message into a handled one (section
+4): the arguments are evaluated, and validated, at the end of the chain, by the
+handler of the route. `validate()` runs the rest of the chain and does nothing
+else.
+
+**Without the middleware** on the route, there is no validation:
+
+- validators are not run: the handler receives each value as its source gives
+  it, not converted;
+- a value that is not JSON is the error of `JSON.parse`, as from any handler,
+  and an adapter treats the message as any message that failed.
+
+The type of a parameter still comes from the validator, so it is only true for a
+handler the middleware covers. When the application is created, each handler
+that has a validator and no validation middleware is logged to the `cho:message`
+debug context:
+`<Controller.method> has an argument with a validator and no validate() middleware: it is not validated`.
 
 ## 4. Middlewares
 
@@ -663,6 +861,23 @@ The rules that keep the two apart:
 `create` could be given to a web application. `@chojs/web` has no `from` in this
 version (section 12).
 
+### 6.6 What is known about a handler
+
+Everything declared about a handler is kept, and exposed on the graph of the
+application (`app.graph`, `@chojs/message/graph`), so that tools can use it: a
+document of the topics of an application needs it.
+
+| On a `MethodRef` | Holds                                                                             |
+| ---------------- | --------------------------------------------------------------------------------- |
+| `args`           | the arguments of the handler, in order; empty with no `@Args`                     |
+| `validated`      | whether `validate()` is among the middlewares of the feature, controller, handler |
+
+An argument made by `Value`, `Key` or `Header` has an `info`: its `source`, its
+`key` when it has one, and its `validator`, which is its schema. An argument of
+your own has none. `handler` on a `MethodRef` is still called with the context
+alone: it evaluates the arguments itself, and validates them when `validated` is
+`true`.
+
 ## 7. Broker adapters
 
 An adapter is a package of its own, named after its broker:
@@ -764,21 +979,29 @@ class MyLinker implements Linker<MyClient> {
 
 **What each adapter decides, and documents:**
 
-| Question                          | Example of an answer                                         |
-| --------------------------------- | ------------------------------------------------------------ |
-| How the application is identified | the consumer group: a required option                        |
-| What a failed message leads to    | delivered again, at most `n` times, then a dead-letter topic |
-| What is done with a reply         | ignored: the broker has none; or sent to who asked for one   |
-| How many messages run at once     | one at a time for each partition                             |
-| What `ctx.native` is              | the message of the client library: partition, offset, …      |
-| How a topic is named              | as it is; or mapped to the names its broker allows           |
-| Which runtimes it runs on         | Node.js only                                                 |
+| Question                            | Example of an answer                                         |
+| ----------------------------------- | ------------------------------------------------------------ |
+| How the application is identified   | the consumer group: a required option                        |
+| What a failed message leads to      | delivered again, at most `n` times, then a dead-letter topic |
+| The same, for one that is not valid | never tried again: the dead-letter topic at once; or a `400` |
+| What is done with a reply           | ignored: the broker has none; or sent to who asked for one   |
+| How many messages run at once       | one at a time for each partition                             |
+| What `ctx.native` is                | the message of the client library: partition, offset, …      |
+| How a topic is named                | as it is; or mapped to the names its broker allows           |
+| Which runtimes it runs on           | Node.js only                                                 |
 
 `@chojs/vendor-kafka` has a spec of its own, `vendor/kafka/specs.md`. Two of its
 decisions were hard: the client library, which is `@platformatic/kafka`, and
 what a failed message leads to, since Kafka cannot refuse one message without
 holding back the ones after it in its partition. It is tried again in place,
 then sent to a dead-letter topic.
+
+**A message that is not valid.** An adapter recognizes it by the code of the
+error `route.handle` rejects with,
+`isChoError(error,
+"CHO_MESSAGE_INVALID_MESSAGE")`, and does not deliver it
+again. What it does in place is its own decision: Kafka sends it to the
+dead-letter topic at once, and NATS tells who asked `400`, `Bad Request`.
 
 `@chojs/vendor-nats` has one too, `vendor/nats/specs.md`. It is core NATS, where
 a message can ask for a reply: the reply of a handler is sent to who asked, a
@@ -793,13 +1016,13 @@ in place of `route`.
 
 ## 8. Public API
 
-| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/message`        | `ChoMessage`, `ChoMessageOptions`, `ChoMessageFromOptions`, `ChoMessageReply`, `ChoMessageReplyOptions`, `Subscribe`, `Middlewares`, `Catch`, `ChoError`, `isChoError` (the core's), `ChoMessageErrorCode`, `ChoCoreErrorCode`, the types `Reply`, `ChoMessageContext`, `ChoMessageHandler`, `ChoMessageNext`, `ChoMessageMiddlewareFn`, `ChoMessageMiddleware`, `ChoMessageErrorHandlerFn`, `ChoMessageErrorHandler`, `Module`, `Controller` (the core's, with the `topic` option), `MessageModuleOptions`, `MessageControllerOptions`, `TopicOption`, the types of the two other entry points, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/message/linker` | `Linker`, `Linked`, `Route`, `Delivery`, `Reply`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `@chojs/message/graph`  | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `@chojs/vendor-kafka`   | `KafkaLinker`, `KafkaLinked`, and their types (`vendor/kafka/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `@chojs/vendor-nats`    | `NatsLinker`, `NatsLinked`, and their types (`vendor/nats/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/message`        | `ChoMessage`, `ChoMessageOptions`, `ChoMessageFromOptions`, `ChoMessageReply`, `ChoMessageReplyOptions`, `Subscribe`, `Args`, `Value`, `Key`, `Header`, `validate`, `Middlewares`, `Catch`, `ChoError`, `isChoError` (the core's), `ChoMessageErrorCode`, `ChoCoreErrorCode`, the types `Reply`, `ChoMessageContext`, `ChoMessageHandler`, `ChoMessageNext`, `ChoMessageMiddlewareFn`, `ChoMessageMiddleware`, `ChoMessageErrorHandlerFn`, `ChoMessageErrorHandler`, `ChoMessageArg`, `ChoMessageArgInfo`, `ChoMessageArgSource`, `ChoMessageValidator`, `ChoMessageInvalid`, `ChoMessageValidateOptions`, `Module`, `Controller` (the core's, with the `topic` option), `MessageModuleOptions`, `MessageControllerOptions`, `TopicOption`, the types of the two other entry points, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/message/linker` | `Linker`, `Linked`, `Route`, `Delivery`, `Reply`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `@chojs/message/graph`  | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `@chojs/vendor-kafka`   | `KafkaLinker`, `KafkaLinked`, and their types (`vendor/kafka/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `@chojs/vendor-nats`    | `NatsLinker`, `NatsLinked`, and their types (`vendor/nats/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for
 `@chojs/message`.
@@ -835,12 +1058,18 @@ application meets it.
 
 **Thrown by the decorators**, when the class is defined:
 
-| Mistake                                        | Code                              | Message                                                                                                       |
-| ---------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| A handler's topic is invalid                   | `CHO_MESSAGE_INVALID_TOPIC`       | `Invalid topic "<topic>" of @Subscribe() on method <name>: <reason>`                                          |
-| A second `@Subscribe` on a method              | `CHO_MESSAGE_DUPLICATE_DECORATOR` | `Cannot add @Subscribe() to method <name>: it already handles "<topic>". A method can have one @Subscribe().` |
-| An unknown option of `@Module` / `@Controller` | `CHO_CORE_UNKNOWN_OPTION`         | `@Controller(): unknown option "route". Known options: dependencies, topic`                                   |
-| A static, private or symbol-named handler      | `CHO_MESSAGE_INVALID_TARGET`      | `@Subscribe() cannot decorate static method <name>: a handler must not be static`                             |
+| Mistake                                                                                        | Code                              | Message                                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A handler's topic is invalid                                                                   | `CHO_MESSAGE_INVALID_TOPIC`       | `Invalid topic "<topic>" of @Subscribe() on method <name>: <reason>`                                                                                     |
+| A second `@Subscribe` on a method                                                              | `CHO_MESSAGE_DUPLICATE_DECORATOR` | `Cannot add @Subscribe() to method <name>: it already handles "<topic>". A method can have one @Subscribe().`                                            |
+| An unknown option of `@Module` / `@Controller`                                                 | `CHO_CORE_UNKNOWN_OPTION`         | `@Controller(): unknown option "route". Known options: dependencies, topic`                                                                              |
+| A static, private or symbol-named handler                                                      | `CHO_MESSAGE_INVALID_TARGET`      | `@Subscribe() cannot decorate static method <name>: a handler must not be static`                                                                        |
+| An argument of `@Args` that is not a function                                                  | `CHO_MESSAGE_INVALID_ARGUMENT`    | `@Args() on method <name>: argument 2 must be made with Value, Key or Header, or be a function, got <v>`                                                 |
+| A second `@Args` on a method                                                                   | `CHO_MESSAGE_DUPLICATE_DECORATOR` | `Cannot add @Args() to method <name>: it already has one.`                                                                                               |
+| `@Args` on a static, private or symbol-named method                                            | `CHO_CORE_INVALID_TARGET`         | `@Args() cannot decorate static method <name>: only public, non-static methods with a string name are supported`                                         |
+| `Value`, `Key` or `Header` is given what it does not take                                      | `CHO_MESSAGE_INVALID_ARGUMENT`    | `Value(): expected a key (a string) or a validator (an object with a parse method), got <v>` (or `… a validator is the last argument, got <v> after it`) |
+| `validate()` is given options that are not an object, or an `onInvalid` that is not a function | `CHO_MESSAGE_INVALID_ARGUMENT`    | `validate(): "onInvalid" is a function, got <v>`                                                                                                         |
+| An unknown option of `validate()`                                                              | `CHO_CORE_UNKNOWN_OPTION`         | `validate(): unknown option "invalid". Known options: onInvalid`                                                                                         |
 
 **Rejected by `ChoMessage.create` and `ChoMessage.from`**: any module graph
 error of the core (`core/specs.md`, section 2.8), and:
@@ -876,11 +1105,12 @@ error of the core (`core/specs.md`, section 2.8), and:
 
 **Failing a message** (given to the handler's error handler, section 5):
 
-| Mistake                                              | Code                         | Message                                                                                                                                                                                                                            |
-| ---------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A middleware calls `next()` twice                    | `CHO_CORE_NEXT_CALLED_TWICE` | `middleware <name>: next() called more than once`                                                                                                                                                                                  |
-| What a handler returned cannot be a reply            | `CHO_MESSAGE_INVALID_REPLY`  | `Invalid reply of <Controller.method>: <v> cannot be serialized as JSON`, with the error of `JSON.stringify` as `cause` (or `… expected bytes, a string or a value JSON can hold, got <v>`)                                        |
-| A `ChoMessageReply` is made with what it cannot hold | `CHO_MESSAGE_INVALID_REPLY`  | `new ChoMessageReply(): the header "status" is a string, got 404` (or `… "headers" is an object of strings, got <v>`, `… a header has no name`, `… expected options, such as …`, `… the value of a reply cannot be another reply`) |
+| Mistake                                                                   | Code                          | Message                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A middleware calls `next()` twice                                         | `CHO_CORE_NEXT_CALLED_TWICE`  | `middleware <name>: next() called more than once`                                                                                                                                                                                  |
+| What a handler returned cannot be a reply                                 | `CHO_MESSAGE_INVALID_REPLY`   | `Invalid reply of <Controller.method>: <v> cannot be serialized as JSON`, with the error of `JSON.stringify` as `cause` (or `… expected bytes, a string or a value JSON can hold, got <v>`)                                        |
+| A `ChoMessageReply` is made with what it cannot hold                      | `CHO_MESSAGE_INVALID_REPLY`   | `new ChoMessageReply(): the header "status" is a string, got 404` (or `… "headers" is an object of strings, got <v>`, `… a header has no name`, `… expected options, such as …`, `… the value of a reply cannot be another reply`) |
+| An argument of a validated handler is not valid, or its value is not JSON | `CHO_MESSAGE_INVALID_MESSAGE` | `Invalid message of <topic>: the property "id" of the value is not valid`, with the error of the validator as `cause`                                                                                                              |
 
 **What has no code**: what a handler or a middleware throws is the application's
 error: it is given to the error handler as it is, and a message that fails
@@ -899,8 +1129,8 @@ small. The design leaves room for them.
   the type is read from, which depends on the convention of each organization.
   `@Subscribe` takes no options in this version, and a second argument is kept
   for them.
-- **Declared arguments and validation**, the `@Args` of `@chojs/web`
-  (`Value(schema)`, `Key()`, `Header("x")`). A handler reads the context.
+- **An argument for the text or the bytes of the value**, and a value that is
+  not JSON (a schema registry, Avro, Protobuf). A handler reads `ctx.value`.
 - **Wildcards and parameters** in a topic (the `orders.*` of NATS).
 - **Sending messages.** An application sends with the client of its broker,
   provided like any dependency.
@@ -952,6 +1182,12 @@ which is what the package does.
 | 26 | What an error handler returns              | `true`: handled, no reply; a value: its reply; `false`: failed        | any value handles the message                                                                   | 5       |
 | 27 | Whether a middleware sees the reply        | no                                                                    | `next()` resolves with it, and a middleware can replace it                                      | 4       |
 | 28 | How a handler gives the headers of a reply | it returns a `ChoMessageReply`, as a web handler returns a `Response` | a method of the context; or a plain `{ value, headers }`, which is also a value to send as JSON | 3.3     |
+| 29 | How a handler declares what it receives    | `@Args(Value(schema), Key(), Header("x"))`, as in `@chojs/web`        | a handler reads the context, and nothing is checked                                             | 3.4     |
+| 30 | When a validator runs                      | when `validate()` is on the route, as in `@chojs/web`                 | always; the two packages would then read differently                                            | 3.5     |
+| 31 | What a message that is not valid is        | a failed message, with a code of its own                              | a handled message, which hides a mistake of the sender                                          | 3.5     |
+| 32 | Whether it is tried again                  | never: an adapter recognizes the code                                 | as any failed message, which retries what cannot work                                           | 3.5, 7  |
+| 33 | Where `onInvalid` runs                     | at the end of the chain, with the arguments                           | in the middleware, which cannot settle a message                                                | 3.5     |
+| 34 | Where the code of arguments is             | in `@chojs/message`, next to that of `@chojs/web`                     | shared through the core, for two packages only                                                  | 3.4     |
 
 ## 12. What changed in the other packages
 
@@ -966,6 +1202,9 @@ which is what the package does.
 - **`@chojs/vendor-kafka`: a reply is dropped.** Kafka has none. The adapter did
   not change for replies, apart from a line of its debug log that says so, once
   for each handler that returns one.
+- **The adapters: a message that is not valid is not tried again.**
+  `@chojs/vendor-kafka` sends it to the dead-letter topic at once, and
+  `@chojs/vendor-nats` answers `400`, `Bad Request`, in place of `500`.
 - **`@chojs/vendor-nats`: a reply is sent.** It is the first adapter that uses
   what `route.handle` resolves with. `./vendor/nats` is in the `workspace` and
   in the release configuration, with the linked versions.

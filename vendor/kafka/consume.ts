@@ -12,6 +12,7 @@
 
 import { kafka_error } from "./errors.ts";
 import { Buffer } from "node:buffer";
+import { isChoError } from "@chojs/core";
 import type { Message, MessageToProduce } from "@platformatic/kafka";
 import type { Debuglog } from "@chojs/core/utils";
 import type { Delivery, Route } from "@chojs/message/linker";
@@ -168,6 +169,8 @@ function where(message: KafkaMessage): string {
  *   is sent to its dead-letter topic and committed. Without a dead-letter
  *   topic, the pump stops: the offset is not committed, and `onFatal` is
  *   called.
+ * - A message that is not valid (`CHO_MESSAGE_INVALID_MESSAGE`) is not tried
+ *   again: it is dead at once.
  * - A message that is in hand when the pump stops is not committed if it did
  *   not finish: Kafka delivers it again.
  */
@@ -363,7 +366,9 @@ export class Pump {
         if (this.#stopping) {
           return;
         }
-        if (attempt <= retries) {
+        // A message that is not valid will not be the next time either.
+        const invalid = isChoError(error, "CHO_MESSAGE_INVALID_MESSAGE");
+        if (!invalid && attempt <= retries) {
           log.error(
             `${route.name} failed for ${where(message)}`,
             `(attempt ${attempt} of ${retries + 1}):`,

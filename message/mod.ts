@@ -77,6 +77,8 @@ export type {
   NodeRef,
 } from "./graph.ts";
 export * from "./decorators.ts";
+export { Header, Key, Value } from "./args.ts";
+export { validate } from "./validate.ts";
 export * from "./message.ts";
 export type { ChoMessageContext } from "./context.ts";
 // The errors of the framework, with their codes.

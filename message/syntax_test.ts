@@ -11,12 +11,17 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  Args,
   Catch,
   ChoMessage,
+  type ChoMessageArg,
   type ChoMessageContext,
   type ChoMessageMiddlewareFn,
+  type ChoMessageValidator,
   Controller,
+  Header,
   Injectable,
+  Key,
   type Linked,
   type Linker,
   Middlewares,
@@ -25,6 +30,8 @@ import {
   type Route,
   Subscribe,
   token,
+  validate,
+  Value,
 } from "./mod.ts";
 
 const seen: string[] = [];
@@ -213,6 +220,153 @@ describe("decorator syntax", () => {
 
     await app.close();
     assert.equal(topics.size, 0);
+  });
+});
+
+type NewOrder = { id: number; items: string[] };
+
+/** A validator that gives a `NewOrder`, or throws. */
+const NewOrder: ChoMessageValidator<NewOrder> = {
+  parse(value) {
+    const { id, items } = (value ?? {}) as Record<string, unknown>;
+    if (!Number.isInteger(Number(id)) || !Array.isArray(items)) {
+      throw new Error("not an order");
+    }
+    return { id: Number(id), items: items.map(String) };
+  },
+};
+
+/** An argument of the application's own. */
+const Topic: ChoMessageArg<string> = (ctx) => ctx.topic;
+
+describe("@Args, with decorator syntax", () => {
+  @Middlewares(validate())
+  @Controller({ topic: "orders" })
+  class Orders {
+    @Subscribe("created")
+    @Args(Value(NewOrder), Key(), Header("tenant"), Topic)
+    created(
+      order: NewOrder,
+      key: string | undefined,
+      tenant: string | undefined,
+      topic: string,
+      ctx: ChoMessageContext,
+    ) {
+      return { order, key, tenant, topic, attempt: ctx.headers["attempt"] };
+    }
+
+    @Args(Value<{ id: string }>("order"), Header())
+    @Subscribe("cancelled")
+    cancelled(
+      order: { id: string },
+      headers: Readonly<Record<string, string>>,
+    ) {
+      return [order.id, Object.keys(headers)];
+    }
+
+    @Subscribe("plain") // no @Args: the context alone
+    plain(ctx: ChoMessageContext) {
+      return ctx.text();
+    }
+  }
+
+  @Module({ controllers: [Orders] })
+  class OrdersApp {}
+
+  const reply_of = async (
+    topic: string,
+    message: Parameters<
+      ChoMessage<unknown>["handle"]
+    >[1],
+  ) => {
+    const app = await ChoMessage.create(OrdersApp);
+    const reply = await app.handle(topic, message);
+    return reply && JSON.parse(new TextDecoder().decode(reply.value));
+  };
+
+  it("calls a handler with the values of its arguments, validated", async () => {
+    assert.deepEqual(
+      await reply_of("orders.created", {
+        value: '{"id":"7","items":[1,2]}',
+        key: "k1",
+        headers: { tenant: "acme", attempt: "2" },
+      }),
+      {
+        order: { id: 7, items: ["1", "2"] },
+        key: "k1",
+        tenant: "acme",
+        topic: "orders.created",
+        attempt: "2",
+      },
+    );
+    assert.deepEqual(
+      await reply_of("orders.cancelled", {
+        value: '{"order":{"id":"9"}}',
+        headers: { a: "1" },
+      }),
+      ["9", ["a"]],
+    );
+    assert.equal(await reply_of("orders.plain", { value: '"text"' }), "text");
+  });
+
+  it("fails a message that is not valid", async () => {
+    await assert.rejects(
+      reply_of("orders.created", { value: '{"id":"x"}' }),
+      { code: "CHO_MESSAGE_INVALID_MESSAGE" },
+    );
+  });
+
+  it("checks the parameters against the arguments, at compile time", () => {
+    // Type-only: never called, so the classes are never defined.
+    const _check = () => {
+      class Wrong {
+        // @ts-expect-error the validator gives a NewOrder
+        @Args(Value(NewOrder))
+        @Subscribe("a")
+        a(_order: { id: string }) {}
+
+        // @ts-expect-error a key can be undefined
+        @Args(Key())
+        @Subscribe("b")
+        b(_key: string) {}
+
+        // @ts-expect-error the context comes last
+        @Args(Key())
+        @Subscribe("c")
+        c(_ctx: ChoMessageContext, _key: string | undefined) {}
+
+        // @ts-expect-error without a validator, the value is unknown
+        @Args(Value())
+        @Subscribe("d")
+        d(_order: NewOrder) {}
+
+        // @ts-expect-error a header is a string, or undefined
+        @Args(Header("attempt"))
+        @Subscribe("e")
+        e(_attempt: number) {}
+
+        // @ts-expect-error a parameter with no argument
+        @Args(Key())
+        @Subscribe("f")
+        f(
+          _key: string | undefined,
+          _order: NewOrder,
+          _ctx: ChoMessageContext,
+        ) {}
+
+        // A handler can leave the context out, and take a wider type.
+        @Args(Value(NewOrder), Key())
+        @Subscribe("g")
+        g(_order: { id: number }, _key: unknown) {}
+
+        // A type given by hand is a promise of the caller.
+        @Args(Value<NewOrder>(), Value<number>("id"))
+        @Subscribe("h")
+        h(_order: NewOrder, _id: number, _ctx: ChoMessageContext) {}
+      }
+      return Wrong;
+    };
+    assert.equal(typeof _check, "function");
   });
 });
 

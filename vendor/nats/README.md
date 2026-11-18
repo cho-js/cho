@@ -208,6 +208,10 @@ two headers, the ones a NATS service answers with.
 | `Nats-Service-Error`      | `Internal Error` |
 | `Nats-Service-Error-Code` | `500`            |
 
+A request that is not valid, one that
+[`validate()`](../../message/README.md#validation) of `@chojs/message` refused,
+is told `400` and `Bad Request` in their place: the mistake is its own.
+
 The message of the error is logged, not sent: it can tell what a requester
 should not know. `errorReply` decides what is told. It receives the error and
 the message of the client, and returns a code, a description and, if you want

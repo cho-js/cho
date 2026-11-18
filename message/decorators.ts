@@ -4,6 +4,8 @@
  * - `@Subscribe` marks the message handlers of a controller. It writes the
  *   handler's topic on the decorated method, under the private `SUBSCRIBE`
  *   key (`keys.ts`), which the graph builder reads (see `build-graph.ts`).
+ * - `@Args` declares the arguments of a handler. It writes them under the
+ *   private `ARGS` key.
  * - `@Module` and `@Controller` are the core's decorators, with the `topic`
  *   option of `@chojs/message`. They accept no other option.
  * - `@Middlewares` and `@Catch` declare the middlewares and the error handler
@@ -32,9 +34,23 @@ import {
   set_middlewares,
   type WithDependencies,
 } from "@chojs/core/di";
-import { SUBSCRIBE, type Subscription, subscription } from "./keys.ts";
+import { describe } from "@chojs/core/utils";
+import {
+  ARGS,
+  handler_args,
+  type HandlerArgs,
+  SUBSCRIBE,
+  type Subscription,
+  subscription,
+} from "./keys.ts";
 import { normalize_topic } from "./topic.ts";
-import type { ChoMessageErrorHandler, ChoMessageMiddleware } from "./types.ts";
+import type {
+  ChoMessageArg,
+  ChoMessageArgsDecorator,
+  ChoMessageArgValues,
+  ChoMessageErrorHandler,
+  ChoMessageMiddleware,
+} from "./types.ts";
 
 /** The option `@chojs/message` adds to `@Module` and `@Controller`. */
 export type TopicOption = {
@@ -269,4 +285,81 @@ export function Catch(
     const meta = decorated_target("@Catch()", target, context, descriptor);
     set_error_handler(meta, handler);
   };
+}
+
+/**
+ * Declare the arguments of a handler.
+ *
+ * Standard decorators cannot decorate a parameter, so the arguments are
+ * listed on the method, in the order of its parameters. The handler is then
+ * called with the value of each argument, and with the context last:
+ * `handler(...values, ctx)`. A handler without `@Args` receives the context
+ * alone.
+ *
+ * An argument is made by `Value`, `Key` or `Header`, or is any function
+ * `(ctx) => value`. The parameters of the method are checked against the
+ * arguments at compile time.
+ *
+ * - The decorator goes above or below `@Subscribe`.
+ * - A method has one `@Args`. An override that declares it replaces the
+ *   arguments it inherits; one that does not keeps them.
+ * - The arguments are evaluated in order, after the middlewares of the route
+ *   and just before the handler.
+ * - A validator of an argument is run when `validate()` is among the
+ *   middlewares of the handler, of its controller or of its feature module.
+ *
+ * @typeParam A The arguments.
+ * @param args The arguments, in the order of the parameters of the method.
+ * @returns A method decorator.
+ * @throws {ChoError} When an argument is not a function, or when the
+ *   decorated member is not a public, non-static, string-named method.
+ * @throws {ChoError} When the method already has `@Args`.
+ *
+ * @example
+ * ```ts
+ * @Middlewares(validate())
+ * @Controller({ topic: "orders" })
+ * class OrdersController {
+ *   @Subscribe("created")
+ *   @Args(Value(Order), Header("tenant"))
+ *   created(order: Order, tenant: string | undefined, ctx: ChoMessageContext) {
+ *     return this.store.of(tenant).add(order);
+ *   }
+ * }
+ * ```
+ */
+export function Args<const A extends readonly ChoMessageArg[]>(
+  ...args: A
+): ChoMessageArgsDecorator<ChoMessageArgValues<A>> {
+  const decorate: ChoMethodDecorator = (target, context, descriptor) => {
+    const { name } = decorated_method("@Args()", target, context, descriptor);
+    const of = `method ${String(name)}`;
+    // Rejects a static, private or symbol-named method: its record would
+    // never be read.
+    const meta = decorated_target("@Args()", target, context, descriptor);
+    args.forEach((arg, index) => {
+      if (typeof arg !== "function") {
+        throw message_error(
+          "CHO_MESSAGE_INVALID_ARGUMENT",
+          `@Args() on ${of}: argument ${
+            index + 1
+          } must be made with Value, Key or Header, or be a function, got ${
+            describe(arg)
+          }`,
+        );
+      }
+    });
+    if (handler_args(read_metadata_object(meta) ?? {})) {
+      throw message_error(
+        "CHO_MESSAGE_DUPLICATE_DECORATOR",
+        `Cannot add @Args() to ${of}: it already has one.`,
+      );
+    }
+    add_to_metadata_object(meta, {
+      [ARGS]: Object.freeze(
+        { list: Object.freeze([...args]) } satisfies HandlerArgs,
+      ),
+    });
+  };
+  return decorate as ChoMessageArgsDecorator<ChoMessageArgValues<A>>;
 }

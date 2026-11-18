@@ -13,9 +13,10 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { Debuglog } from "@chojs/core/utils";
+import { type Debuglog, make_error } from "@chojs/core/utils";
 import type { Delivery, Reply, Route } from "@chojs/message/linker";
 import {
+  BAD_REQUEST,
   ERROR_HEADERS,
   INTERNAL_ERROR,
   type NatsConnectionLike,
@@ -200,6 +201,16 @@ function route(
         : { value: encoder.encode(String(result)) };
     },
   };
+}
+
+/** The error of a message that is not valid, as `@chojs/message` makes it. */
+function invalid_message(text = "not valid"): Error {
+  return make_error(
+    "CHO_MESSAGE_INVALID_MESSAGE",
+    text,
+    undefined,
+    invalid_message,
+  );
 }
 
 /** The code of an error of the framework. */
@@ -497,6 +508,29 @@ describe("Pump: a request", () => {
     assert.match(lines.join("\n"), /a secret of the database/);
   });
 
+  it("is answered with 400 when it is not valid", async () => {
+    const invalid = invalid_message(
+      "Invalid message of orders: the value is not valid",
+    );
+    const { pump, connection } = pump_of([
+      route("orders", () => {
+        throw invalid;
+      }),
+    ]);
+    await pump.start();
+    const one = message("a", { reply: "_INBOX.1" });
+    connection.of("orders").push(one);
+    await pump.stop();
+    assert.deepEqual(one.sent, [{
+      value: "",
+      headers: {
+        [ERROR_HEADERS.description]: "Bad Request",
+        [ERROR_HEADERS.code]: "400",
+      },
+    }]);
+    assert.deepEqual(BAD_REQUEST, { code: 400, description: "Bad Request" });
+  });
+
   it("goes on after a request that failed", async () => {
     const { pump, connection, fatal } = pump_of([
       route("orders", (text) => {
@@ -571,6 +605,26 @@ describe("Pump: the errorReply option", () => {
     connection.of("orders").push(one);
     await pump.stop();
     assert.equal(one.sent[0]!.headers[ERROR_HEADERS.description], "two lines");
+  });
+
+  it("decides for a message that is not valid too, and tells 400 for nothing", async () => {
+    const invalid = invalid_message("not valid");
+    for (
+      const [errorReply, code] of [
+        [() => ({ code: 422, description: "Unprocessable" }), "422"],
+        [() => undefined, "400"],
+        [() => {
+          throw new Error("the option is broken");
+        }, "400"],
+      ] as const
+    ) {
+      const { pump, connection } = pump_of([failing(invalid)], { errorReply });
+      await pump.start();
+      const one = message("a", { reply: "_INBOX.1" });
+      connection.of("orders").push(one);
+      await pump.stop();
+      assert.equal(one.sent[0]!.headers[ERROR_HEADERS.code], code);
+    }
   });
 
   it("tells 500 when it returns nothing", async () => {

@@ -17,6 +17,8 @@ import {
   resolve_handle,
 } from "@chojs/core/di";
 import { describe } from "@chojs/core/utils";
+import { describe_invalid, evaluate_args, InvalidArgument } from "./args.ts";
+import type { ChoMessageContext } from "./context.ts";
 import {
   AppRef,
   ControllerRef,
@@ -24,12 +26,66 @@ import {
   FeatureRef,
   MethodRef,
 } from "./graph.ts";
-import { type Subscription, subscription } from "./keys.ts";
+import { handler_args, type Subscription, subscription } from "./keys.ts";
 import { normalize_topic } from "./topic.ts";
 import type {
+  ChoMessageArg,
   ChoMessageErrorHandlerFn,
+  ChoMessageHandler,
   ChoMessageMiddlewareFn,
+  ChoMessageValidateOptions,
 } from "./types.ts";
+import { validation_of } from "./validate.ts";
+
+/**
+ * Make the handler of a method: what the route calls with the context of a
+ * message.
+ *
+ * @param method The method, bound to its controller.
+ * @param args The arguments of the method, as given to `@Args`.
+ * @param validation The options of the validation middleware that covers the
+ *   handler, or `undefined` when none does.
+ * @returns The method itself when it has no arguments. Otherwise a function
+ *   that evaluates them, and calls the method with their values and then the
+ *   context. For a validated handler, an argument that is not valid is given
+ *   to `onInvalid`: `true` handles the message with no reply, a value is its
+ *   reply, and nothing (or `false`) fails it with
+ *   `CHO_MESSAGE_INVALID_MESSAGE`.
+ */
+function create_handler(
+  method: (...args: unknown[]) => unknown,
+  args: readonly ChoMessageArg[],
+  validation: ChoMessageValidateOptions | undefined,
+): ChoMessageHandler {
+  if (args.length === 0) {
+    return method;
+  }
+  return async (ctx: ChoMessageContext) => {
+    let values: unknown[];
+    try {
+      values = await evaluate_args(args, ctx, validation !== undefined);
+    } catch (error) {
+      if (!(error instanceof InvalidArgument)) {
+        throw error;
+      }
+      const { invalid } = error;
+      const answer = await validation?.onInvalid?.(invalid, ctx);
+      // As an error handler: nothing, or `false`, leaves the message failed.
+      if (answer === undefined || answer === false) {
+        throw message_error(
+          "CHO_MESSAGE_INVALID_MESSAGE",
+          `Invalid message of ${ctx.topic}: ${
+            describe_invalid(invalid)
+          } is not valid`,
+          { cause: invalid.error },
+        );
+      }
+      // `true` handles it with no reply. Anything else is the reply.
+      return answer === true ? undefined : answer;
+    }
+    return method(...values, ctx);
+  };
+}
 
 /**
  * The topic of a feature module or a controller: `""` when it declares none.
@@ -216,13 +272,24 @@ export async function build_message_graph(
       );
 
       for (const { m, topic: method_topic } of methods) {
+        const args = handler_args(m.meta)?.list ?? [];
+        const middlewares = await create_middlewares(m.middlewares);
+        // The nearest validation middleware decides: the handler's, then
+        // the controller's, then the feature's.
+        const validation = [
+          ...feature.middlewares,
+          ...controller.middlewares,
+          ...middlewares,
+        ].map(validation_of).findLast((options) => options !== undefined);
         controller.methods.push(
           new MethodRef(
             m.name,
             method_topic,
-            await create_middlewares(m.middlewares),
+            middlewares,
             await error_handler(m.errorHandler),
-            instance[m.name].bind(instance),
+            create_handler(instance[m.name].bind(instance), args, validation),
+            args,
+            validation !== undefined,
           ),
         );
       }

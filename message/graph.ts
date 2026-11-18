@@ -17,6 +17,7 @@
  */
 
 import type {
+  ChoMessageArg,
   ChoMessageErrorHandlerFn,
   ChoMessageHandler,
   ChoMessageMiddlewareFn,
@@ -24,10 +25,14 @@ import type {
 
 export type { ChoMessageContext } from "./context.ts";
 export type {
+  ChoMessageArg,
+  ChoMessageArgInfo,
+  ChoMessageArgSource,
   ChoMessageErrorHandlerFn,
   ChoMessageHandler,
   ChoMessageMiddlewareFn,
   ChoMessageNext,
+  ChoMessageValidator,
 } from "./types.ts";
 
 /**
@@ -67,8 +72,24 @@ export abstract class NodeRef {
 export class MethodRef extends NodeRef {
   /** The name of the method on the controller. */
   readonly name: string;
-  /** Calls the method on its controller instance, with the context of a message. */
+  /**
+   * Calls the method on its controller instance, with the context of a
+   * message alone: it evaluates the arguments of `@Args` itself, and
+   * validates them when {@link validated} is `true`.
+   */
   readonly handler: ChoMessageHandler;
+  /**
+   * The arguments of the handler, as given to `@Args`, in order; empty when
+   * it has none. An argument made by `Value`, `Key` or `Header` has an
+   * `info`: its source, its key and its validator.
+   */
+  readonly args: readonly ChoMessageArg[];
+  /**
+   * Whether the validation middleware covers the handler: whether
+   * `validate()` is among the middlewares of the feature, of the controller
+   * or of the handler. The validators of {@link args} are run only then.
+   */
+  readonly validated: boolean;
 
   /**
    * Create a message handler node.
@@ -78,6 +99,9 @@ export class MethodRef extends NodeRef {
    * @param middlewares The middlewares of the method.
    * @param errorHandler The error handler of the method, or `null`.
    * @param handler Calls the method on its controller instance.
+   * @param args The arguments of the handler. Default: none.
+   * @param validated Whether the validation middleware covers the handler.
+   *   Default: `false`.
    */
   constructor(
     name: string,
@@ -85,10 +109,14 @@ export class MethodRef extends NodeRef {
     middlewares: ChoMessageMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
     handler: ChoMessageHandler,
+    args: readonly ChoMessageArg[] = [],
+    validated = false,
   ) {
     super(topic, middlewares, errorHandler);
     this.name = name;
     this.handler = handler;
+    this.args = args;
+    this.validated = validated;
   }
 }
 

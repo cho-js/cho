@@ -21,12 +21,17 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  Args,
   ChoMessage,
   type ChoMessageContext,
   ChoMessageReply,
+  type ChoMessageValidator,
   Controller,
+  Middlewares,
   Module,
   Subscribe,
+  validate,
+  Value,
 } from "@chojs/message";
 import { engine, env } from "@chojs/core/utils";
 import { legacy, loose } from "@chojs/core/utils/test_utils";
@@ -270,6 +275,53 @@ suite("NatsLinker, with a server", { timeout: 60_000 }, () => {
       assert.equal(other.headers?.get(ERROR_HEADERS.code), "500");
     });
     await app.close();
+  });
+
+  it("answers a request that is not valid with 400, and calls no handler", async () => {
+    const prefix = unique("invalid");
+    const subject = `${prefix}.orders.created`;
+    const Order: ChoMessageValidator<{ id: number }> = {
+      parse(value) {
+        const id = (value as { id?: unknown } | null)?.id;
+        if (typeof id !== "number") {
+          throw new Error("id: expected a number");
+        }
+        return { id };
+      },
+    };
+    const seen: number[] = [];
+    class Orders {
+      created(order: { id: number }) {
+        seen.push(order.id);
+        return { ok: order.id };
+      }
+    }
+    legacy(loose(Args(Value(Order))), Orders, "created");
+    legacy(Subscribe("created"), Orders, "created");
+    loose(Middlewares(validate()))(Orders);
+    loose(Controller({ topic: "orders" }))(Orders);
+    class App {}
+    loose(Module({ controllers: [Orders] }))(App);
+    const app = await ChoMessage.create(App, {
+      prefix,
+      linker: new NatsLinker({ connect, queue: unique("queue") }),
+    });
+    await app.start();
+    await with_client(async (client) => {
+      for (const payload of ['{"id":"seven"}', "{not json", ""]) {
+        const reply = await client.request(subject, payload);
+        assert.equal(reply.headers?.get(ERROR_HEADERS.code), "400");
+        assert.equal(
+          reply.headers?.get(ERROR_HEADERS.description),
+          "Bad Request",
+        );
+      }
+      assert.deepEqual((await client.request(subject, '{"id":7}')).json(), {
+        ok: 7,
+      });
+    });
+    await app.close();
+    assert.deepEqual(seen, [7]);
   });
 
   it("tells who asked when the reply is too large for the server", async () => {

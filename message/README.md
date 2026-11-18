@@ -28,6 +28,8 @@ a route.
   - [The message context](#the-message-context)
   - [Handled, or failed](#handled-or-failed)
   - [Replying](#replying)
+  - [Handler arguments](#handler-arguments)
+  - [Validation](#validation)
   - [Middlewares](#middlewares)
   - [Error handling](#error-handling)
   - [Starting and stopping](#starting-and-stopping)
@@ -54,6 +56,9 @@ a route.
   has returned, and an error handler that only logs leaves it failed.
 - **A reply is what a handler returns.** An adapter whose broker has replies
   sends it to who asked; the handler is the same either way.
+- **Typed, validated arguments.** A handler declares what it receives with
+  `@Args`, a validator of the shape of a zod schema checks it, and a message
+  that is not valid is never tried again.
 - **Testable with no broker.** `app.handle(topic, message)` gives a message to
   its handler, and resolves with its reply.
 - **One set of instances with a web application.** `ChoMessage.from` builds a
@@ -256,6 +261,102 @@ async price(ctx: ChoMessageContext) {
   [NATS](../vendor/nats/README.md#replying) does. Which names and values a
   broker accepts is its own.
 - An error handler returns one too.
+
+### Handler arguments
+
+A handler declares what it receives with `@Args`: the list of its arguments, in
+the order of its parameters. It is then called with their values, and with the
+context last.
+
+```ts
+import { Args, Header, Key, Value } from "@chojs/message";
+
+@Controller({ topic: "orders" })
+class OrdersController {
+  @Subscribe("created")
+  @Args(Value<Order>(), Key(), Header("tenant"))
+  created(
+    order: Order,
+    key: string | undefined,
+    tenant: string | undefined,
+    ctx: ChoMessageContext,
+  ) {
+    // …
+  }
+}
+```
+
+| Argument         | Gives                                                          |
+| ---------------- | -------------------------------------------------------------- |
+| `Value()`        | The value, parsed as JSON; `undefined` for a message with none |
+| `Value("name")`  | One property of the value                                      |
+| `Key()`          | The key, or `undefined` when the message has none              |
+| `Header()`       | All the headers, as an object of strings                       |
+| `Header("name")` | One header, by its exact name, or `undefined`                  |
+| `(ctx) => value` | An argument of your own; it can be `async`                     |
+
+- **The parameters are checked at compile time** against the arguments: a
+  handler that expects another type, or another order, does not compile.
+- **The context is always last**, and a handler can leave it out.
+- **Without `@Args`, a handler receives the context alone.** A method has one
+  `@Args`, above or below `@Subscribe`.
+- **The arguments are evaluated after the middlewares**, just before the
+  handler: a middleware that skips the handler never parses the value.
+- For the text or the bytes of the value, read `ctx.text()` and `ctx.value`.
+
+### Validation
+
+A validator is any object with a `parse(value)` method that returns the value,
+or throws: a [zod](https://zod.dev) schema is one. Give it to an argument, last,
+and put `validate()` on the route:
+
+```ts
+import { z } from "zod";
+import { Args, Header, Middlewares, validate, Value } from "@chojs/message";
+
+const Order = z.object({ id: z.string(), total: z.number() });
+
+@Middlewares(validate()) // every handler of the controller is validated
+@Controller({ topic: "orders" })
+class OrdersController {
+  @Subscribe("created")
+  @Args(Value(Order), Header("attempt", z.coerce.number()))
+  created(order: z.infer<typeof Order>, attempt: number) {
+    // order is checked, and attempt is a number
+  }
+}
+```
+
+- **What `parse` returns is what the handler receives**, so a validator can
+  convert too. It can return a promise.
+- **The type of the parameter comes from the validator.**
+- **`validate()` covers the handlers under it**: on a handler, on a controller
+  or on a feature module. Without it on the route, validators are not run, and
+  the debug log names each such handler when the application is created.
+
+**A message that is not valid fails**, and its handler is not called. The error
+is a `ChoError` with the code `CHO_MESSAGE_INVALID_MESSAGE`: its message says
+what is not valid, and its `cause` is what the validator threw. A value that is
+not JSON is the same error. It goes to the [error handler](#error-handling),
+then to the adapter, which **does not try it again**: Kafka sends it to the
+dead-letter topic at once, and NATS answers a request with `400`.
+
+`onInvalid` decides otherwise, as an error handler does:
+
+```ts
+validate({
+  onInvalid: ({ source, key, error }, ctx) => {
+    logger.warn(ctx.topic, source, key, error);
+    return true; // handled: skipped, and not delivered again
+  },
+});
+```
+
+| `onInvalid` returns | The message                               |
+| ------------------- | ----------------------------------------- |
+| Nothing, or `false` | Fails, with `CHO_MESSAGE_INVALID_MESSAGE` |
+| `true`              | Is handled, with no reply                 |
+| Any other value     | Is handled, and the value is its reply    |
 
 ### Middlewares
 

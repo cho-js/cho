@@ -42,6 +42,7 @@ import type {
 import type { NatsConnection } from "@nats-io/nats-core";
 import { type ChoNatsErrorCode, nats_error } from "./errors.ts";
 import {
+  BAD_REQUEST,
   ERROR_HEADERS,
   INTERNAL_ERROR,
   type NatsConnectionLike,
@@ -56,7 +57,7 @@ import {
 
 // The `@chojs/message` types this module refers to.
 export type { Delivery, Linked, Linker, Reply, Route };
-export { ERROR_HEADERS, INTERNAL_ERROR };
+export { BAD_REQUEST, ERROR_HEADERS, INTERNAL_ERROR };
 export type {
   NatsConnectionLike,
   NatsErrorReply,
@@ -97,7 +98,8 @@ export type NatsLinkerOptions<
    * What a requester is told when its message failed: the code and the
    * description of the error reply. It receives the error, and the message of
    * the client library. Default, and when it returns nothing: `500`,
-   * `Internal Error`, so that the message of an error is not sent by mistake.
+   * `Internal Error`, so that the message of an error is not sent by mistake;
+   * and `400`, `Bad Request`, for a message that is not valid.
    */
   readonly errorReply?: NatsErrorReplyFn | undefined;
   /**

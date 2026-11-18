@@ -105,6 +105,15 @@ export function compile_routes(
           async (ctx) => await method.handler(ctx),
         );
 
+        if (
+          log.enabled && !method.validated &&
+          method.args.some((arg) => arg.info?.validator)
+        ) {
+          log(
+            `${name} has an argument with a validator and no validate() middleware: it is not validated`,
+          );
+        }
+
         routes.push({
           topic,
           name,

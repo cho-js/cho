@@ -13,12 +13,16 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  Args,
   ChoMessage,
   type ChoMessageContext,
   ChoMessageReply,
   Controller,
+  Middlewares,
   Module,
   Subscribe,
+  validate,
+  Value,
 } from "@chojs/message";
 import { legacy, loose } from "@chojs/core/utils/test_utils";
 import type { Route } from "@chojs/message/linker";
@@ -357,6 +361,45 @@ describe("a ChoMessage application on NatsLinker", () => {
         [ERROR_HEADERS.code]: "404",
       },
     }]);
+  });
+
+  it("answers a request that is not valid with 400", async () => {
+    class Orders {
+      created(id: number) {
+        return { id };
+      }
+    }
+    const positive = {
+      parse(value: unknown) {
+        if (!(Number(value) > 0)) {
+          throw new Error("expected a positive number");
+        }
+        return Number(value);
+      },
+    };
+    legacy(loose(Args(Value("id", positive))), Orders, "created");
+    legacy(Subscribe("orders.created"), Orders, "created");
+    loose(Middlewares(validate()))(Orders);
+    loose(Controller())(Orders);
+    class App {}
+    loose(Module({ controllers: [Orders] }))(App);
+    const app = await ChoMessage.create(App, {
+      linker: new NatsLinker(options()),
+    });
+    await app.start();
+    const bad = request("orders.created", '{"id":-1}');
+    const good = request("orders.created", '{"id":"7"}');
+    app.linked.instance.feed("orders.created", bad.message);
+    app.linked.instance.feed("orders.created", good.message);
+    await app.close();
+    assert.deepEqual(bad.answers, [{
+      value: "",
+      headers: {
+        [ERROR_HEADERS.description]: "Bad Request",
+        [ERROR_HEADERS.code]: "400",
+      },
+    }]);
+    assert.deepEqual(good.answers, [{ value: '{"id":7}', headers: {} }]);
   });
 
   it("answers with the reply of an error handler", async () => {

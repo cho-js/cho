@@ -144,6 +144,11 @@ and everything before it is done. So the adapter decides, in this order:
    application starts again. [`onFatal`](#when-the-consumer-stops-by-itself) is
    called.
 
+**A message that is not valid is not tried again.** When
+[`validate()`](../../message/README.md#validation) of `@chojs/message` refuses a
+message, it will refuse it the next time too: the adapter skips step 1, and the
+message is dead at once.
+
 A dead letter is the message as it was (its key, its value and its headers),
 with these headers added:
 

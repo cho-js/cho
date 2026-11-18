@@ -12,7 +12,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { debuglog } from "@chojs/core/utils";
+import { debuglog, make_error } from "@chojs/core/utils";
 import type { Delivery, Route } from "@chojs/message/linker";
 import {
   DEAD_LETTER_HEADERS,
@@ -112,6 +112,16 @@ class FakeProducer implements KafkaProducerLike {
     this.closed++;
     return Promise.resolve();
   }
+}
+
+/** The error of a message that is not valid, as `@chojs/message` makes it. */
+function invalid_message(text = "not valid"): Error {
+  return make_error(
+    "CHO_MESSAGE_INVALID_MESSAGE",
+    text,
+    undefined,
+    invalid_message,
+  );
 }
 
 /** The offsets that were committed, as `topic/partition@offset`. */
@@ -439,6 +449,66 @@ describe("Pump", () => {
     assert.equal(headers.get(DEAD_LETTER_HEADERS.attempts), "3");
     assert.equal(headers.get(DEAD_LETTER_HEADERS.error), "boom");
     assert.deepEqual(fatal, []);
+    await pump.stop();
+  });
+
+  it("does not try a message that is not valid again: it is dead at once", async () => {
+    const commits: Commits = [];
+    const seen: string[] = [];
+    const invalid = invalid_message(
+      "Invalid message of orders: the value is not valid",
+    );
+    const { pump, consumer, producer, delays, fatal } = pump_of(
+      [route("orders", (text, native) => {
+        seen.push(`${text}#${native.attempt}`);
+        if (text === "bad") {
+          throw invalid;
+        }
+      })],
+      { deadLetter: (topic) => `${topic}.dead` },
+    );
+    await pump.start();
+    consumer.stream.push(
+      message(commits, "bad", { offset: 0 }),
+      message(commits, "good", { offset: 1 }),
+    );
+    await until(() => commits.length === 2);
+    // One attempt, and no wait: the retries are for what may work later.
+    assert.deepEqual(seen, ["bad#1", "good#1"]);
+    assert.deepEqual(delays, []);
+    assert.equal(producer.sent.length, 1);
+    const headers = new Map(
+      [...(producer.sent[0]!.headers as Map<Buffer, Buffer>)].map(
+        ([name, value]) => [String(name), String(value)],
+      ),
+    );
+    assert.equal(headers.get(DEAD_LETTER_HEADERS.attempts), "1");
+    assert.equal(
+      headers.get(DEAD_LETTER_HEADERS.error),
+      "Invalid message of orders: the value is not valid",
+    );
+    assert.deepEqual(fatal, []);
+    await pump.stop();
+  });
+
+  it("stops at once at a message that is not valid, with no dead-letter topic", async () => {
+    const commits: Commits = [];
+    let calls = 0;
+    const invalid = invalid_message("not valid");
+    const { pump, consumer, fatal } = pump_of([
+      route("orders", () => {
+        calls++;
+        throw invalid;
+      }),
+    ]);
+    await pump.start();
+    consumer.stream.push(message(commits, "bad"));
+    await until(() => fatal.length === 1);
+    assert.equal(calls, 1);
+    assert.deepEqual(commits, []);
+    assert.equal(code_of(fatal[0]), "CHO_KAFKA_NO_DEAD_LETTER");
+    assert.match(fatal[0]!.message, /failed 1 time\(s\)/);
+    assert.equal(fatal[0]!.cause, invalid);
     await pump.stop();
   });
 

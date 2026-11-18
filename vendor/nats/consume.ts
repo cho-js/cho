@@ -10,6 +10,7 @@
  * @module
  */
 
+import { isChoError } from "@chojs/core";
 import { headers as make_headers } from "@nats-io/nats-core";
 import type { Msg, MsgHdrs } from "@nats-io/nats-core";
 import type { Debuglog } from "@chojs/core/utils";
@@ -107,6 +108,15 @@ export const ERROR_HEADERS = {
 export const INTERNAL_ERROR: NatsErrorReply = {
   code: 500,
   description: "Internal Error",
+};
+
+/**
+ * What a requester is told, when nothing else is said, for a message that is
+ * not valid: the mistake is its own.
+ */
+export const BAD_REQUEST: NatsErrorReply = {
+  code: 400,
+  description: "Bad Request",
 };
 
 const EMPTY = new Uint8Array(0);
@@ -402,7 +412,10 @@ export class Pump<C extends NatsConnectionLike = NatsConnectionLike> {
   /** Answer a request that failed with an error reply. It never throws. */
   #respond_error(route: Route, message: NatsMessageLike, error: unknown): void {
     const { log, errorReply } = this.#settings;
-    let told = INTERNAL_ERROR;
+    const by_default = isChoError(error, "CHO_MESSAGE_INVALID_MESSAGE")
+      ? BAD_REQUEST
+      : INTERNAL_ERROR;
+    let told = by_default;
     if (errorReply) {
       try {
         const chosen = errorReply(error, message as NatsMessage);
@@ -412,14 +425,14 @@ export class Pump<C extends NatsConnectionLike = NatsConnectionLike> {
           log.error(
             `the "errorReply" option gave no error reply for ${route.name}:`,
             "expected { code, description }, or nothing. The requester is told",
-            `${INTERNAL_ERROR.code} ${INTERNAL_ERROR.description}:`,
+            `${by_default.code} ${by_default.description}:`,
             chosen,
           );
         }
       } catch (cause) {
         log.error(
           `the "errorReply" option failed for ${route.name}. The requester is told`,
-          `${INTERNAL_ERROR.code} ${INTERNAL_ERROR.description}:`,
+          `${by_default.code} ${by_default.description}:`,
           cause,
         );
       }
