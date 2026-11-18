@@ -76,7 +76,7 @@ describe("timeout", () => {
   it("needs a positive number of milliseconds", () => {
     for (const ms of [0, -1, "10", NaN, Infinity, undefined]) {
       assert.throws(() => timeout(loose({ ms })), {
-        name: "TypeError",
+        code: "CHO_VENDOR_INVALID_OPTION",
         message: "timeout(): ms must be a positive number of milliseconds",
       });
     }

@@ -28,6 +28,7 @@ import {
   Controller,
   Get,
   Head,
+  HttpError,
   Middlewares,
   Module,
   Options,
@@ -143,6 +144,7 @@ describe("HonoLinker.link", () => {
     const linker = new HonoLinker();
     linker.link([echo("GET", "/x")]);
     assert.throws(() => linker.link([echo("GET", "/y")]), {
+      code: "CHO_HONO_ALREADY_LINKED",
       message:
         "HonoLinker.link() was already called: use one linker for one application",
     });
@@ -530,6 +532,39 @@ describe("fromHono", () => {
     assert.deepEqual(caught, []);
   });
 
+  it("answers an HttpError of a handler or of a middleware, before Hono sees an error", async () => {
+    const hono = new Hono();
+    const seen: unknown[] = [];
+    hono.onError((error) => {
+      seen.push(error);
+      return new Response("hono", { status: 500 });
+    });
+    const refused = controller(() => {
+      throw new HttpError(404, "no such thing", {
+        headers: { "x-reason": "missing" },
+      });
+    });
+    const response = await get(await create(refused, hono));
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get("x-reason"), "missing");
+    assert.deepEqual(await response.json(), { error: "no such thing" });
+
+    const guard: ChoWebMiddlewareFn = () => {
+      throw new HttpError(401);
+    };
+    const guarded = await get(await create(controller(() => "never", guard)));
+    assert.deepEqual([guarded.status, await guarded.json()], [401, {
+      error: "Unauthorized",
+    }]);
+
+    // A HEAD request is answered by the GET route, without the body.
+    const head = await get(await create(refused, new Hono()), {
+      method: "HEAD",
+    });
+    assert.deepEqual([head.status, await head.text()], [404, ""]);
+    assert.deepEqual(seen, []);
+  });
+
   it("gives other errors of the middleware to the CHO error handlers", async () => {
     const failing: MiddlewareHandler = () => {
       throw new Error("broken middleware");
@@ -543,6 +578,32 @@ describe("fromHono", () => {
       502,
       "caught: broken middleware",
     ]);
+  });
+
+  it("refuses to run on another adapter", async () => {
+    const pass: MiddlewareHandler = (_c, next) => next();
+    const ctrl = controller(() => "never", fromHono(pass));
+    Catch((error) => {
+      const { code, message } = error as { code?: string; message: string };
+      return new Response(`${code}: ${message}`, { status: 500 });
+    })(ctrl);
+    class App {}
+    Module({ controllers: [ctrl] })(App);
+    // a linker with no Hono context: `ctx.native` is undefined
+    const app = await ChoWeb.create(App, {
+      linker: {
+        link: (routes) => ({
+          instance: routes,
+          handler: (req) => routes[0]!.handle(req, {}),
+          mount: () => {},
+        }),
+      },
+    });
+    const response = await app.handler(new Request("http://localhost/x"));
+    assert.equal(
+      await response.text(),
+      "CHO_HONO_WRONG_ADAPTER: fromHono(): a Hono middleware runs on the Hono adapter only: create the application with a HonoLinker",
+    );
   });
 
   it("lets a Hono middleware read and replace the response after next()", async () => {

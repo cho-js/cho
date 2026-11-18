@@ -156,23 +156,35 @@ describe("docsPage", () => {
   it("needs a URL", () => {
     const message =
       'docsPage(): the "url" option is required: where the OpenAPI document is';
-    assert.throws(() => docsPage(loose({})), { message });
-    assert.throws(() => docsPage(loose({ url: "" })), { message });
-    assert.throws(() => docsPage(loose(undefined)), { message });
+    assert.throws(() => docsPage(loose({})), {
+      code: "CHO_OPENAPI_INVALID_OPTION",
+      message,
+    });
+    assert.throws(() => docsPage(loose({ url: "" })), {
+      code: "CHO_OPENAPI_INVALID_OPTION",
+      message,
+    });
+    assert.throws(() => docsPage(loose(undefined)), {
+      code: "CHO_OPENAPI_INVALID_OPTION",
+      message,
+    });
   });
 
   it("names an unknown client, and the known ones", () => {
     assert.throws(() => docsPage(loose({ url: URL, ui: "rapidoc" })), {
+      code: "CHO_OPENAPI_UNKNOWN_UI",
       message:
         'docsPage(): unknown ui "rapidoc". Known: redoc, scalar, swagger, or a function that returns the HTML',
     });
     // `false` is for the routes: a page has a client
     assert.throws(() => docsPage(loose({ url: URL, ui: false })), {
+      code: "CHO_OPENAPI_UNKNOWN_UI",
       message:
         "docsPage(): unknown ui false. Known: redoc, scalar, swagger, or a function that returns the HTML",
     });
     // not a property of an object
     assert.throws(() => docsPage(loose({ url: URL, ui: "toString" })), {
+      code: "CHO_OPENAPI_UNKNOWN_UI",
       message: /unknown ui "toString"/,
     });
   });

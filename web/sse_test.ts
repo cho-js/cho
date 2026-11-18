@@ -90,7 +90,7 @@ describe("format_event", () => {
       ] as const
     ) {
       assert.throws(() => format(value), {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_EVENT",
         message:
           `@Sse() handler Feed.events: an event must be a string or an object with data, got ${got}`,
       });
@@ -99,18 +99,18 @@ describe("format_event", () => {
 
   it("rejects a name or an id that does not fit on a line", () => {
     assert.throws(() => format({ event: "a\nb", data: "x" }), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_EVENT",
       message:
         '@Sse() handler Feed.events: "event" must be a string with no line break, got "a\\nb"',
     });
     assert.throws(() => format({ event: 1, data: "x" }), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_EVENT",
       message:
         '@Sse() handler Feed.events: "event" must be a string with no line break, got 1',
     });
     for (const id of ["a\rb", "a\0b", 7]) {
       assert.throws(() => format({ id, data: "x" }), {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_EVENT",
         message: /^@Sse\(\) handler Feed\.events: "id" must be a string/,
       });
     }
@@ -119,7 +119,7 @@ describe("format_event", () => {
   it("rejects a retry delay that is not a whole number", () => {
     for (const retry of [1.5, -1, "1000", NaN]) {
       assert.throws(() => format({ retry, data: "x" }), {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_EVENT",
         message:
           /^@Sse\(\) handler Feed\.events: "retry" must be a whole number of milliseconds, got /,
       });
@@ -129,7 +129,7 @@ describe("format_event", () => {
   it("rejects data that cannot be serialized as JSON", () => {
     assert.throws(() => format({ data: 1n }), { name: "TypeError" });
     assert.throws(() => format({ data: () => {} }), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_EVENT",
       message: /^@Sse\(\) handler Feed\.events: "data" cannot be serialized/,
     });
   });
@@ -273,7 +273,7 @@ describe("sse_response", () => {
     })());
     await read();
     await assert.rejects(read(), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_EVENT",
       message:
         "@Sse() handler Feed.events: an event must be a string or an object with data, got 42",
     });

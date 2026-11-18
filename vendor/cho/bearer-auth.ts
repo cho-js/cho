@@ -4,6 +4,7 @@
  * @module
  */
 
+import { vendor_error } from "./errors.ts";
 import type { ChoWebContext, ChoWebMiddlewareFn } from "@chojs/web";
 import { safe_equal } from "./auth.ts";
 
@@ -35,7 +36,7 @@ export type BearerAuthOptions =
  *
  * @param options The accepted tokens, or a `verify` function.
  * @returns A CHO middleware function.
- * @throws {TypeError} When neither a token nor a `verify` function is given.
+ * @throws {ChoError} When neither a token nor a `verify` function is given.
  *
  * @example
  * ```ts
@@ -68,7 +69,8 @@ export function bearerAuth(options: BearerAuthOptions): ChoWebMiddlewareFn {
       !Array.isArray(tokens) || tokens.length === 0 ||
       !tokens.every((one) => typeof one === "string" && one !== "")
     ) {
-      throw new TypeError(
+      throw vendor_error(
+        "CHO_VENDOR_INVALID_OPTION",
         "bearerAuth(): give a token, a list of tokens, or a verify function",
       );
     }

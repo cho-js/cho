@@ -16,6 +16,7 @@
  * @module
  */
 
+import { web_error } from "./errors.ts";
 import { engine, type EngineType } from "@chojs/core/utils";
 import type {
   IncomingMessage,
@@ -124,10 +125,10 @@ const DEFAULT_PORT = 3000;
  * @param options The port and the host name, a signal that closes the
  *   server, and how long closing waits for the requests in flight.
  * @returns The server, once it is listening.
- * @throws {Error} (as a rejection) On a runtime that is not Deno, Bun or
+ * @throws {ChoError} (as a rejection) On a runtime that is not Deno, Bun or
  *   Node.js, such as Cloudflare Workers: give the handler to that runtime's
  *   own entry point instead.
- * @throws {TypeError} (as a rejection) When the handler is not a function,
+ * @throws {ChoError} (as a rejection) When the handler is not a function,
  *   or `closeTimeout` not a whole number of milliseconds.
  *
  * @example
@@ -168,7 +169,7 @@ export function serve(
  * @param handler The request handler.
  * @param options The options of {@link serve}.
  * @returns The server, once it is listening.
- * @throws {Error} (as a rejection) When the runtime has no server here.
+ * @throws {ChoError} (as a rejection) When the runtime has no server here.
  */
 export async function serve_on(
   runtime: EngineType,
@@ -176,7 +177,8 @@ export async function serve_on(
   options: ServeOptions = {},
 ): Promise<ChoWebServer> {
   if (typeof handler !== "function") {
-    throw new TypeError(
+    throw web_error(
+      "CHO_WEB_INVALID_HANDLER",
       "serve() expects a request handler, such as app.handler",
     );
   }
@@ -185,7 +187,8 @@ export async function serve_on(
     closeTimeout !== undefined &&
     !(Number.isInteger(closeTimeout) && closeTimeout >= 0)
   ) {
-    throw new TypeError(
+    throw web_error(
+      "CHO_WEB_INVALID_OPTION",
       `serve(): closeTimeout must be a whole number of milliseconds, got ${
         String(closeTimeout)
       }`,
@@ -217,7 +220,8 @@ export async function serve_on(
   } else if (runtime === "node") {
     server = await serve_node(handler, port, options.hostname, closeTimeout);
   } else {
-    throw new Error(
+    throw web_error(
+      "CHO_WEB_NO_SERVER",
       `serve() has no server for this runtime (${runtime}): ` +
         "give app.handler to the runtime's own entry point",
     );

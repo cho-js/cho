@@ -290,7 +290,9 @@ method created by the injector like a middleware class. It can be `async`.
 
 An error thrown by a handler or by a middleware goes to the nearest one: the
 handler's, else the controller's, else the feature's, else the application's,
-which is the `onError` option of `ChoMessage.create`.
+which is the `onError` option of `ChoMessage.create`. The error is given as it
+was thrown: the application's own, or a `ChoError` with a code for a mistake the
+framework found (section 9).
 
 **An error handler that returns nothing has not handled the error.** The message
 failed, and the adapter is told so. This is the rule of `@chojs/web`
@@ -644,12 +646,12 @@ in place of `route`.
 
 ## 8. Public API
 
-| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/message`        | `ChoMessage`, `ChoMessageOptions`, `ChoMessageFromOptions`, `Subscribe`, `Middlewares`, `Catch`, the types `ChoMessageContext`, `ChoMessageHandler`, `ChoMessageNext`, `ChoMessageMiddlewareFn`, `ChoMessageMiddleware`, `ChoMessageErrorHandlerFn`, `ChoMessageErrorHandler`, `Module`, `Controller` (the core's, with the `topic` option), `MessageModuleOptions`, `MessageControllerOptions`, `TopicOption`, the types of the two other entry points, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/message/linker` | `Linker`, `Linked`, `Route`, `Delivery`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `@chojs/message/graph`  | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `@chojs/vendor-kafka`   | `KafkaLinker`, `KafkaLinked`, and their types (`vendor/kafka/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/message`        | `ChoMessage`, `ChoMessageOptions`, `ChoMessageFromOptions`, `Subscribe`, `Middlewares`, `Catch`, `ChoError`, `isChoError` (the core's), `ChoMessageErrorCode`, `ChoCoreErrorCode`, the types `ChoMessageContext`, `ChoMessageHandler`, `ChoMessageNext`, `ChoMessageMiddlewareFn`, `ChoMessageMiddleware`, `ChoMessageErrorHandlerFn`, `ChoMessageErrorHandler`, `Module`, `Controller` (the core's, with the `topic` option), `MessageModuleOptions`, `MessageControllerOptions`, `TopicOption`, the types of the two other entry points, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/message/linker` | `Linker`, `Linked`, `Route`, `Delivery`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `@chojs/message/graph`  | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `@chojs/vendor-kafka`   | `KafkaLinker`, `KafkaLinked`, and their types (`vendor/kafka/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for
 `@chojs/message`.
@@ -660,55 +662,80 @@ failed.
 
 ## 9. Errors
 
-The wording below is a proposal, and follows the messages of `@chojs/web`. As
-there, the messages are for people to read, and are not part of the API.
+Every mistake the framework finds is a `ChoError` with a `code`
+(`core/specs.md`, section 2.8). The code is part of the API. The messages below
+are the current wording, for people to read: they are not part of the API and
+can change in any release. Do not match on their text.
+
+```ts
+import { ChoMessage, isChoError } from "@chojs/message";
+
+try {
+  await ChoMessage.create(App, { linker });
+} catch (error) {
+  if (isChoError(error, "CHO_MESSAGE_DUPLICATE_TOPIC")) {
+    // ...
+  }
+  throw error;
+}
+```
+
+The codes of this package start with `CHO_MESSAGE_` (type
+`ChoMessageErrorCode`). A mistake the core finds has a code of the core,
+`CHO_CORE_…` (type `ChoCoreErrorCode`): it is named below where a message
+application meets it.
 
 **Thrown by the decorators**, when the class is defined:
 
-| Mistake                                        | Message                                                                                                       |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| A handler's topic is invalid                   | `Invalid topic "<topic>" of @Subscribe() on method <name>: <reason>`                                          |
-| A second `@Subscribe` on a method              | `Cannot add @Subscribe() to method <name>: it already handles "<topic>". A method can have one @Subscribe().` |
-| An unknown option of `@Module` / `@Controller` | `@Controller(): unknown option "route". Known options: dependencies, topic`                                   |
-| A static, private or symbol-named handler      | `TypeError: @Subscribe() cannot decorate static method <name>: a handler must not be static`                  |
+| Mistake                                        | Code                              | Message                                                                                                       |
+| ---------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| A handler's topic is invalid                   | `CHO_MESSAGE_INVALID_TOPIC`       | `Invalid topic "<topic>" of @Subscribe() on method <name>: <reason>`                                          |
+| A second `@Subscribe` on a method              | `CHO_MESSAGE_DUPLICATE_DECORATOR` | `Cannot add @Subscribe() to method <name>: it already handles "<topic>". A method can have one @Subscribe().` |
+| An unknown option of `@Module` / `@Controller` | `CHO_CORE_UNKNOWN_OPTION`         | `@Controller(): unknown option "route". Known options: dependencies, topic`                                   |
+| A static, private or symbol-named handler      | `CHO_MESSAGE_INVALID_TARGET`      | `@Subscribe() cannot decorate static method <name>: a handler must not be static`                             |
 
 **Rejected by `ChoMessage.create` and `ChoMessage.from`**: any module graph
 error of the core (`core/specs.md`, section 2.8), and:
 
-| Mistake                                                     | Message                                                                                                                                                                  |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A topic is not a string                                     | `TypeError: Invalid topic of <where>: expected a string, got <v>`                                                                                                        |
-| A topic breaks a rule (section 2.3)                         | `Invalid topic "<topic>" of <where>: <reason>`                                                                                                                           |
-| A wildcard in a topic (`*`, `>`, `#`)                       | `Invalid topic "<topic>" of <where>: "<segment>" has a "*": wildcards are not part of the topic syntax`                                                                  |
-| A segment with another character                            | `Invalid topic "<topic>" of <where>: "<segment>" is not a valid segment: write letters, digits, "_" and "-"`                                                             |
-| A leading or trailing `.`, or an empty segment              | `Invalid topic "<topic>" of <where>: it must not start or end with "."` (and `… it must not contain an empty segment ("..")`)                                            |
-| A handler with no level at all                              | `Invalid topic of <Controller.method>: it is empty. Give @Subscribe(), its controller or its module a topic`                                                             |
-| Two handlers with the same topic                            | `Duplicate topic "<topic>": declared by <Controller.method> and <Controller.method>`                                                                                     |
-| `onError` is not a function or a class                      | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                                                                       |
-| A middleware class has no `handle` method                   | `Middleware class <Name> must implement 'handle' method.`                                                                                                                |
-| A middleware class cannot be created                        | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                                                                              |
-| An error handler class cannot be created                    | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                                                                 |
-| `overrides` given to `from`, or any unknown option          | `ChoMessage.from(): unknown option "overrides". Known options: linker, onError, prefix` (and `ChoMessage.create(): … Known options: linker, onError, overrides, prefix`) |
-| What `from` is given is not an injector                     | `TypeError: ChoMessage.from(): expected an injector, got <v>`                                                                                                            |
-| `from` on a disposed injector, with a controller to resolve | `The injector is disposed`                                                                                                                                               |
+| Mistake                                                     | Code                             | Message                                                                                                                                                                  |
+| ----------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A topic is not a string                                     | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic of <where>: expected a string, got <v>`                                                                                                                   |
+| A topic breaks a rule (section 2.3)                         | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: <reason>`                                                                                                                           |
+| A wildcard in a topic (`*`, `>`, `#`)                       | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: "<segment>" has a "*": wildcards are not part of the topic syntax`                                                                  |
+| A segment with another character                            | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: "<segment>" is not a valid segment: write letters, digits, "_" and "-"`                                                             |
+| A leading or trailing `.`, or an empty segment              | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: it must not start or end with "."` (and `… it must not contain an empty segment ("..")`)                                            |
+| A handler with no level at all                              | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic of <Controller.method>: it is empty. Give @Subscribe(), its controller or its module a topic`                                                             |
+| Two handlers with the same topic                            | `CHO_MESSAGE_DUPLICATE_TOPIC`    | `Duplicate topic "<topic>": declared by <Controller.method> and <Controller.method>`                                                                                     |
+| `onError` is not a function or a class                      | `CHO_CORE_INVALID_ERROR_HANDLER` | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                                                                       |
+| A middleware class has no `handle` method                   | `CHO_CORE_INVALID_MIDDLEWARE`    | `Middleware class <Name> must implement 'handle' method.`                                                                                                                |
+| A middleware class cannot be created                        | `CHO_MESSAGE_CREATE_FAILED`      | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                                                                              |
+| An error handler class cannot be created                    | `CHO_MESSAGE_CREATE_FAILED`      | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                                                                 |
+| `overrides` given to `from`, or any unknown option          | `CHO_CORE_UNKNOWN_OPTION`        | `ChoMessage.from(): unknown option "overrides". Known options: linker, onError, prefix` (and `ChoMessage.create(): … Known options: linker, onError, overrides, prefix`) |
+| What `from` is given is not an injector                     | `CHO_MESSAGE_INVALID_INJECTOR`   | `ChoMessage.from(): expected an injector, got <v>`                                                                                                                       |
+| `from` on a disposed injector, with a controller to resolve | `CHO_CORE_DISPOSED`              | `The injector is disposed`                                                                                                                                               |
 
 `<where>` names the declaration: `the global prefix`, `feature <Module>`,
 `controller <Controller>` or `method <name> of controller <Controller>`.
 
 **Rejected by `start()` and `handle()`:**
 
-| Mistake                                          | Message                                                                                                                      |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `start()` without a linker                       | `ChoMessage.start(): the application has no linker. Give ChoMessage.create or ChoMessage.from a linker, such as KafkaLinker` |
-| `handle()` for a topic with no handler           | `ChoMessage.handle(): no handler for the topic "<topic>"`                                                                    |
-| `start()` or `handle()` once `close()` is called | `The application is closed`                                                                                                  |
-| A value that is neither bytes nor a string       | `TypeError: Invalid value of a message: expected bytes (a Uint8Array) or a string, got <v>`                                  |
+| Mistake                                          | Code                        | Message                                                                                                                      |
+| ------------------------------------------------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `start()` without a linker                       | `CHO_MESSAGE_NO_LINKER`     | `ChoMessage.start(): the application has no linker. Give ChoMessage.create or ChoMessage.from a linker, such as KafkaLinker` |
+| `handle()` for a topic with no handler           | `CHO_MESSAGE_UNKNOWN_TOPIC` | `ChoMessage.handle(): no handler for the topic "<topic>"`                                                                    |
+| `start()` or `handle()` once `close()` is called | `CHO_MESSAGE_CLOSED`        | `The application is closed`                                                                                                  |
+| A value that is neither bytes nor a string       | `CHO_MESSAGE_INVALID_VALUE` | `Invalid value of a message: expected bytes (a Uint8Array) or a string, got <v>`                                             |
 
 **Failing a message** (given to the handler's error handler, section 5):
 
-| Mistake                           | Message                                           |
-| --------------------------------- | ------------------------------------------------- |
-| A middleware calls `next()` twice | `middleware <name>: next() called more than once` |
+| Mistake                           | Code                         | Message                                           |
+| --------------------------------- | ---------------------------- | ------------------------------------------------- |
+| A middleware calls `next()` twice | `CHO_CORE_NEXT_CALLED_TWICE` | `middleware <name>: next() called more than once` |
+
+**What has no code**: what a handler or a middleware throws is the application's
+error: it is given to the error handler as it is, and a message that fails
+rejects with it. There is no `HttpError` here: a message has no status to answer
+with, and rejecting is the contract (section 5).
 
 ## 10. Not in the first version
 

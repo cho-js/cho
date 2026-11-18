@@ -24,6 +24,8 @@ call.
   - [Server-sent events](#server-sent-events)
   - [Middlewares](#middlewares)
   - [Error handling](#error-handling)
+  - [Answering with an error](#answering-with-an-error)
+  - [Errors of the framework](#errors-of-the-framework)
   - [Serving](#serving)
   - [Dependency injection and shutdown](#dependency-injection-and-shutdown)
   - [Mounting a route](#mounting-a-route)
@@ -483,6 +485,109 @@ class UsersController {}
 
 An error handler that returns nothing has not handled the error: the adapter
 answers `500`. A handler that only logs therefore never hides a failure.
+
+### Answering with an error
+
+Throw an `HttpError` to answer a request with a status, from anywhere the
+request is handled: a handler, a middleware, a function of `@Args`.
+
+```ts
+import { HttpError } from "@chojs/web";
+
+@Get(":id")
+@Args(Param("id"))
+get(id: string) {
+  const user = this.users.get(id);
+  if (!user) {
+    throw new HttpError(404, "no such user");
+  }
+  return user;
+}
+```
+
+The request is answered `404`, with a JSON body:
+
+```json
+{ "error": "no such user" }
+```
+
+`new HttpError(status, message?, options?)` takes a status from 400 to 599. The
+message is the text of the status (`Not Found`) when there is none. The options
+are the `headers` of the answer, and the `cause`:
+
+```ts
+throw new HttpError(401, "token expired", {
+  headers: { "www-authenticate": "Bearer" },
+});
+throw new HttpError(503, "the database is down", { cause: error });
+```
+
+- **There is one class**, and no class for each status: what handles an error
+  looks at `error.status`.
+- **Below 500 the message is sent to the client**: write it for the client. From
+  500 only the text of the status is sent (`Service Unavailable`), and the
+  message and the `cause` are for the logs. The message of any other error is
+  never sent.
+- **The error handlers come first.** An `HttpError` goes to `@Catch` and
+  `onError` like any error. It answers for itself only when none of them
+  answers: a handler that returns nothing changes nothing.
+- **An error handler can throw one**, to turn an error of the application into a
+  status:
+
+  ```ts
+  @Catch((error) => {
+    if (error instanceof OutOfStock) {
+      throw new HttpError(409, error.message);
+    }
+  })
+  ```
+
+To answer in another shape, such as `application/problem+json`, answer in
+`onError`. `isHttpError` recognizes the error, and `error.toResponse()` is the
+answer the framework would send:
+
+```ts
+const app = await ChoWeb.create(AppModule, {
+  onError: (error) => {
+    if (isHttpError(error)) {
+      return Response.json(
+        { title: error.message, status: error.status },
+        {
+          status: error.status,
+          headers: { "content-type": "application/problem+json" },
+        },
+      );
+    }
+  },
+});
+```
+
+Use `isHttpError(error)` and not `error instanceof HttpError`: a middleware of
+another package can throw the `HttpError` of another copy of `@chojs/web`.
+
+### Errors of the framework
+
+A mistake the framework finds (a duplicate route, an option that does not exist,
+a class that cannot be injected) is a `ChoError`: an `Error` with a `code`. The
+code is stable: it is part of the API, where the message is for people and can
+change.
+
+```ts
+import { ChoWeb, isChoError } from "@chojs/web";
+
+try {
+  await ChoWeb.create(AppModule);
+} catch (error) {
+  if (isChoError(error, "CHO_WEB_DUPLICATE_ROUTE")) {
+    // ...
+  }
+  throw error;
+}
+```
+
+The codes of this package start with `CHO_WEB_` (type `ChoWebErrorCode`), and
+those of the core with `CHO_CORE_` (type `ChoCoreErrorCode`). Every code is
+listed with its mistake in the [specification](./specs.md#9-errors).
 
 ### Serving
 

@@ -21,6 +21,7 @@
  * @module
  */
 
+import { fastify_error } from "./errors.ts";
 import { Buffer } from "node:buffer";
 import { Readable } from "node:stream";
 import Fastify, {
@@ -186,11 +187,12 @@ export class FastifyLinked implements Linked<FastifyInstance> {
    * until then.
    *
    * @param route The route to register.
-   * @throws {Error} When Fastify has loaded its plugins.
+   * @throws {ChoError} When Fastify has loaded its plugins.
    */
   mount(route: Route): void {
     if (this.#loaded) {
-      throw new Error(
+      throw fastify_error(
+        "CHO_FASTIFY_MOUNT_TOO_LATE",
         `FastifyLinked.mount(): cannot add ${route.method} ${route.path}: the Fastify application is ready. Mount routes before listen(), ready() and the first request`,
       );
     }
@@ -337,13 +339,14 @@ export class FastifyLinker implements Linker<FastifyInstance> {
    *
    * @param routes The routes of the application.
    * @returns The linked Fastify application.
-   * @throws {Error} When the linker was already used: its Fastify application
+   * @throws {ChoError} When the linker was already used: its Fastify application
    *   holds the routes of the first application.
    */
   link(routes: readonly Route[]): FastifyLinked {
     // A second application would add its routes to the first one's.
     if (this.#linked) {
-      throw new Error(
+      throw fastify_error(
+        "CHO_FASTIFY_ALREADY_LINKED",
         "FastifyLinker.link() was already called: use one linker for one application",
       );
     }
@@ -379,7 +382,8 @@ function fastify_native(ctx: ChoWebContext): FastifyNative {
     typeof native.reply?.send !== "function" ||
     typeof native.request?.raw !== "object"
   ) {
-    throw new Error(
+    throw fastify_error(
+      "CHO_FASTIFY_WRONG_ADAPTER",
       "fromFastify(): a Fastify hook runs on the Fastify adapter only: create the application with a FastifyLinker",
     );
   }
@@ -422,11 +426,17 @@ function run_hook(
       if (typeof (result as PromiseLike<unknown> | null)?.then === "function") {
         (result as PromiseLike<unknown>).then(
           (returned) => settle(undefined, returned),
-          (error) => settle(error ?? new Error("the hook rejected")),
+          (error) =>
+            settle(
+              error ??
+                fastify_error("CHO_FASTIFY_HOOK_FAILED", "the hook rejected"),
+            ),
         );
       }
     } catch (error) {
-      settle(error ?? new Error("the hook threw"));
+      settle(
+        error ?? fastify_error("CHO_FASTIFY_HOOK_FAILED", "the hook threw"),
+      );
     }
   });
 }
@@ -513,3 +523,6 @@ export function fromFastify(hook: FastifyHook): ChoWebMiddlewareFn {
     return new Response(null, { status: reply.statusCode, headers });
   };
 }
+
+/** The codes of the errors of this package. */
+export type { ChoFastifyErrorCode } from "./errors.ts";

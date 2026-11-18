@@ -40,6 +40,7 @@ Each middleware is in its own file, and all of them are exported by the package.
 - [`basicAuth`](#basicauth)
 - [`bearerAuth`](#bearerauth)
 - [`compress`](#compress)
+- [Errors](#errors)
 - [Runtime support](#runtime-support)
 - [Documentation](#documentation)
 
@@ -322,6 +323,23 @@ compress(); // or compress({ threshold: 4096 })
 - `Vary: Accept-Encoding` is added, and a strong `ETag` becomes a weak one.
 - It uses the standard `CompressionStream`; on a runtime without it, the
   middleware changes nothing. There is no Brotli.
+
+## Errors
+
+A mistake in the options of a middleware is a `ChoError` of `@chojs/web`: an
+`Error` with a stable `code`, thrown when the middleware is made. Recognize it
+with `isChoError(error, code)`. The messages are for people, and can change.
+
+| Mistake                                      | Code                        | Message                                                                                      |
+| -------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
+| An option of a middleware is wrong           | `CHO_VENDOR_INVALID_OPTION` | `cors(): origin must be a string, a list of strings or a function` (and one for each option) |
+| A body over the limit of `bodyLimit` is read | `CHO_VENDOR_BODY_TOO_LARGE` | `the body of the request is too large`                                                       |
+
+The second one is what reading the body fails with, in the handler: the
+middleware answers `413` whatever the rest of the chain made of it.
+
+A middleware that refuses a request returns a `Response` (`401`, `413`, `504`):
+nothing is thrown, and no error handler is called.
 
 ## Runtime support
 

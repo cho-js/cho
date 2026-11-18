@@ -29,9 +29,9 @@ const ORIGIN = "https://example.com";
 
 /** Run a CORS middleware on a request; `next` answers `200 ok`. */
 async function run(
-    options: CorsOptions | undefined,
-    init: RequestInit & { path?: string } = {},
-    answer: () => Response = () => new Response("ok"),
+  options: CorsOptions | undefined,
+  init: RequestInit & { path?: string } = {},
+  answer: () => Response = () => new Response("ok"),
 ) {
   let called = 0;
   const req = new Request(`http://localhost${init.path ?? "/"}`, init);
@@ -75,21 +75,21 @@ describe("cors, a request", () => {
   });
 
   for (
-      const [name, origin] of [
-    ["a string", ORIGIN],
-    ["a list", ["https://other.com", ORIGIN]],
-    ["a function", (o: string) => new URL(o).hostname === "example.com"],
-    [
-      "an asynchronous function",
-      (o: string) => Promise.resolve(o === ORIGIN),
-    ],
-  ] as [string, NonNullable<CorsOptions["origin"]>][]
-      ) {
+    const [name, origin] of [
+      ["a string", ORIGIN],
+      ["a list", ["https://other.com", ORIGIN]],
+      ["a function", (o: string) => new URL(o).hostname === "example.com"],
+      [
+        "an asynchronous function",
+        (o: string) => Promise.resolve(o === ORIGIN),
+      ],
+    ] as [string, NonNullable<CorsOptions["origin"]>][]
+  ) {
     it(`allows the origins of ${name}, and no other`, async () => {
       const allowed = await run({ origin }, { headers: { origin: ORIGIN } });
       assert.equal(
-          allowed.headers.get("access-control-allow-origin"),
-          ORIGIN,
+        allowed.headers.get("access-control-allow-origin"),
+        ORIGIN,
       );
       assert.equal(allowed.headers.get("vary"), "Origin");
 
@@ -132,8 +132,8 @@ describe("cors, a request", () => {
       headers: { origin: ORIGIN },
     });
     assert.equal(
-        headers.get("access-control-expose-headers"),
-        "x-total, x-page",
+      headers.get("access-control-expose-headers"),
+      "x-total, x-page",
     );
     // preflight headers are not sent with a real response
     assert.equal(headers.get("access-control-allow-methods"), null);
@@ -141,16 +141,16 @@ describe("cors, a request", () => {
 
   it("keeps the response, its headers and its Vary", async () => {
     const { response, headers } = await run(
-        { origin: ORIGIN },
-        { headers: { origin: ORIGIN } },
-        () =>
-            new Response("created", {
-              status: 201,
-              headers: [["vary", "Accept"], ["set-cookie", "a=1"], [
-                "set-cookie",
-                "b=2",
-              ]],
-            }),
+      { origin: ORIGIN },
+      { headers: { origin: ORIGIN } },
+      () =>
+        new Response("created", {
+          status: 201,
+          headers: [["vary", "Accept"], ["set-cookie", "a=1"], [
+            "set-cookie",
+            "b=2",
+          ]],
+        }),
     );
     assert.deepEqual([response.status, await response.text()], [
       201,
@@ -162,9 +162,9 @@ describe("cors, a request", () => {
 
   it("copies a response whose headers cannot be changed", async () => {
     const { response, headers } = await run(
-        undefined,
-        { headers: { origin: ORIGIN } },
-        () => Response.redirect("http://localhost/elsewhere", 302),
+      undefined,
+      { headers: { origin: ORIGIN } },
+      () => Response.redirect("http://localhost/elsewhere", 302),
     );
     assert.equal(response.status, 302);
     assert.equal(headers.get("location"), "http://localhost/elsewhere");
@@ -184,18 +184,18 @@ describe("cors, a request", () => {
 describe("cors, a preflight request", () => {
   it("answers 204 itself, with the methods and the headers asked for", async () => {
     const { response, headers, called } = await run(
-        undefined,
-        preflight(ORIGIN, "PUT", "content-type, x-token"),
+      undefined,
+      preflight(ORIGIN, "PUT", "content-type, x-token"),
     );
     assert.deepEqual([response.status, called, response.body], [204, 0, null]);
     assert.equal(headers.get("access-control-allow-origin"), "*");
     assert.equal(
-        headers.get("access-control-allow-methods"),
-        "GET, HEAD, PUT, POST, DELETE, PATCH",
+      headers.get("access-control-allow-methods"),
+      "GET, HEAD, PUT, POST, DELETE, PATCH",
     );
     assert.equal(
-        headers.get("access-control-allow-headers"),
-        "content-type, x-token",
+      headers.get("access-control-allow-headers"),
+      "content-type, x-token",
     );
     // what is allowed is what was asked
     assert.equal(headers.get("vary"), "Access-Control-Request-Headers");
@@ -204,32 +204,32 @@ describe("cors, a preflight request", () => {
 
   it("sends the configured methods, headers and max age", async () => {
     const { headers } = await run(
-        {
-          origin: ORIGIN,
-          methods: ["GET", "POST"],
-          allowedHeaders: ["content-type"],
-          credentials: true,
-          maxAge: 600,
-        },
-        preflight(ORIGIN, "POST", "x-anything"),
+      {
+        origin: ORIGIN,
+        methods: ["GET", "POST"],
+        allowedHeaders: ["content-type"],
+        credentials: true,
+        maxAge: 600,
+      },
+      preflight(ORIGIN, "POST", "x-anything"),
     );
     assert.deepEqual(
-        [
-          "access-control-allow-origin",
-          "access-control-allow-credentials",
-          "access-control-allow-methods",
-          "access-control-allow-headers",
-          "access-control-max-age",
-          "vary",
-        ].map((name) => headers.get(name)),
-        [ORIGIN, "true", "GET, POST", "content-type", "600", "Origin"],
+      [
+        "access-control-allow-origin",
+        "access-control-allow-credentials",
+        "access-control-allow-methods",
+        "access-control-allow-headers",
+        "access-control-max-age",
+        "vary",
+      ].map((name) => headers.get(name)),
+      [ORIGIN, "true", "GET, POST", "content-type", "600", "Origin"],
     );
   });
 
   it("sends no allow header to an origin that is not allowed", async () => {
     const { response, headers, called } = await run(
-        { origin: ORIGIN },
-        preflight("https://evil.test"),
+      { origin: ORIGIN },
+      preflight("https://evil.test"),
     );
     assert.deepEqual([response.status, called], [204, 0]);
     assert.equal(headers.get("access-control-allow-origin"), null);
@@ -248,22 +248,26 @@ describe("cors, options", () => {
   it("rejects an option of the wrong type, when the middleware is made", () => {
     const bad = (options: unknown) => () => cors(loose(options));
     assert.throws(bad({ origin: 1 }), {
-      name: "TypeError",
+      code: "CHO_VENDOR_INVALID_OPTION",
       message:
-          "cors(): origin must be a string, a list of strings or a function",
+        "cors(): origin must be a string, a list of strings or a function",
     });
-    assert.throws(bad({ origin: ["a", 1] }), { name: "TypeError" });
+    assert.throws(bad({ origin: ["a", 1] }), {
+      code: "CHO_VENDOR_INVALID_OPTION",
+    });
     for (const name of ["methods", "allowedHeaders", "exposedHeaders"]) {
       assert.throws(bad({ [name]: "GET" }), {
-        name: "TypeError",
+        code: "CHO_VENDOR_INVALID_OPTION",
         message: `cors(): ${name} must be a list of strings`,
       });
     }
     assert.throws(bad({ credentials: "yes" }), {
+      code: "CHO_VENDOR_INVALID_OPTION",
       message: "cors(): credentials must be a boolean",
     });
     for (const maxAge of [-1, 1.5, "600"]) {
       assert.throws(bad({ maxAge }), {
+        code: "CHO_VENDOR_INVALID_OPTION",
         message: "cors(): maxAge must be a whole number of seconds",
       });
     }
@@ -304,7 +308,7 @@ routed("cors, in an application", () => {
   }
 
   const send = (app: ChoWeb<unknown>, path: string, init: RequestInit = {}) =>
-      app.handler(new Request(`http://localhost${path}`, init));
+    app.handler(new Request(`http://localhost${path}`, init));
 
   it("covers the routes it is declared on, with @Middlewares", async () => {
     const app = await ChoWeb.create(app_module(cors({ origin: ORIGIN })));
@@ -314,8 +318,8 @@ routed("cors, in an application", () => {
     // the preflight request reaches it through the @Options route
     const pre = await send(app, "/users", preflight(ORIGIN, "POST"));
     assert.deepEqual(
-        [pre.status, pre.headers.get("access-control-allow-origin")],
-        [204, ORIGIN],
+      [pre.status, pre.headers.get("access-control-allow-origin")],
+      [204, ORIGIN],
     );
     assert.equal(pre.headers.get("allow"), null); // not the handler's answer
     // another controller is not covered
@@ -336,20 +340,20 @@ routed("cors, in an application", () => {
       assert.equal(real.status, 200);
       assert.equal(real.headers.get("access-control-allow-origin"), ORIGIN);
       assert.equal(
-          real.headers.get("access-control-allow-credentials"),
-          "true",
+        real.headers.get("access-control-allow-credentials"),
+        "true",
       );
       const pre = await send(app, path, preflight(ORIGIN, "GET"));
       assert.deepEqual(
-          [pre.status, pre.headers.get("access-control-allow-origin")],
-          [204, ORIGIN],
+        [pre.status, pre.headers.get("access-control-allow-origin")],
+        [204, ORIGIN],
       );
     }
     // a path with no route at all: still a CORS answer, on the 404
     const missing = await send(app, "/nope", { headers: { origin: ORIGIN } });
     assert.deepEqual(
-        [missing.status, missing.headers.get("access-control-allow-origin")],
-        [404, ORIGIN],
+      [missing.status, missing.headers.get("access-control-allow-origin")],
+      [404, ORIGIN],
     );
     // a POST still reaches its handler
     const created = await send(app, "/users", {

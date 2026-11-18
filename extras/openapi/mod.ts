@@ -42,3 +42,6 @@ export {
 } from "./page.ts";
 export type { SchemaIo, ToJsonSchema } from "./schema.ts";
 export type * from "./types.ts";
+
+/** The codes of the errors of this package. */
+export type { ChoOpenApiErrorCode } from "./errors.ts";

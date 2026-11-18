@@ -357,7 +357,8 @@ when it has them, as a zod error does, and otherwise one issue with the error's
 message. To answer differently, give the middleware an `onInvalid` function. It
 receives what failed and the context, and what it returns is the response,
 converted like the result of a handler. When it returns nothing (it only logs,
-say), the default answer is sent:
+say), the default answer is sent. It can also throw an `HttpError` (section
+5.1), which answers as it does anywhere:
 
 ```ts
 validate({
@@ -579,14 +580,14 @@ A middleware adds headers to the response as to any other, after `next()`.
 
 **Before the stream.** What runs before the handler is what it is for any
 handler: the middlewares of the route, the arguments of `@Args` and their
-validation. They answer a request they refuse (`401`, `400`) the usual way, and
-the last id a client got is an argument like any other,
-`Header("last-event-id")`.
+validation. They answer a request they refuse (`401`, `400`) the usual way, an
+`HttpError` included (section 5.1), and the last id a client got is an argument
+like any other, `Header("last-event-id")`.
 
 The body of an `async *` method is different: it runs as part of the stream,
 when the response has already started, so it cannot answer with another status.
 A handler that must be able to refuse is a plain method, which returns either a
-`Response` or the events:
+`Response` or the events, or throws an `HttpError` before it returns them:
 
 ```ts
 @Sse(":id/events")
@@ -801,12 +802,122 @@ class UsersController {
 ```
 
 Without any error handler at any level, when the error handler returns nothing,
-or when it throws too, the error goes to the adapter, which answers `500`
-(section 7).
+or when it throws too, the error leaves the route: an `HttpError` answers for
+itself (section 5.1), and any other error goes to the adapter, which answers
+`500` (section 7).
 
 An error in an event stream that has already started is **not** given to an
 error handler: the response is on its way, and there is nothing left to answer.
 The stream is cut (section 3.4).
+
+### 5.1 Answering with a status: `HttpError`
+
+`HttpError` is what an application throws to answer a request with a status,
+from anywhere the request is handled: a handler, a middleware, a function of
+`@Args`, the `onInvalid` of `validate()`, a mounted route.
+
+```ts
+import { HttpError } from "@chojs/web";
+
+@Get(":id")
+@Args(Param("id"))
+get(id: string) {
+  const user = this.users.get(id);
+  if (!user) {
+    throw new HttpError(404, "no such user");
+  }
+  return user;
+}
+```
+
+`new HttpError(status, message?, options?)`:
+
+| Argument          | What it is                                                                         |
+| ----------------- | ---------------------------------------------------------------------------------- |
+| `status`          | A whole number from 400 to 599.                                                    |
+| `message`         | What went wrong. Default: the text of the status (`Not Found`).                    |
+| `options.headers` | Headers of the answer, as `new Headers()` takes them: `www-authenticate` of a 401. |
+| `options.cause`   | The error that led to this one. It is logged, and never sent.                      |
+
+**There is one class, and no class for each status**: no `NotFoundError`, no
+`UnauthorizedError`. What handles an error looks at its `status`.
+
+**The answer** has the status, the headers, and a JSON body:
+
+```json
+{ "error": "no such user" }
+```
+
+It is the shape `validate()` answers with (section 3.2). An application that
+wants another one, `application/problem+json` for one, writes it in an error
+handler:
+
+```ts
+const app = await ChoWeb.create(App, {
+  onError: (error) => {
+    if (isHttpError(error)) {
+      return Response.json(
+        { title: error.message, status: error.status },
+        {
+          status: error.status,
+          headers: { "content-type": "application/problem+json" },
+        },
+      );
+    }
+  },
+});
+```
+
+**What a client sees.** Below 500 the message is sent: the application wrote it
+for the client. From 500 only the text of the status is sent
+(`Service Unavailable`): the message, and the `cause`, are for the logs. The
+message of an error that is not an `HttpError` is never sent.
+
+**The error handlers come first.** An `HttpError` is an error like any other for
+`@Catch` and `onError`: it goes to the nearest one, which answers it or returns
+nothing. It answers for itself only when no error handler answered:
+
+| What happens                                           | The answer                        |
+| ------------------------------------------------------ | --------------------------------- |
+| An error handler returns something                     | what it returned                  |
+| No error handler, or the error handler returns nothing | the status of the `HttpError`     |
+| An error handler throws an `HttpError`                 | the status of the one it threw    |
+| The error is not an `HttpError`, and nothing answers   | `500`, by the adapter (section 7) |
+
+So an error handler that only logs changes nothing, and one that turns the
+errors of the application into statuses is three lines:
+
+```ts
+@Catch((error) => {
+  if (error instanceof OutOfStock) {
+    throw new HttpError(409, error.message);
+  }
+})
+```
+
+`error.toResponse()` gives the answer the framework would send: an error handler
+calls it to answer the same way after it did something of its own (it adds a
+header, it counts the error).
+
+**`isHttpError(error)`** says whether an error is an `HttpError`. It does not
+use `instanceof`, which is false for an `HttpError` of another copy of
+`@chojs/web`: a middleware of another package can bring one. The framework
+recognizes an `HttpError` the same way.
+
+**Logging.** An `HttpError` below 500 is what the application chose to answer,
+not a failure: it is a line of the `cho:web` debug context
+(`GET /users/7 answered 404: no such user`), and no `ERROR`. From 500 it is
+logged as an error, with its `cause`.
+
+**What it is not.**
+
+- It is not a `ChoError` (section 9): it has a `status`, and no `code`.
+- It is not for a request no route matches: that answer is the adapter's
+  (section 7).
+- It does nothing in an event stream that has started: the stream is cut, as for
+  any error (section 3.4).
+- A middleware that returns a `Response` needs no `HttpError`: returning a
+  `Response` is still the way to end a request in a middleware.
 
 ## 6. The application: `ChoWeb`
 
@@ -882,7 +993,8 @@ mount(
   no feature or controller middleware runs for it, and no `@Catch` handler of
   the application answers for it: it has the `middlewares` it was given. When it
   fails, the `onError` of `ChoWeb.create` answers, if there is one; without one,
-  the adapter answers `500`, as for any route.
+  an `HttpError` answers for itself (section 5.1) and the adapter answers `500`
+  for anything else, as for any route.
 - **It is the last route.** Where the first declared route wins (the built-in
   router, Hono), a declared route that matches the same path answers first: a
   `@Get(":slug")` at the root answers `/docs`.
@@ -941,9 +1053,11 @@ package. It resolves, once the server is listening, to
   loads nothing of it. On Cloudflare Workers and the other runtimes that serve
   an exported handler, the entry module is
   `export default { fetch: app.handler }`.
-- A `closeTimeout` that is not a whole number of milliseconds rejects:
-  `TypeError: serve(): closeTimeout must be a whole number of milliseconds, got <v>`.
-- On a runtime that is not Deno, Bun or Node.js it rejects:
+- A `closeTimeout` that is not a whole number of milliseconds rejects
+  (`CHO_WEB_INVALID_OPTION`):
+  `serve(): closeTimeout must be a whole number of milliseconds, got <v>`.
+- On a runtime that is not Deno, Bun or Node.js it rejects
+  (`CHO_WEB_NO_SERVER`):
   `serve() has no server for this runtime (<runtime>): give app.handler to the runtime's own entry point`.
 - On Deno it needs `--allow-net`.
 
@@ -993,20 +1107,21 @@ method and path.
 
 ## 7. Runtime adapters
 
-|                          | `ChoLinker` (built in)                                   | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                          |
-| ------------------------ | -------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------- |
-| Linker                   | `new ChoLinker(options?)`                                | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                                    |
-| Runs on                  | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                                     |
-| `app.linked.instance`    | a `ChoRouter`                                            | the `Hono` application                           | the Fastify application                                          |
-| Served with              | `app.handler`                                            | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()`       |
-| `ctx.native`             | `undefined`                                              | Hono's `Context`                                 | `{ request, reply }` of Fastify                                  |
-| When two routes match    | the first declared                                       | the first declared                               | the static one                                                   |
-| `HEAD` without `@Head`   | `@Get`, without the body                                 | `@Get`, without the body                         | `@Get`, without the body                                         |
-| No route matches         | the `notFound` option; `404`                             | `notFound` of the Hono application               | the not-found handler of the Fastify application                 |
-| A route rejects          | logged with `console.error`; `500`                       | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`              |
-| An event stream (`@Sse`) | streamed by the server that runs `app.handler`           | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end |
-| Its own middlewares      | `@chojs/vendor-cho` (`cors`)                             | `fromHono(middleware)`                           | `fromFastify(hook)`                                              |
-| A route mounted late     | accepted                                                 | throws, after the first request                  | throws, once the application is ready                            |
+|                               | `ChoLinker` (built in)                                   | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                          |
+| ----------------------------- | -------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------- |
+| Linker                        | `new ChoLinker(options?)`                                | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                                    |
+| Runs on                       | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                                     |
+| `app.linked.instance`         | a `ChoRouter`                                            | the `Hono` application                           | the Fastify application                                          |
+| Served with                   | `app.handler`                                            | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()`       |
+| `ctx.native`                  | `undefined`                                              | Hono's `Context`                                 | `{ request, reply }` of Fastify                                  |
+| When two routes match         | the first declared                                       | the first declared                               | the static one                                                   |
+| `HEAD` without `@Head`        | `@Get`, without the body                                 | `@Get`, without the body                         | `@Get`, without the body                                         |
+| No route matches              | the `notFound` option; `404`                             | `notFound` of the Hono application               | the not-found handler of the Fastify application                 |
+| A route rejects               | logged with `console.error`; `500`                       | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`              |
+| A route throws an `HttpError` | answered by the route (section 5.1)                      | answered by the route                            | answered by the route                                            |
+| An event stream (`@Sse`)      | streamed by the server that runs `app.handler`           | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end |
+| Its own middlewares           | `@chojs/vendor-cho` (`cors`)                             | `fromHono(middleware)`                           | `fromFastify(hook)`                                              |
+| A route mounted late          | accepted                                                 | throws, after the first request                  | throws, once the application is ready                            |
 
 **The middlewares of the built-in router.** `new ChoLinker({ middlewares })`
 takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
@@ -1023,8 +1138,11 @@ takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
 - a route that rejects reaches them as the `500` response;
 - one that fails (it throws, or breaks a rule of section 4) is logged with
   `console.error`, and the request is answered `500`;
+- one that throws an `HttpError` (section 5.1) is answered with its status, as a
+  route is, and so is a `notFound` that throws one: nothing is logged;
 - one that is not a function makes `link()` throw
-  `TypeError: ChoLinker: middleware <n> must be a function, got <v>`.
+  (`CHO_WEB_INVALID_MIDDLEWARE`):
+  `ChoLinker: middleware <n> must be a function, got <v>`.
 
 `@chojs/vendor-cho` has middlewares written for it (`vendor/cho/README.md`):
 `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId`, `etag`,
@@ -1063,7 +1181,9 @@ adapter gives it the `Request`, the decoded path parameters of the match and,
 optionally, its own request context, which handlers see as `ctx.native`, and the
 state of the request, when something ran for it before the route (the
 middlewares of the built-in router): handlers see it as `ctx.state`. It rejects
-when the route fails without an error handler: the adapter answers `500`.
+when the route fails without an error handler: the adapter answers `500`. It
+does not reject for an `HttpError` (section 5.1): the route resolves with its
+answer, so an adapter has nothing to do for one.
 
 ```ts
 class MyLinker implements Linker<MyServer> {
@@ -1098,104 +1218,145 @@ not in it:
 
 ## 8. Public API
 
-| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoWebMountOptions`, `ChoWebMountMethod`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Sse`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, the types `ChoWebSseEvent`, `ChoWebSseOptions`, `ChoWebSseMethod`, `ChoWebSseResult`, `ChoWebSseDecorator`, `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidator`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebDocSecurity`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoWebMountOptions`, `ChoWebMountMethod`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Sse`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, `HttpError`, `isHttpError`, `HttpErrorOptions`, `ChoError`, `isChoError` (the core's), `ChoWebErrorCode`, `ChoCoreErrorCode`, the types `ChoWebSseEvent`, `ChoWebSseOptions`, `ChoWebSseMethod`, `ChoWebSseResult`, `ChoWebSseDecorator`, `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidator`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebDocSecurity`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 
 ## 9. Errors
 
-The messages below are the current wording, for people to read: they are not
-part of the API and can change in any release (`core/specs.md`, section 2.8). Do
-not match on their text.
+Every mistake the framework finds is a `ChoError` with a `code`
+(`core/specs.md`, section 2.8). The code is part of the API. The messages below
+are the current wording, for people to read: they are not part of the API and
+can change in any release. Do not match on their text.
+
+```ts
+import { ChoWeb, isChoError } from "@chojs/web";
+
+try {
+  await ChoWeb.create(App);
+} catch (error) {
+  if (isChoError(error, "CHO_WEB_DUPLICATE_ROUTE")) {
+    // ...
+  }
+  throw error;
+}
+```
+
+The codes of this package start with `CHO_WEB_` (type `ChoWebErrorCode`). A
+mistake the core finds has a code of the core, `CHO_CORE_…` (type
+`ChoCoreErrorCode`): it is named in the tables below where a web application
+meets it. An `HttpError` (section 5.1) is not a `ChoError`, and has no code.
 
 **Thrown by the decorators**, when the class is defined:
 
-| Mistake                                        | Message                                                                                                                             |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| A handler's route is invalid                   | `Invalid route "<route>" of @Get() on method <name>: <reason>`                                                                      |
-| A second HTTP method decorator on a method     | `Cannot add @Get() to method <name>: it already handles POST "<route>". A method can have one HTTP method decorator.`               |
-| An unknown option of `@Module` / `@Controller` | `@Controller(): unknown option "deps". Known options: dependencies, route`                                                          |
-| An unknown option of `@Doc`                    | `@Doc(): unknown option "tag". Known options: deprecated, description, hidden, operationId, responses, security, summary, tags`     |
-| A static, private or symbol-named handler      | `TypeError: @Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`)         |
-| A second `@Args` on a method                   | `Cannot add @Args() to method <name>: it already has one.`                                                                          |
-| An argument of `@Args` is not a function       | `TypeError: @Args() on method <name>: argument <n> must be made with Param, Query, Header, Body or Form, or be a function, got <v>` |
-| A key or a validator of the wrong type         | `TypeError: Body(): expected a key (a string) or a validator (an object with a parse method), got <v>`                              |
-| Something after a validator                    | `TypeError: Body(): a validator is the last argument, got <v> after it`                                                             |
-| A second `@Doc` on a class or a method         | `Cannot add @Doc() to class <Name>: it already has one.` (and `… to method <name> …`)                                               |
-| A handler option of `@Doc` on a class          | `@Doc(): option "summary" is for a handler, not for a class (class <Name>)` (and `"responses"`, `"operationId"`)                    |
-| An `operationId` that is not a string          | `TypeError: @Doc(): operationId must be a non-empty string, got <v>`                                                                |
-| A `security` of the wrong shape                | `TypeError: @Doc(): security must be a list of objects of lists of strings, such as [{ bearer: [] }], got <v>`                      |
-| A `contentType` that is not a string           | `TypeError: @Doc(): the contentType of response <status> must be a non-empty string, got <v>`                                       |
-| An unknown option of `@Sse`                    | `@Sse(): unknown option "keepalive". Known options: keepAlive, method`                                                              |
-| A `method` a stream cannot answer              | `TypeError: @Sse(): method must be one of GET, POST, PUT, PATCH, DELETE, got <v>`                                                   |
-| A `keepAlive` that is not a time               | `TypeError: @Sse(): keepAlive must be a positive whole number of milliseconds, got <v>`                                             |
+| Mistake                                        | Code                          | Message                                                                                                                         |
+| ---------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| A handler's route is invalid                   | `CHO_WEB_INVALID_ROUTE`       | `Invalid route "<route>" of @Get() on method <name>: <reason>`                                                                  |
+| A second HTTP method decorator on a method     | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Get() to method <name>: it already handles POST "<route>". A method can have one HTTP method decorator.`           |
+| An unknown option of `@Module` / `@Controller` | `CHO_CORE_UNKNOWN_OPTION`     | `@Controller(): unknown option "deps". Known options: dependencies, route`                                                      |
+| An unknown option of `@Doc`                    | `CHO_CORE_UNKNOWN_OPTION`     | `@Doc(): unknown option "tag". Known options: deprecated, description, hidden, operationId, responses, security, summary, tags` |
+| A static, private or symbol-named handler      | `CHO_WEB_INVALID_TARGET`      | `@Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`)                |
+| A second `@Args` on a method                   | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Args() to method <name>: it already has one.`                                                                      |
+| An argument of `@Args` is not a function       | `CHO_WEB_INVALID_ARGUMENT`    | `@Args() on method <name>: argument <n> must be made with Param, Query, Header, Body or Form, or be a function, got <v>`        |
+| A key or a validator of the wrong type         | `CHO_WEB_INVALID_ARGUMENT`    | `Body(): expected a key (a string) or a validator (an object with a parse method), got <v>`                                     |
+| Something after a validator                    | `CHO_WEB_INVALID_ARGUMENT`    | `Body(): a validator is the last argument, got <v> after it`                                                                    |
+| A second `@Doc` on a class or a method         | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Doc() to class <Name>: it already has one.` (and `… to method <name> …`)                                           |
+| A handler option of `@Doc` on a class          | `CHO_WEB_INVALID_OPTION`      | `@Doc(): option "summary" is for a handler, not for a class (class <Name>)` (and `"responses"`, `"operationId"`)                |
+| An `operationId` that is not a string          | `CHO_WEB_INVALID_OPTION`      | `@Doc(): operationId must be a non-empty string, got <v>`                                                                       |
+| A `security` of the wrong shape                | `CHO_WEB_INVALID_OPTION`      | `@Doc(): security must be a list of objects of lists of strings, such as [{ bearer: [] }], got <v>`                             |
+| A `contentType` that is not a string           | `CHO_WEB_INVALID_OPTION`      | `@Doc(): the contentType of response <status> must be a non-empty string, got <v>`                                              |
+| An unknown option of `@Sse`                    | `CHO_CORE_UNKNOWN_OPTION`     | `@Sse(): unknown option "keepalive". Known options: keepAlive, method`                                                          |
+| A `method` a stream cannot answer              | `CHO_WEB_INVALID_OPTION`      | `@Sse(): method must be one of GET, POST, PUT, PATCH, DELETE, got <v>`                                                          |
+| A `keepAlive` that is not a time               | `CHO_WEB_INVALID_OPTION`      | `@Sse(): keepAlive must be a positive whole number of milliseconds, got <v>`                                                    |
 
 **Rejected by `ChoWeb.create`**: any module graph error of the core
 (`core/specs.md`, section 2.8), and:
 
-| Mistake                                       | Message                                                                                                                 |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| A route is not a string                       | `TypeError: Invalid route of <where>: expected a string, got <v>`                                                       |
-| A route breaks a rule (section 2.3)           | `Invalid route "<route>" of <where>: <reason>`                                                                          |
-| Two handlers with the same method and path    | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>`                            |
-| The same controller declared by two modules   | the message above, followed by `Its controller is declared in more than one module: declare it in one.`                 |
-| A wildcard in a route                         | `Invalid route "<route>" of <where>: "<segment>" has a "*": wildcards are not part of the route syntax`                 |
-| A malformed parameter (`:`, `:1id`, `:a:b`)   | `Invalid route "<route>" of <where>: "<segment>" is not a valid parameter: write ":name", with letters, digits and "_"` |
-| `Param("x")` names no parameter of the path   | `@Args() of <Controller.method>: Param("x") is not a parameter of the route "<path>"`                                   |
-| `onError` is not a function or a class        | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                      |
-| A middleware class has no `handle` method     | `Middleware class <Name> must implement 'handle' method.`                                                               |
-| A middleware class cannot be created          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                             |
-| An error handler class has no `handle` method | `Error handler class <Name> must implement 'handle' method.`                                                            |
-| An error handler class cannot be created      | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                |
+| Mistake                                       | Code                             | Message                                                                                                                 |
+| --------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| A route is not a string                       | `CHO_WEB_INVALID_ROUTE`          | `Invalid route of <where>: expected a string, got <v>`                                                                  |
+| A route breaks a rule (section 2.3)           | `CHO_WEB_INVALID_ROUTE`          | `Invalid route "<route>" of <where>: <reason>`                                                                          |
+| Two handlers with the same method and path    | `CHO_WEB_DUPLICATE_ROUTE`        | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>`                            |
+| The same controller declared by two modules   | `CHO_WEB_DUPLICATE_ROUTE`        | the message above, followed by `Its controller is declared in more than one module: declare it in one.`                 |
+| A wildcard in a route                         | `CHO_WEB_INVALID_ROUTE`          | `Invalid route "<route>" of <where>: "<segment>" has a "*": wildcards are not part of the route syntax`                 |
+| A malformed parameter (`:`, `:1id`, `:a:b`)   | `CHO_WEB_INVALID_ROUTE`          | `Invalid route "<route>" of <where>: "<segment>" is not a valid parameter: write ":name", with letters, digits and "_"` |
+| `Param("x")` names no parameter of the path   | `CHO_WEB_UNKNOWN_PARAM`          | `@Args() of <Controller.method>: Param("x") is not a parameter of the route "<path>"`                                   |
+| `onError` is not a function or a class        | `CHO_CORE_INVALID_ERROR_HANDLER` | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                      |
+| A middleware class has no `handle` method     | `CHO_CORE_INVALID_MIDDLEWARE`    | `Middleware class <Name> must implement 'handle' method.`                                                               |
+| A middleware class cannot be created          | `CHO_WEB_CREATE_FAILED`          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                             |
+| An error handler class has no `handle` method | `CHO_CORE_INVALID_ERROR_HANDLER` | `Error handler class <Name> must implement 'handle' method.`                                                            |
+| An error handler class cannot be created      | `CHO_WEB_CREATE_FAILED`          | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                |
 
 `<where>` names the declaration: `the global prefix`, `feature <Module>`,
 `controller <Controller>` or `method <name> of controller <Controller>`.
 
 **Thrown by `app.mount`**:
 
-| Mistake                                  | Message                                                                                                                      |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| A method that is not an HTTP method      | `TypeError: ChoWeb.mount(): method must be one of GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, got <v>`                     |
-| A route that breaks a rule (section 2.3) | `Invalid route "<route>" of ChoWeb.mount(): <reason>`                                                                        |
-| A handler that is not a function         | `TypeError: ChoWeb.mount(): the handler of <METHOD> <path> must be a function, got <v>`                                      |
-| A middleware that is not a function      | `TypeError: ChoWeb.mount(): middleware <n> of <METHOD> <path> must be a function, got <v>`                                   |
-| An unknown option                        | `ChoWeb.mount(): unknown option "<name>". Known options: middlewares, name`                                                  |
-| The route already exists                 | `Duplicate route "<METHOD> <path>": declared by <name> and mounted as <name>` (or `mounted as <name> and mounted as <name>`) |
-| The application is closed                | `The application is closed`                                                                                                  |
-| The adapter can no longer take a route   | the error of the adapter                                                                                                     |
+| Mistake                                  | Code                         | Message                                                                                                                      |
+| ---------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| A method that is not an HTTP method      | `CHO_WEB_INVALID_METHOD`     | `ChoWeb.mount(): method must be one of GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, got <v>`                                |
+| A route that breaks a rule (section 2.3) | `CHO_WEB_INVALID_ROUTE`      | `Invalid route "<route>" of ChoWeb.mount(): <reason>`                                                                        |
+| A handler that is not a function         | `CHO_WEB_INVALID_HANDLER`    | `ChoWeb.mount(): the handler of <METHOD> <path> must be a function, got <v>`                                                 |
+| A middleware that is not a function      | `CHO_WEB_INVALID_MIDDLEWARE` | `ChoWeb.mount(): middleware <n> of <METHOD> <path> must be a function, got <v>`                                              |
+| An unknown option                        | `CHO_CORE_UNKNOWN_OPTION`    | `ChoWeb.mount(): unknown option "<name>". Known options: middlewares, name`                                                  |
+| The route already exists                 | `CHO_WEB_DUPLICATE_ROUTE`    | `Duplicate route "<METHOD> <path>": declared by <name> and mounted as <name>` (or `mounted as <name> and mounted as <name>`) |
+| The application is closed                | `CHO_WEB_CLOSED`             | `The application is closed`                                                                                                  |
+| The adapter can no longer take a route   | the adapter's                | the error of the adapter                                                                                                     |
+
+**Thrown by `new HttpError()`** (section 5.1):
+
+| Mistake                                  | Code                      | Message                                                                          |
+| ---------------------------------------- | ------------------------- | -------------------------------------------------------------------------------- |
+| A status an error cannot have            | `CHO_WEB_INVALID_STATUS`  | `HttpError: the status must be a whole number from 400 to 599, got <v>`          |
+| A message that is not a string           | `CHO_WEB_INVALID_OPTION`  | `HttpError: the message must be a string, got <v>`                               |
+| Options that are not an object           | `CHO_WEB_INVALID_OPTION`  | `HttpError: the options must be an object, got <v>`                              |
+| An unknown option                        | `CHO_CORE_UNKNOWN_OPTION` | `HttpError: unknown option "<name>". Known options: cause, headers`              |
+| Headers that `new Headers()` cannot take | `CHO_WEB_INVALID_OPTION`  | `HttpError: the headers must be what new Headers() takes, got <v>`, with `cause` |
+
+**Thrown by the built-in router and by `serve`** (section 7):
+
+| Mistake                                        | Code                         | Message                                                                                                                                     |
+| ---------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| The runtime has no URL Pattern API             | `CHO_WEB_NO_URL_PATTERN`     | `ChoLinker needs the URL Pattern API (URLPattern), which this runtime does not have: give ChoWeb.create another linker, such as HonoLinker` |
+| A middleware of `ChoLinker` is not a function  | `CHO_WEB_INVALID_MIDDLEWARE` | `ChoLinker: middleware <n> must be a function, got <v>`                                                                                     |
+| `serve` is given something else than a handler | `CHO_WEB_INVALID_HANDLER`    | `serve() expects a request handler, such as app.handler`                                                                                    |
+| A `closeTimeout` that is not a time            | `CHO_WEB_INVALID_OPTION`     | `serve(): closeTimeout must be a whole number of milliseconds, got <v>`                                                                     |
+| The runtime has no server `serve` knows        | `CHO_WEB_NO_SERVER`          | `serve() has no server for this runtime (<runtime>): give app.handler to the runtime's own entry point`                                     |
 
 **Failing a request** (given to the route's error handler, section 5):
 
-| Mistake                                               | Message                                                                                                   |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| A middleware calls `next()` twice                     | `middleware <name>: next() called more than once`                                                         |
-| A middleware returns nothing without calling `next()` | `middleware <name> returned no response: return a Response or call next()`                                |
-| A middleware returns something else                   | `TypeError: middleware <name> must return a Response or nothing, got <typeof>`                            |
-| An `@Sse` handler returns something else              | `TypeError: @Sse() handler <Controller.method> must return an async iterable or a Response, got <typeof>` |
+| Mistake                                               | Code                                 | Message                                                                                        |
+| ----------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| A middleware calls `next()` twice                     | `CHO_CORE_NEXT_CALLED_TWICE`         | `middleware <name>: next() called more than once`                                              |
+| A middleware returns nothing without calling `next()` | `CHO_CORE_MISSING_MIDDLEWARE_RESULT` | `middleware <name> returned no response: return a Response or call next()`                     |
+| A middleware returns something else                   | `CHO_CORE_INVALID_MIDDLEWARE_RESULT` | `middleware <name> must return a Response or nothing, got <typeof>`                            |
+| An `@Sse` handler returns something else              | `CHO_WEB_INVALID_SSE_RESULT`         | `@Sse() handler <Controller.method> must return an async iterable or a Response, got <typeof>` |
 
 A middleware class is named `<Class>.handle`.
 
 **Cutting an event stream** (no error handler is called: section 3.4), besides
 what the iteration itself throws:
 
-| Mistake                                   | Message                                                                                                                               |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Something that is not an event is yielded | `TypeError: @Sse() handler <Controller.method>: an event must be a string or an object with data, got <v>`                            |
-| An `event` or an `id` that cannot be sent | `TypeError: @Sse() handler <Controller.method>: "event" must be a string with no line break, got <v>` (and `"id"`)                    |
-| A `retry` that is not a time              | `TypeError: @Sse() handler <Controller.method>: "retry" must be a whole number of milliseconds, got <v>`                              |
-| `data` that cannot be serialized as JSON  | the `TypeError` of `JSON.stringify`, or `TypeError: @Sse() handler <Controller.method>: "data" cannot be serialized as JSON, got <v>` |
+| Mistake                                   | Code                    | Message                                                                                                                                                         |
+| ----------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Something that is not an event is yielded | `CHO_WEB_INVALID_EVENT` | `@Sse() handler <Controller.method>: an event must be a string or an object with data, got <v>`                                                                 |
+| An `event` or an `id` that cannot be sent | `CHO_WEB_INVALID_EVENT` | `@Sse() handler <Controller.method>: "event" must be a string with no line break, got <v>` (and `"id"`)                                                         |
+| A `retry` that is not a time              | `CHO_WEB_INVALID_EVENT` | `@Sse() handler <Controller.method>: "retry" must be a whole number of milliseconds, got <v>`                                                                   |
+| `data` that cannot be serialized as JSON  | `CHO_WEB_INVALID_EVENT` | `@Sse() handler <Controller.method>: "data" cannot be serialized as JSON, got <v>`, or the `TypeError` of `JSON.stringify` (which is not ours, and has no code) |
 
-An argument of `@Args` that throws fails the request with its own error,
-unchanged. An argument that is not valid is answered by the validation
-middleware, when it is on the route (section 3.2).
+**What has no code**: an argument of `@Args` that throws fails the request with
+its own error, unchanged, and so does a handler or a middleware. A value a
+handler returns that cannot be serialized as JSON fails the request with the
+`TypeError` of `JSON.stringify`. An argument that is not valid is answered by
+the validation middleware, when it is on the route (section 3.2).
 
 ## 10. Internals
 
@@ -1231,6 +1392,18 @@ middleware, when it is on the route (section 3.2).
   core's `compose`, through `web/compose.ts`), converts the result
   (`web/response.ts`), and gives an error to the nearest error handler.
   Duplicate routes are rejected here.
+- **Answering an `HttpError`** (`web/http-error.ts`, `web/routes.ts`). The
+  answer is made in one place, `make_route`, for the declared routes and the
+  mounted ones, on every adapter: the error that would leave the route (no error
+  handler, one that returned nothing, or what one threw) is turned into
+  `error.toResponse()` when `isHttpError` says so. The built-in router does the
+  same for what runs outside a route: its own middlewares and `notFound`. The
+  class is recognized by a property of its prototype keyed by
+  `Symbol.for("cho.http_error")`, which two copies of the package share.
+- **Errors** (`web/errors.ts`). `web_error(code, message, options)` makes the
+  `ChoError`s of this package, with a code of `ChoWebErrorCode`
+  (`core/specs.md`, section 4.4). `web/errors_test.ts` checks the codes against
+  section 9 and against the tests.
 - **Mounting a route** (`web/web.ts`). `app.mount` makes a `Route` with the
   function that makes the declared ones (`make_route`, in `web/routes.ts`),
   around its own middlewares and handler, with the error handler of the

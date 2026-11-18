@@ -4,6 +4,7 @@
  * @module
  */
 
+import { vendor_error } from "./errors.ts";
 import type { ChoWebContext, ChoWebMiddlewareFn } from "@chojs/web";
 
 /** The options of {@link bodyLimit}. */
@@ -35,7 +36,7 @@ export type BodyLimitOptions = {
  *
  * @param options The limit, and the answer to a request over it.
  * @returns A CHO middleware function.
- * @throws {TypeError} When `maxSize` is not a whole number of bytes.
+ * @throws {ChoError} When `maxSize` is not a whole number of bytes.
  *
  * @example
  * ```ts
@@ -61,7 +62,8 @@ export type BodyLimitOptions = {
 export function bodyLimit(options: BodyLimitOptions): ChoWebMiddlewareFn {
   const { maxSize, onExceeded } = options ?? {};
   if (!(Number.isInteger(maxSize) && maxSize >= 0)) {
-    throw new TypeError(
+    throw vendor_error(
+      "CHO_VENDOR_INVALID_OPTION",
       "bodyLimit(): maxSize must be a whole number of bytes",
     );
   }
@@ -95,7 +97,12 @@ export function bodyLimit(options: BodyLimitOptions): ChoWebMiddlewareFn {
         if (size > maxSize) {
           exceeded = true;
           await reader.cancel().catch(() => {});
-          controller.error(new Error("the body of the request is too large"));
+          controller.error(
+            vendor_error(
+              "CHO_VENDOR_BODY_TOO_LARGE",
+              "the body of the request is too large",
+            ),
+          );
           return;
         }
         controller.enqueue(value);

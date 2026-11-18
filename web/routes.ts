@@ -10,10 +10,12 @@
  * @module
  */
 
+import { web_error } from "./errors.ts";
 import { type Debuglog, debuglog, describe } from "@chojs/core/utils";
 import { compose, type Endpoint } from "./compose.ts";
 import { type ChoWebContext, create_context } from "./context.ts";
 import type { AppRef, ErrorHandlerRef } from "./graph.ts";
+import { isHttpError } from "./http-error.ts";
 import type { Route } from "./linker.ts";
 import { to_response } from "./response.ts";
 import { is_async_iterable, sse_response } from "./sse.ts";
@@ -34,7 +36,7 @@ export function route_key(route: Pick<Route, "method" | "path">): string {
  * Throw if two routes answer the same requests.
  *
  * @param routes The routes of the application.
- * @throws {Error} On two routes with the same method and path, parameter
+ * @throws {ChoError} On two routes with the same method and path, parameter
  *   names aside.
  */
 export function assert_no_duplicate_routes(routes: readonly Route[]): void {
@@ -43,7 +45,8 @@ export function assert_no_duplicate_routes(routes: readonly Route[]): void {
     const key = route_key(route);
     const previous = seen.get(key);
     if (previous) {
-      throw new Error(
+      throw web_error(
+        "CHO_WEB_DUPLICATE_ROUTE",
         `Duplicate route ${
           describe(`${previous.method} ${previous.path}`)
         }: declared by ${previous.name} and ${route.name}` +
@@ -64,8 +67,9 @@ export function assert_no_duplicate_routes(routes: readonly Route[]): void {
  * The route creates the context of each request and runs the chain. An error
  * thrown anywhere in the chain goes to the error handler, whose result is
  * converted by `to_response`. Without one, when it returns nothing, or when
- * it throws too, the route rejects. The response of a `HEAD` route is sent
- * without its body.
+ * it throws too, the error leaves the route: an `HttpError` is the answer it
+ * makes of itself, and for any other error the route rejects. The response
+ * of a `HEAD` route is sent without its body.
  *
  * @param method The HTTP method, upper case.
  * @param path The full path, starting with `/`.
@@ -94,19 +98,41 @@ export function make_route(
     name,
     async handle(req, params, native, state) {
       const ctx = create_context(req, params, native, state);
+      // An error no error handler answered: an HttpError answers for
+      // itself, and anything else is the adapter's to answer.
+      const leave = (error: unknown): Response => {
+        if (!isHttpError(error)) {
+          throw error;
+        }
+        const what = `${req.method} ${ctx.url.pathname}`;
+        if (error.status < 500) {
+          log(`${what} answered ${error.status}: ${error.message}`);
+        } else {
+          log.error(`${what} answered ${error.status}:`, error);
+        }
+        return finish(error.toResponse());
+      };
       try {
         return finish(await run(ctx));
       } catch (error) {
         if (!on_error) {
-          throw error;
+          return leave(error);
         }
-        log.error(`${req.method} ${ctx.url.pathname} failed:`, error);
-        const handled = await on_error(error, ctx);
+        // What the application answers on purpose is not a failure.
+        if (!isHttpError(error) || error.status >= 500) {
+          log.error(`${req.method} ${ctx.url.pathname} failed:`, error);
+        }
+        let handled: unknown;
+        try {
+          handled = await on_error(error, ctx);
+        } catch (thrown) {
+          return leave(thrown);
+        }
         // Nothing returned is no response: the error is still
         // unhandled. Answering 204, as for a handler that returns
         // nothing, would report a failed request as a success.
         if (handled === undefined) {
-          throw error;
+          return leave(error);
         }
         return finish(to_response(handled));
       }
@@ -137,7 +163,7 @@ export function make_route(
  * @param log The `cho:web` debug logger: each error given to an error
  *   handler is logged to it.
  * @returns The routes.
- * @throws {Error} When two routes answer the same requests.
+ * @throws {ChoError} When two routes answer the same requests.
  */
 export function compile_routes(
   graph: AppRef,
@@ -163,7 +189,8 @@ export function compile_routes(
             return value;
           }
           if (!is_async_iterable(value)) {
-            throw new TypeError(
+            throw web_error(
+              "CHO_WEB_INVALID_SSE_RESULT",
               `@Sse() handler ${name} must return an async iterable or a Response, got ${
                 value === null ? "null" : typeof value
               }`,

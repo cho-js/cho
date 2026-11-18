@@ -19,6 +19,7 @@
  * @module
  */
 
+import { web_error } from "./errors.ts";
 import {
   add_to_metadata_object,
   assert_known_options,
@@ -95,7 +96,7 @@ export type WebControllerOptions<
  * @param options What the module imports, declares and exports, and its
  *   `route`.
  * @returns The class decorator.
- * @throws {Error} When an option is unknown or invalid, or when the class
+ * @throws {ChoError} When an option is unknown or invalid, or when the class
  *   already has a DI decorator.
  *
  * @example
@@ -125,7 +126,7 @@ export function Module<const D extends readonly Dependency[] = []>(
  *
  * @param options The controller's `dependencies` and its `route`.
  * @returns The class decorator.
- * @throws {Error} When an option is unknown or invalid, or when the class
+ * @throws {ChoError} When an option is unknown or invalid, or when the class
  *   already has a DI decorator.
  *
  * @example
@@ -169,24 +170,28 @@ function create_http_decorator(
     const decorated = decorated_method(decorator, target, context, descriptor);
     const of = `method ${String(decorated.name)}`;
     if (typeof decorated.name !== "string") {
-      throw new TypeError(
+      throw web_error(
+        "CHO_WEB_INVALID_TARGET",
         `${decorator} cannot decorate ${of}: a handler must have a string name`,
       );
     }
     if (decorated.private) {
-      throw new TypeError(
+      throw web_error(
+        "CHO_WEB_INVALID_TARGET",
         `${decorator} cannot decorate private ${of}: a handler must be public`,
       );
     }
     if (decorated.static) {
-      throw new TypeError(
+      throw web_error(
+        "CHO_WEB_INVALID_TARGET",
         `${decorator} cannot decorate static ${of}: a handler must not be static`,
       );
     }
     normalize_route(route, `${decorator} on ${of}`);
     const previous = http_route(read_metadata_object(decorated.meta) ?? {});
     if (previous) {
-      throw new Error(
+      throw web_error(
+        "CHO_WEB_DUPLICATE_DECORATOR",
         `Cannot add ${decorator} to ${of}: it already handles ${previous.method} ${
           JSON.stringify(previous.route)
         }. A method can have one HTTP method decorator.`,
@@ -240,9 +245,9 @@ const SSE_METHODS: readonly ChoWebSseMethod[] = [
  *   the keep-alive comments (`keepAlive`).
  * @returns A method decorator, which only accepts a method that returns the
  *   events or a `Response`.
- * @throws {Error} When an option is unknown, when the route is invalid, or
+ * @throws {ChoError} When an option is unknown, when the route is invalid, or
  *   when the method already has an HTTP method decorator.
- * @throws {TypeError} When an option is invalid, or when the decorated member
+ * @throws {ChoError} When an option is invalid, or when the decorated member
  *   is not a public, non-static, string-named method.
  *
  * @example
@@ -278,7 +283,8 @@ export function Sse(
   assert_known_options("@Sse()", options, ["keepAlive", "method"]);
   const { keepAlive, method = "GET" } = options;
   if (!SSE_METHODS.includes(method)) {
-    throw new TypeError(
+    throw web_error(
+      "CHO_WEB_INVALID_OPTION",
       `@Sse(): method must be one of ${SSE_METHODS.join(", ")}, got ${
         describe(method)
       }`,
@@ -287,7 +293,8 @@ export function Sse(
   if (
     keepAlive !== undefined && !(Number.isInteger(keepAlive) && keepAlive > 0)
   ) {
-    throw new TypeError(
+    throw web_error(
+      "CHO_WEB_INVALID_OPTION",
       `@Sse(): keepAlive must be a positive whole number of milliseconds, got ${
         describe(keepAlive)
       }`,
@@ -312,8 +319,8 @@ export function Sse(
  *   `(ctx, next)`, or classes with a `handle(ctx, next)` method, created by
  *   the injector in the feature module's scope.
  * @returns A class or method decorator.
- * @throws {TypeError} When applied to anything other than a class or a method.
- * @throws {Error} When a middleware is not a function or a class.
+ * @throws {ChoError} When applied to anything other than a class or a method.
+ * @throws {ChoError} When a middleware is not a function or a class.
  *
  * @example
  * ```ts
@@ -359,8 +366,8 @@ export function Middlewares(
  *   `handle(error, ctx)` method, created by the injector in the feature
  *   module's scope.
  * @returns A class or method decorator.
- * @throws {TypeError} When applied to anything other than a class or a method.
- * @throws {Error} When `handler` is not a function or a class, or when the
+ * @throws {ChoError} When applied to anything other than a class or a method.
+ * @throws {ChoError} When `handler` is not a function or a class, or when the
  *   class or method already has an error handler.
  *
  * @example
@@ -390,9 +397,9 @@ export function Catch(handler: ChoWebErrorHandler): ChoClassOrMethodDecorator {
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
  *   controller's own route.
  * @returns A method decorator.
- * @throws {Error} When the route is invalid, or when the method already has
+ * @throws {ChoError} When the route is invalid, or when the method already has
  *   an HTTP method decorator.
- * @throws {TypeError} When the decorated member is not a public, non-static,
+ * @throws {ChoError} When the decorated member is not a public, non-static,
  *   string-named method.
  *
  * @example
@@ -428,9 +435,9 @@ export function Get(route: string): ChoMethodDecorator {
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
  *   controller's own route.
  * @returns A method decorator.
- * @throws {Error} When the route is invalid, or when the method already has
+ * @throws {ChoError} When the route is invalid, or when the method already has
  *   an HTTP method decorator.
- * @throws {TypeError} When the decorated member is not a public, non-static,
+ * @throws {ChoError} When the decorated member is not a public, non-static,
  *   string-named method.
  *
  * @example
@@ -461,9 +468,9 @@ export function Post(route: string): ChoMethodDecorator {
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
  *   controller's own route.
  * @returns A method decorator.
- * @throws {Error} When the route is invalid, or when the method already has
+ * @throws {ChoError} When the route is invalid, or when the method already has
  *   an HTTP method decorator.
- * @throws {TypeError} When the decorated member is not a public, non-static,
+ * @throws {ChoError} When the decorated member is not a public, non-static,
  *   string-named method.
  *
  * @example
@@ -494,9 +501,9 @@ export function Put(route: string): ChoMethodDecorator {
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
  *   controller's own route.
  * @returns A method decorator.
- * @throws {Error} When the route is invalid, or when the method already has
+ * @throws {ChoError} When the route is invalid, or when the method already has
  *   an HTTP method decorator.
- * @throws {TypeError} When the decorated member is not a public, non-static,
+ * @throws {ChoError} When the decorated member is not a public, non-static,
  *   string-named method.
  *
  * @example
@@ -531,9 +538,9 @@ export function Patch(route: string): ChoMethodDecorator {
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
  *   controller's own route.
  * @returns A method decorator.
- * @throws {Error} When the route is invalid, or when the method already has
+ * @throws {ChoError} When the route is invalid, or when the method already has
  *   an HTTP method decorator.
- * @throws {TypeError} When the decorated member is not a public, non-static,
+ * @throws {ChoError} When the decorated member is not a public, non-static,
  *   string-named method.
  *
  * @example
@@ -564,9 +571,9 @@ export function Head(route: string): ChoMethodDecorator {
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
  *   controller's own route.
  * @returns A method decorator.
- * @throws {Error} When the route is invalid, or when the method already has
+ * @throws {ChoError} When the route is invalid, or when the method already has
  *   an HTTP method decorator.
- * @throws {TypeError} When the decorated member is not a public, non-static,
+ * @throws {ChoError} When the decorated member is not a public, non-static,
  *   string-named method.
  *
  * @example
@@ -599,9 +606,9 @@ export function Options(route: string): ChoMethodDecorator {
  *   leading or trailing `/`. It can declare parameters (`":id"`); `""` is the
  *   controller's own route.
  * @returns A method decorator.
- * @throws {Error} When the route is invalid, or when the method already has
+ * @throws {ChoError} When the route is invalid, or when the method already has
  *   an HTTP method decorator.
- * @throws {TypeError} When the decorated member is not a public, non-static,
+ * @throws {ChoError} When the decorated member is not a public, non-static,
  *   string-named method.
  *
  * @example
@@ -642,9 +649,9 @@ export function Delete(route: string): ChoMethodDecorator {
  * @typeParam A The arguments.
  * @param args The arguments, in the order of the parameters of the method.
  * @returns A method decorator.
- * @throws {TypeError} When an argument is not a function, or when the
+ * @throws {ChoError} When an argument is not a function, or when the
  *   decorated member is not a public, non-static, string-named method.
- * @throws {Error} When the method already has `@Args`.
+ * @throws {ChoError} When the method already has `@Args`.
  *
  * @example
  * ```ts
@@ -670,7 +677,8 @@ export function Args<const A extends readonly ChoWebArg[]>(
     const meta = decorated_target("@Args()", target, context, descriptor);
     args.forEach((arg, index) => {
       if (typeof arg !== "function") {
-        throw new TypeError(
+        throw web_error(
+          "CHO_WEB_INVALID_ARGUMENT",
           `@Args() on ${of}: argument ${
             index + 1
           } must be made with Param, Query, Header, Body or Form, or be a function, got ${
@@ -680,7 +688,10 @@ export function Args<const A extends readonly ChoWebArg[]>(
       }
     });
     if (handler_args(read_metadata_object(meta) ?? {})) {
-      throw new Error(`Cannot add @Args() to ${of}: it already has one.`);
+      throw web_error(
+        "CHO_WEB_DUPLICATE_DECORATOR",
+        `Cannot add @Args() to ${of}: it already has one.`,
+      );
     }
     add_to_metadata_object(meta, {
       [ARGS]: Object.freeze(
@@ -702,7 +713,7 @@ function is_strings(value: unknown): value is string[] {
 /**
  * Check the options of `@Doc` that have a shape of their own.
  *
- * @throws {TypeError} When `operationId`, `security` or the `contentType` of
+ * @throws {ChoError} When `operationId`, `security` or the `contentType` of
  *   a response is not what it should be.
  */
 function assert_doc(options: ChoWebDoc): void {
@@ -711,7 +722,8 @@ function assert_doc(options: ChoWebDoc): void {
     operationId !== undefined &&
     (typeof operationId !== "string" || operationId === "")
   ) {
-    throw new TypeError(
+    throw web_error(
+      "CHO_WEB_INVALID_OPTION",
       `@Doc(): operationId must be a non-empty string, got ${
         describe(operationId)
       }`,
@@ -726,7 +738,8 @@ function assert_doc(options: ChoWebDoc): void {
         Object.values(requirement).every(is_strings)
       ))
   ) {
-    throw new TypeError(
+    throw web_error(
+      "CHO_WEB_INVALID_OPTION",
       `@Doc(): security must be a list of objects of lists of strings, such as [{ bearer: [] }], got ${
         describe(security)
       }`,
@@ -735,7 +748,8 @@ function assert_doc(options: ChoWebDoc): void {
   for (const [status, response] of Object.entries(responses ?? {})) {
     const type = (response as ChoWebDocResponse | undefined)?.contentType;
     if (type !== undefined && (typeof type !== "string" || type === "")) {
-      throw new TypeError(
+      throw web_error(
+        "CHO_WEB_INVALID_OPTION",
         `@Doc(): the contentType of response ${status} must be a non-empty string, got ${
           describe(type)
         }`,
@@ -758,9 +772,9 @@ function assert_doc(options: ChoWebDoc): void {
  *   `description`, `tags`, `deprecated` and `hidden` on a handler, a
  *   controller or a feature module.
  * @returns A class or method decorator.
- * @throws {Error} When an option is unknown, when a handler option is given
+ * @throws {ChoError} When an option is unknown, when a handler option is given
  *   on a class, or when the class or the method already has `@Doc`.
- * @throws {TypeError} When applied to anything other than a class or a
+ * @throws {ChoError} When applied to anything other than a class or a
  *   public, non-static, string-named method.
  *
  * @example
@@ -801,7 +815,8 @@ export function Doc(options: ChoWebDoc): ChoClassOrMethodDecorator {
       what = `class ${describe(target)}`;
       for (const key of HANDLER_DOC) {
         if (key in options) {
-          throw new Error(
+          throw web_error(
+            "CHO_WEB_INVALID_OPTION",
             `@Doc(): option ${
               JSON.stringify(key)
             } is for a handler, not for a class (${what})`,
@@ -813,7 +828,10 @@ export function Doc(options: ChoWebDoc): ChoClassOrMethodDecorator {
       what = `method ${String(name)}`;
     }
     if (doc_of(read_metadata_object(meta) ?? {})) {
-      throw new Error(`Cannot add @Doc() to ${what}: it already has one.`);
+      throw web_error(
+        "CHO_WEB_DUPLICATE_DECORATOR",
+        `Cannot add @Doc() to ${what}: it already has one.`,
+      );
     }
     add_to_metadata_object(meta, { [DOC]: Object.freeze({ ...options }) });
   };

@@ -28,6 +28,9 @@
  * @module
  */
 
+import { assert_known_options } from "@chojs/core/di";
+import type { ChoError } from "@chojs/core";
+import { type ChoKafkaErrorCode, kafka_error } from "./errors.ts";
 import type { Buffer } from "node:buffer";
 import {
   type BaseOptions,
@@ -162,8 +165,8 @@ export type KafkaClient = {
 };
 
 /** An error of the options, with the name of the class. */
-function invalid(message: string): TypeError {
-  return new TypeError(`KafkaLinker: ${message}`);
+function invalid(message: string): ChoError<ChoKafkaErrorCode> {
+  return kafka_error("CHO_KAFKA_INVALID_OPTION", `KafkaLinker: ${message}`);
 }
 
 /** Check the options, and throw for the first that is wrong. */
@@ -173,13 +176,7 @@ function assert_options(options: KafkaLinkerOptions): void {
       'expected options, such as { brokers: ["localhost:9092"], groupId: "my-app" }',
     );
   }
-  for (const name of Object.keys(options)) {
-    if (!(OPTIONS as readonly string[]).includes(name)) {
-      throw invalid(
-        `unknown option "${name}". Known options: ${OPTIONS.join(", ")}`,
-      );
-    }
-  }
+  assert_known_options("KafkaLinker", options, OPTIONS);
   const { brokers, groupId, from, retries, retryDelay, concurrency } = options;
   if (
     !Array.isArray(brokers) || brokers.length === 0 ||
@@ -337,7 +334,7 @@ export class KafkaLinker implements Linker<KafkaClient> {
    *
    * @param options The brokers, the consumer group, and what a failed
    *   message leads to.
-   * @throws {TypeError} When an option is missing, unknown or wrong.
+   * @throws {ChoError} When an option is missing, unknown or wrong.
    */
   constructor(options: KafkaLinkerOptions) {
     assert_options(options);
@@ -350,12 +347,13 @@ export class KafkaLinker implements Linker<KafkaClient> {
    *
    * @param routes The routes of the application.
    * @returns The linked application.
-   * @throws {Error} When the linker was already used, or when a topic is not
+   * @throws {ChoError} When the linker was already used, or when a topic is not
    *   one Kafka accepts.
    */
   link(routes: readonly Route[]): KafkaLinked {
     if (this.#linked) {
-      throw new Error(
+      throw kafka_error(
+        "CHO_KAFKA_ALREADY_LINKED",
         "KafkaLinker.link() was already called: use one linker for one application",
       );
     }
@@ -367,12 +365,14 @@ export class KafkaLinker implements Linker<KafkaClient> {
     for (const route of routes) {
       // The syntax of a CHO topic is a syntax of Kafka: only its length is not.
       if (route.topic.length > TOPIC_MAX_LENGTH) {
-        throw new Error(
+        throw kafka_error(
+          "CHO_KAFKA_INVALID_TOPIC",
           `KafkaLinker: the topic of ${route.name} has ${route.topic.length} characters: Kafka accepts ${TOPIC_MAX_LENGTH} ("${route.topic}")`,
         );
       }
       if (deadLetter?.(route.topic) === route.topic) {
-        throw new Error(
+        throw kafka_error(
+          "CHO_KAFKA_INVALID_DEAD_LETTER",
           `KafkaLinker: the dead-letter topic of "${route.topic}" is "${route.topic}" itself: a dead message would be handled again, for ever`,
         );
       }
@@ -407,3 +407,6 @@ export class KafkaLinker implements Linker<KafkaClient> {
     return new KafkaLinked(instance, pump);
   }
 }
+
+/** The codes of the errors of this package. */
+export type { ChoKafkaErrorCode } from "./errors.ts";

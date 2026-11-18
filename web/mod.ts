@@ -98,5 +98,10 @@ export {
   type ChoMatch,
   ChoRouter,
 } from "./router.ts";
+// Errors: what an application throws to answer with a status, and the errors
+// of the framework, with their codes.
+export { HttpError, type HttpErrorOptions, isHttpError } from "./http-error.ts";
+export { type ChoCoreErrorCode, ChoError, isChoError } from "@chojs/core";
+export type { ChoWebErrorCode } from "./errors.ts";
 export type { ChoWebContext } from "./context.ts";
 export type * from "./types.ts";

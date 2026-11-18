@@ -8,6 +8,8 @@
  * @module
  */
 
+import { web_error } from "./errors.ts";
+import { isHttpError } from "./http-error.ts";
 import { describe } from "@chojs/core/utils";
 import { compose, type Endpoint } from "./compose.ts";
 import { type ChoWebContext, create_context } from "./context.ts";
@@ -105,12 +107,13 @@ export class ChoRouter {
    *
    * @param routes The routes of the application.
    * @param options The options of the linker.
-   * @throws {Error} When the runtime has no URL Pattern API.
-   * @throws {TypeError} When a middleware of the router is not a function.
+   * @throws {ChoError} When the runtime has no URL Pattern API.
+   * @throws {ChoError} When a middleware of the router is not a function.
    */
   constructor(routes: readonly Route[], options: ChoLinkerOptions = {}) {
     if (typeof URLPattern !== "function") {
-      throw new Error(
+      throw web_error(
+        "CHO_WEB_NO_URL_PATTERN",
         "ChoLinker needs the URL Pattern API (URLPattern), which this runtime does not have: give ChoWeb.create another linker, such as HonoLinker",
       );
     }
@@ -120,7 +123,8 @@ export class ChoRouter {
     const middlewares = options.middlewares ?? [];
     middlewares.forEach((middleware, index) => {
       if (typeof middleware !== "function") {
-        throw new TypeError(
+        throw web_error(
+          "CHO_WEB_INVALID_MIDDLEWARE",
           `ChoLinker: middleware ${index + 1} must be a function, got ${
             describe(middleware)
           }`,
@@ -188,6 +192,9 @@ export class ChoRouter {
    * - A request no route matches is answered by the `notFound` option.
    * - A route or a middleware of the router that rejects is logged with
    *   `console.error`, and answered with `500`.
+   * - An `HttpError` thrown by a middleware of the router, or by `notFound`,
+   *   is answered as a route answers it: with its status. One thrown in a
+   *   route never gets here: the route answers it.
    *
    * @param req The request.
    * @returns The response.
@@ -210,10 +217,23 @@ export class ChoRouter {
     try {
       return await this.#run(ctx);
     } catch (error) {
-      console.error(error);
-      return new Response("Internal Server Error", { status: 500 });
+      return this.#failed(req, error);
     }
   };
+
+  /**
+   * Answer a request that failed outside a route: in a middleware of the
+   * router, or in `notFound`. An `HttpError` is its own answer; anything else
+   * is logged, and answered `500`.
+   */
+  #failed(req: Request, error: unknown): Response {
+    if (isHttpError(error)) {
+      const response = error.toResponse();
+      return req.method === "HEAD" ? new Response(null, response) : response;
+    }
+    console.error(error);
+    return new Response("Internal Server Error", { status: 500 });
+  }
 
   /** Answer a request with the route it matched, or as not found. */
   async #answer(
@@ -221,10 +241,10 @@ export class ChoRouter {
     found: Found | undefined,
     state?: Map<PropertyKey, unknown>,
   ): Promise<Response> {
-    if (!found) {
-      return await this.#not_found(req);
-    }
     try {
+      if (!found) {
+        return await this.#not_found(req);
+      }
       const response = await found.route.handle(
         req,
         found.params,
@@ -235,8 +255,7 @@ export class ChoRouter {
         ? new Response(null, response)
         : response;
     } catch (error) {
-      console.error(error);
-      return new Response("Internal Server Error", { status: 500 });
+      return this.#failed(req, error);
     }
   }
 }
@@ -302,7 +321,7 @@ export class ChoLinker implements Linker<ChoRouter> {
    *
    * @param routes The routes of the application.
    * @returns The router, and its `fetch` as the request handler.
-   * @throws {Error} When the runtime has no URL Pattern API.
+   * @throws {ChoError} When the runtime has no URL Pattern API.
    */
   link(routes: readonly Route[]): Linked<ChoRouter> {
     const instance = new ChoRouter(routes, this.#options);

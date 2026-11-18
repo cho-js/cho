@@ -37,9 +37,11 @@ describe("assert_handle", () => {
   it("rejects a class without a handle method", () => {
     class Auth {}
     assert.throws(() => assert_handle(Auth, "Middleware"), {
+      code: "CHO_CORE_INVALID_MIDDLEWARE",
       message: "Middleware class Auth must implement 'handle' method.",
     });
     assert.throws(() => assert_handle(class {}, "Error handler"), {
+      code: "CHO_CORE_INVALID_ERROR_HANDLER",
       message:
         "Error handler class <anonymous> must implement 'handle' method.",
     });
@@ -47,10 +49,12 @@ describe("assert_handle", () => {
 
   it("rejects what is not a function", () => {
     assert.throws(() => assert_handle("auth", "Middleware"), {
+      code: "CHO_CORE_INVALID_MIDDLEWARE",
       message:
         "Invalid middleware \"auth\": must be a function or a class with a 'handle' method.",
     });
     assert.throws(() => assert_handle(undefined, "Error handler"), {
+      code: "CHO_CORE_INVALID_ERROR_HANDLER",
       message:
         "Invalid error handler undefined: must be a function or a class with a 'handle' method.",
     });
@@ -103,6 +107,7 @@ describe("resolve_handle", () => {
     class App {}
     Module()(App);
     await assert.rejects(resolve_handle(new Injector(App), Timing, App), {
+      code: "CHO_CORE_NOT_VISIBLE",
       message: "Timing is not visible in module App",
     });
   });

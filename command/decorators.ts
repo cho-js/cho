@@ -13,6 +13,7 @@
  * @module
  */
 
+import { command_error } from "./errors.ts";
 import {
   add_to_metadata_object,
   assert_known_options,
@@ -42,14 +43,17 @@ import type { ChoCommandErrorHandler, ChoCommandMiddleware } from "./types.ts";
  *
  * @param value The argument.
  * @param name The decorator name, for the message.
- * @throws {TypeError} When it is not a non-empty string.
+ * @throws {ChoError} When it is not a non-empty string.
  */
 function assert_non_empty_string(
   value: unknown,
   name: string,
 ): asserts value is string {
   if (typeof value !== "string" || !value) {
-    throw new TypeError(`${name} must be a non-empty string`);
+    throw command_error(
+      "CHO_COMMAND_INVALID_ARGUMENT",
+      `${name} must be a non-empty string`,
+    );
   }
 }
 
@@ -59,17 +63,19 @@ function assert_non_empty_string(
  * breaks these rules could never be invoked, since the command line would
  * split it or parse it as a flag.
  *
- * @throws {TypeError} When the name breaks a rule.
+ * @throws {ChoError} When the name breaks a rule.
  */
 function assert_action_name(alias: unknown): asserts alias is string {
   assert_non_empty_string(alias, "Action");
   if (/\s/.test(alias)) {
-    throw new TypeError(
+    throw command_error(
+      "CHO_COMMAND_INVALID_ARGUMENT",
       `@Action(${JSON.stringify(alias)}): the name must not contain whitespace`,
     );
   }
   if (alias.startsWith("-")) {
-    throw new TypeError(
+    throw command_error(
+      "CHO_COMMAND_INVALID_ARGUMENT",
       `@Action(${JSON.stringify(alias)}): the name must not start with "-"`,
     );
   }
@@ -81,22 +87,25 @@ function assert_action_name(alias: unknown): asserts alias is string {
  * string-named methods of the prototype, so any other method would be
  * silently dropped.
  *
- * @throws {TypeError} When the method is private, static, or symbol-named.
+ * @throws {ChoError} When the method is private, static, or symbol-named.
  */
 function assert_command_method(method: DecoratedMethod, adding: string) {
   const name = String(method.name);
   if (typeof method.name !== "string") {
-    throw new TypeError(
+    throw command_error(
+      "CHO_COMMAND_INVALID_TARGET",
       `${adding} cannot decorate method ${name}: a command method must have a string name`,
     );
   }
   if (method.private) {
-    throw new TypeError(
+    throw command_error(
+      "CHO_COMMAND_INVALID_TARGET",
       `${adding} cannot decorate private method '${name}': a command method must be public`,
     );
   }
   if (method.static) {
-    throw new TypeError(
+    throw command_error(
+      "CHO_COMMAND_INVALID_TARGET",
       `${adding} cannot decorate static method '${name}': a command method must not be static`,
     );
   }
@@ -111,7 +120,8 @@ function assert_no_command(method: DecoratedMethod, adding: string) {
   const prev = command_record(read_metadata_object(method.meta) ?? {});
   if (prev[MAIN] || prev[ACTION]) {
     const existing = prev[MAIN] ? "@Main()" : `@Action("${prev[ALIAS]}")`;
-    throw new Error(
+    throw command_error(
+      "CHO_COMMAND_DUPLICATE_DECORATOR",
       `Cannot add ${adding} to method '${
         String(method.name)
       }': it already has ${existing}. A method can have at most one @Main or @Action.`,
@@ -125,10 +135,10 @@ function assert_no_command(method: DecoratedMethod, adding: string) {
  *
  * @param flags The flags given to `@Main` or `@Action`; `undefined` is none.
  * @param adding The decorator, for the messages.
- * @throws {TypeError} When `flags` is not an object, has an unknown key, a
+ * @throws {ChoError} When `flags` is not an object, has an unknown key, a
  *   list that is not an array of non-empty strings, or an `alias`, `default`
  *   or `describe` that is not an object.
- * @throws {Error} When a flag is reserved (`help`, `version`).
+ * @throws {ChoError} When a flag is reserved (`help`, `version`).
  */
 function assert_flags(
   flags: unknown,
@@ -138,7 +148,10 @@ function assert_flags(
     return;
   }
   if (typeof flags !== "object" || flags === null || Array.isArray(flags)) {
-    throw new TypeError(`${adding}: the flags must be an object`);
+    throw command_error(
+      "CHO_COMMAND_INVALID_FLAGS",
+      `${adding}: the flags must be an object`,
+    );
   }
   assert_known_options(adding, flags, COMMAND_FLAG_KEYS);
   const record = flags as Record<string, unknown>;
@@ -152,7 +165,8 @@ function assert_flags(
       !Array.isArray(list) ||
       list.some((name) => typeof name !== "string" || !name)
     ) {
-      throw new TypeError(
+      throw command_error(
+        "CHO_COMMAND_INVALID_FLAGS",
         `${adding}: "${key}" must be an array of flag names`,
       );
     }
@@ -164,7 +178,10 @@ function assert_flags(
       continue;
     }
     if (typeof map !== "object" || map === null || Array.isArray(map)) {
-      throw new TypeError(`${adding}: "${key}" must be an object`);
+      throw command_error(
+        "CHO_COMMAND_INVALID_FLAGS",
+        `${adding}: "${key}" must be an object`,
+      );
     }
     names.push(...Object.keys(map));
     if (key === "alias") {
@@ -173,7 +190,8 @@ function assert_flags(
   }
   const reserved = names.find(is_reserved);
   if (reserved) {
-    throw new Error(
+    throw command_error(
+      "CHO_COMMAND_RESERVED_FLAG",
       `${adding}: the flag "${reserved}" is reserved by the application`,
     );
   }
@@ -184,7 +202,7 @@ function assert_flags(
  *
  * @param options What the module imports, declares and exports.
  * @returns The class decorator.
- * @throws {Error} When an option is unknown or invalid, or when the class
+ * @throws {ChoError} When an option is unknown or invalid, or when the class
  *   already has a DI decorator.
  *
  * @example
@@ -213,7 +231,7 @@ export function Module<const D extends readonly Dependency[] = []>(
  *
  * @param options The controller's `dependencies`.
  * @returns The class decorator.
- * @throws {Error} When an option is unknown or invalid, or when the class
+ * @throws {ChoError} When an option is unknown or invalid, or when the class
  *   already has a DI decorator.
  *
  * @example
@@ -241,7 +259,7 @@ export function Controller<const D extends readonly Dependency[] = []>(
  * @param flags The flags the command accepts (see `CommandFlags`): used to
  *   parse the command line, and listed by `--help`. Default: none declared.
  * @returns A method decorator.
- * @throws {TypeError} When the decorated method is not public, non-static and
+ * @throws {ChoError} When the decorated method is not public, non-static and
  *   string-named, or when `flags` is malformed.
  *
  * @example
@@ -287,7 +305,7 @@ export function Main(flags?: CommandFlags): ChoMethodDecorator {
  *   parse the command line when this command runs, and listed by its
  *   `--help`. Default: none declared.
  * @returns A method decorator.
- * @throws {TypeError} When the name breaks these rules, or when the decorated
+ * @throws {ChoError} When the name breaks these rules, or when the decorated
  *   method is not public, non-static and string-named.
  *
  * @example
@@ -345,7 +363,7 @@ export function Action(
  *
  * @param help The help text: a non-empty string.
  * @returns A class or method decorator.
- * @throws {TypeError} When `help` is not a non-empty string.
+ * @throws {ChoError} When `help` is not a non-empty string.
  *
  * @example
  * ```ts
@@ -387,8 +405,8 @@ export function Help(help: string): ChoClassOrMethodDecorator {
  *   the injector in the scope of the module that declares the controller,
  *   when a command they apply to first runs.
  * @returns A class or method decorator.
- * @throws {TypeError} When applied to anything other than a class or a method.
- * @throws {Error} When a middleware is not a function or a class.
+ * @throws {ChoError} When applied to anything other than a class or a method.
+ * @throws {ChoError} When a middleware is not a function or a class.
  *
  * @example
  * ```ts
@@ -435,8 +453,8 @@ export function Middlewares(
  *   module that declares the controller, when it first has an error to
  *   handle.
  * @returns A class or method decorator.
- * @throws {TypeError} When applied to anything other than a class or a method.
- * @throws {Error} When `handler` is not a function or a class, or when the
+ * @throws {ChoError} When applied to anything other than a class or a method.
+ * @throws {ChoError} When `handler` is not a function or a class, or when the
  *   class or method already has an error handler.
  *
  * @example

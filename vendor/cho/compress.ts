@@ -4,6 +4,7 @@
  * @module
  */
 
+import { vendor_error } from "./errors.ts";
 import type { ChoWebMiddlewareFn } from "@chojs/web";
 import { is_event_stream } from "./headers.ts";
 
@@ -55,7 +56,7 @@ function pick_encoding(accept: string | null): "gzip" | "deflate" | undefined {
  *
  * @param options The smallest body worth compressing.
  * @returns A CHO middleware function.
- * @throws {TypeError} When `threshold` is not a whole number of bytes.
+ * @throws {ChoError} When `threshold` is not a whole number of bytes.
  *
  * @example
  * ```ts
@@ -70,7 +71,8 @@ function pick_encoding(accept: string | null): "gzip" | "deflate" | undefined {
 export function compress(options: CompressOptions = {}): ChoWebMiddlewareFn {
   const threshold = options.threshold ?? 1024;
   if (!(Number.isInteger(threshold) && threshold >= 0)) {
-    throw new TypeError(
+    throw vendor_error(
+      "CHO_VENDOR_INVALID_OPTION",
       "compress(): threshold must be a whole number of bytes",
     );
   }

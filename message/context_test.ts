@@ -85,11 +85,11 @@ describe("create_context", () => {
     for (const value of [42, { id: 1 }, ["a"], true]) {
       assert.throws(
         () => create_context("t", { value: loose(value) }),
-        (error: unknown) =>
-          error instanceof TypeError &&
-          error.message.startsWith(
-            "Invalid value of a message: expected bytes (a Uint8Array) or a string, got ",
-          ),
+        {
+          code: "CHO_MESSAGE_INVALID_VALUE",
+          message:
+            /^Invalid\ value\ of\ a\ message:\ expected\ bytes\ \(a\ Uint8Array\)\ or\ a\ string,\ got\ /,
+        },
       );
     }
   });

@@ -69,13 +69,14 @@ describe("@Subscribe", () => {
       created() {}
     }
     assert.throws(() => legacy(Subscribe("orders.*"), Orders, "created"), {
+      code: "CHO_MESSAGE_INVALID_TOPIC",
       message:
         'Invalid topic "orders.*" of @Subscribe() on method created: "*" has a "*": wildcards are not part of the topic syntax',
     });
     assert.throws(
       () => legacy(Subscribe(loose(42)), Orders, "created"),
       {
-        name: "TypeError",
+        code: "CHO_MESSAGE_INVALID_TOPIC",
         message:
           "Invalid topic of @Subscribe() on method created: expected a string, got 42",
       },
@@ -89,6 +90,7 @@ describe("@Subscribe", () => {
     }
     legacy(Subscribe("created"), Orders, "created");
     assert.throws(() => legacy(Subscribe("made"), Orders, "created"), {
+      code: "CHO_MESSAGE_DUPLICATE_DECORATOR",
       message:
         'Cannot add @Subscribe() to method created: it already handles "created". A method can have one @Subscribe().',
     });
@@ -101,14 +103,14 @@ describe("@Subscribe", () => {
     assert.throws(
       () => legacy(Subscribe("created"), Orders, "created", { isStatic: true }),
       {
-        name: "TypeError",
+        code: "CHO_MESSAGE_INVALID_TARGET",
         message:
           "@Subscribe() cannot decorate static method created: a handler must not be static",
       },
     );
     assert.throws(
       () => tc39(Subscribe("created"), () => {}, "created", { isStatic: true }),
-      TypeError,
+      { code: "CHO_MESSAGE_INVALID_TARGET" },
     );
   });
 
@@ -117,7 +119,7 @@ describe("@Subscribe", () => {
       () =>
         tc39(Subscribe("created"), () => {}, "#created", { isPrivate: true }),
       {
-        name: "TypeError",
+        code: "CHO_MESSAGE_INVALID_TARGET",
         message:
           "@Subscribe() cannot decorate private method #created: a handler must be public",
       },
@@ -127,7 +129,7 @@ describe("@Subscribe", () => {
   it("rejects a method named by a symbol", () => {
     const name = Symbol("created");
     assert.throws(() => tc39(Subscribe("created"), () => {}, name), {
-      name: "TypeError",
+      code: "CHO_MESSAGE_INVALID_TARGET",
       message:
         "@Subscribe() cannot decorate method Symbol(created): a handler must have a string name",
     });
@@ -159,10 +161,12 @@ describe("@Module and @Controller", () => {
 
   it("reject an unknown option, the route of @chojs/web included", () => {
     assert.throws(() => Controller(loose({ route: "orders" })), {
+      code: "CHO_CORE_UNKNOWN_OPTION",
       message:
         '@Controller(): unknown option "route". Known options: dependencies, topic',
     });
     assert.throws(() => Module(loose({ topics: "orders" })), {
+      code: "CHO_CORE_UNKNOWN_OPTION",
       message:
         '@Module(): unknown option "topics". Known options: dependencies, imports, providers, controllers, exports, topic',
     });
@@ -185,6 +189,8 @@ describe("@Middlewares and @Catch", () => {
   it("reject a second @Catch", () => {
     class Orders {}
     Catch(() => true)(Orders);
-    assert.throws(() => Catch(() => true)(Orders));
+    assert.throws(() => Catch(() => true)(Orders), {
+      code: "CHO_CORE_DUPLICATE_CATCH",
+    });
   });
 });

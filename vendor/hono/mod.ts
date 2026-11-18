@@ -19,6 +19,7 @@
  * @module
  */
 
+import { hono_error } from "./errors.ts";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import type { ChoWebContext, ChoWebMiddlewareFn, ChoWebNext } from "@chojs/web";
 import type { Linked, Linker, Route } from "@chojs/web/linker";
@@ -68,7 +69,7 @@ export class HonoLinked implements Linked<Hono> {
    * throws Hono's error.
    *
    * @param route The route to register.
-   * @throws {Error} When the Hono application already answered a request.
+   * @throws {ChoError} When the Hono application already answered a request.
    */
   mount(route: Route): void {
     const app = this.instance;
@@ -170,13 +171,14 @@ export class HonoLinker implements Linker<Hono> {
    *
    * @param routes The routes of the application.
    * @returns The linked Hono application.
-   * @throws {Error} When the linker was already used: its Hono application
+   * @throws {ChoError} When the linker was already used: its Hono application
    *   holds the routes of the first application.
    */
   link(routes: readonly Route[]): HonoLinked {
     // A second application would add its routes to the first one's.
     if (this.#linked) {
-      throw new Error(
+      throw hono_error(
+        "CHO_HONO_ALREADY_LINKED",
         "HonoLinker.link() was already called: use one linker for one application",
       );
     }
@@ -202,7 +204,8 @@ function hono_context(ctx: ChoWebContext): Context {
     native === null || typeof native !== "object" ||
     typeof native.newResponse !== "function" || !("finalized" in native)
   ) {
-    throw new Error(
+    throw hono_error(
+      "CHO_HONO_WRONG_ADAPTER",
       "fromHono(): a Hono middleware runs on the Hono adapter only: create the application with a HonoLinker",
     );
   }
@@ -285,3 +288,6 @@ export function fromHono(middleware: MiddlewareHandler): ChoWebMiddlewareFn {
     }
   };
 }
+
+/** The codes of the errors of this package. */
+export type { ChoHonoErrorCode } from "./errors.ts";

@@ -468,6 +468,7 @@ describe("validation, when the application is created", () => {
     const Ctrl = controller("x");
     Middlewares(loose(NoHandle))(Ctrl);
     assert.throws(() => ChoCommand.create(module_of([Ctrl])), {
+      code: "CHO_CORE_INVALID_MIDDLEWARE",
       message: "Middleware class NoHandle must implement 'handle' method.",
     });
   });
@@ -487,6 +488,7 @@ describe("validation, when the application is created", () => {
       ]
     ) {
       assert.throws(() => ChoCommand.create(App), {
+        code: "CHO_CORE_INVALID_ERROR_HANDLER",
         message: "Error handler class NoHandle must implement 'handle' method.",
       });
     }
@@ -495,10 +497,12 @@ describe("validation, when the application is created", () => {
   it("rejects an onError that is not a function or a usable class", () => {
     const App = module_of([controller("x")]);
     assert.throws(() => ChoCommand.create(App, { onError: loose("handler") }), {
+      code: "CHO_CORE_INVALID_ERROR_HANDLER",
       message:
         "Invalid error handler \"handler\": must be a function or a class with a 'handle' method.",
     });
     assert.throws(() => ChoCommand.create(App, { onError: loose(NoHandle) }), {
+      code: "CHO_CORE_INVALID_ERROR_HANDLER",
       message: "Error handler class NoHandle must implement 'handle' method.",
     });
   });
@@ -514,6 +518,7 @@ describe("validation, when the application is created", () => {
     Middlewares(Timing)(Ctrl);
     // not a provider of the controller's module
     assert.throws(() => ChoCommand.create(module_of([Ctrl])), {
+      code: "CHO_COMMAND_NOT_VISIBLE",
       message:
         "Middleware class Timing is not visible in module Mod. Provide it there or import a module that exports it.",
     });
@@ -552,6 +557,7 @@ describe("validation, when the application is created", () => {
       return OnError;
     };
     const message = (module: string) => ({
+      code: "CHO_COMMAND_NOT_VISIBLE",
       message:
         `Error handler class OnError is not visible in module ${module}. Provide it there or import a module that exports it.`,
     });
@@ -606,6 +612,7 @@ describe("validation, when the application is created", () => {
     Module({ imports: [exporting(), exporting()], controllers: [Ctrl] })(App);
 
     assert.throws(() => ChoCommand.create(App), {
+      code: "CHO_COMMAND_AMBIGUOUS_CLASS",
       message:
         "Middleware class Timing is ambiguous in module App: several of its imports export it. Provide it there to choose one.",
     });

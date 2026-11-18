@@ -77,6 +77,7 @@ describe("ChoLinker, without the URL Pattern API", () => {
     global.URLPattern = undefined;
     try {
       assert.throws(() => new ChoLinker().link([echo("GET", "/x")]), {
+        code: "CHO_WEB_NO_URL_PATTERN",
         message:
           "ChoLinker needs the URL Pattern API (URLPattern), which this runtime does not have: give ChoWeb.create another linker, such as HonoLinker",
       });
@@ -619,7 +620,7 @@ suite("ChoLinker, the middlewares of the router", () => {
     assert.throws(
       () => new ChoLinker(loose({ middlewares: [() => {}, "cors"] })).link([]),
       {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_MIDDLEWARE",
         message: 'ChoLinker: middleware 2 must be a function, got "cors"',
       },
     );

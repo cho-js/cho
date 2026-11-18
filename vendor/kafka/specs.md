@@ -73,19 +73,24 @@ that are in hand then are not committed. After it, `stop()` resolves.
 
 ## 5. Errors
 
-| Situation                                 | Message                                                                                                  |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| An option is missing                      | `KafkaLinker: the "brokers" option is required: a list of "host:port", such as ["localhost:9092"]`       |
-| An option is unknown                      | `KafkaLinker: unknown option "group". Known options: brokers, client, clientId, …`                       |
-| `link()` is called twice                  | `KafkaLinker.link() was already called: use one linker for one application`                              |
-| A topic is too long                       | `KafkaLinker: the topic of OrdersController.created has 250 characters: Kafka accepts 249 ("…")`         |
-| The dead-letter topic is the topic itself | `KafkaLinker: the dead-letter topic of "orders" is "orders" itself: a dead message would be handled …`   |
-| A dead message, and no dead-letter topic  | `KafkaLinker: OrdersController.created failed 4 time(s) for orders[0]@42, and there is no dead-letter …` |
-| A dead letter cannot be sent              | `KafkaLinker: cannot send orders[0]@42 to the dead-letter topic "orders.dead": the consumer stopped, …`  |
-| The topics cannot be read again           | `KafkaLinker: cannot read the topics again`                                                              |
+Every mistake is a `ChoError` with a `code` (`core/specs.md`, section 2.8). The
+code is part of the API; the messages are for people, and can change. The codes
+of this package start with `CHO_KAFKA_` (type `ChoKafkaErrorCode`).
 
-The first two are `TypeError`s of the constructor. The last three reach
-`onFatal`, with the original error as `cause`.
+| Situation                                 | Code                            | Message                                                                                                  |
+| ----------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| An option is missing, or wrong            | `CHO_KAFKA_INVALID_OPTION`      | `KafkaLinker: the "brokers" option is required: a list of "host:port", such as ["localhost:9092"]`       |
+| An option is unknown                      | `CHO_CORE_UNKNOWN_OPTION`       | `KafkaLinker: unknown option "group". Known options: brokers, client, clientId, …`                       |
+| `link()` is called twice                  | `CHO_KAFKA_ALREADY_LINKED`      | `KafkaLinker.link() was already called: use one linker for one application`                              |
+| A topic is too long                       | `CHO_KAFKA_INVALID_TOPIC`       | `KafkaLinker: the topic of OrdersController.created has 250 characters: Kafka accepts 249 ("…")`         |
+| The dead-letter topic is the topic itself | `CHO_KAFKA_INVALID_DEAD_LETTER` | `KafkaLinker: the dead-letter topic of "orders" is "orders" itself: a dead message would be handled …`   |
+| A dead message, and no dead-letter topic  | `CHO_KAFKA_NO_DEAD_LETTER`      | `KafkaLinker: OrdersController.created failed 4 time(s) for orders[0]@42, and there is no dead-letter …` |
+| A dead letter cannot be sent              | `CHO_KAFKA_DEAD_LETTER_FAILED`  | `KafkaLinker: cannot send orders[0]@42 to the dead-letter topic "orders.dead": the consumer stopped, …`  |
+| The topics cannot be read again           | `CHO_KAFKA_CONSUME_FAILED`      | `KafkaLinker: cannot read the topics again`                                                              |
+
+The first two are thrown by the constructor. The last three reach `onFatal`,
+with the original error as `cause`. An error of the client library that is not
+one of these reaches `onFatal` as it is, without a code.
 
 ## 6. Not in this version
 

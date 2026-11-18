@@ -73,6 +73,7 @@ describe("Injector", () => {
       class App {}
       Module({ providers: [Service] })(App);
       assert.throws(() => new Injector(App), {
+        code: "CHO_CORE_UNRESOLVED_DEPENDENCY",
         message: /^Cannot resolve Missing/,
       });
     });
@@ -302,6 +303,7 @@ describe("Injector", () => {
 
       const injector = new Injector(App);
       await assert.rejects(injector.resolve(Cli), {
+        code: "CHO_CORE_NOT_VISIBLE",
         message: "Cli is not visible in module App",
       });
       const cli = await injector.resolve(Cli, Feature);
@@ -320,6 +322,7 @@ describe("Injector", () => {
         result = injector.resolve(Missing);
       });
       await assert.rejects(result!, {
+        code: "CHO_CORE_NOT_VISIBLE",
         message: "Missing is not visible in module App",
       });
     });
@@ -334,6 +337,7 @@ describe("Injector", () => {
         result = injector.resolve(Object.create(null));
       });
       await assert.rejects(result!, {
+        code: "CHO_CORE_NOT_VISIBLE",
         message: "[object Object] is not visible in module App",
       });
     });
@@ -347,6 +351,7 @@ describe("Injector", () => {
       Module({ imports: [Lib] })(App);
 
       await assert.rejects(new Injector(App).resolve(Config), {
+        code: "CHO_CORE_NOT_VISIBLE",
         message: "Config is not visible in module App",
       });
     });
@@ -376,6 +381,7 @@ describe("Injector", () => {
         result = injector.resolve(T);
       });
       await assert.rejects(result!, {
+        code: "CHO_CORE_AMBIGUOUS_TOKEN",
         message:
           "InjectionToken(T) is ambiguous in module App: X1, X2 export different instances of it. " +
           "Provide InjectionToken(T) in App to choose which one to use.",
@@ -391,6 +397,7 @@ describe("Injector", () => {
       Module()(App);
 
       await assert.rejects(new Injector(App).resolve(Db, Other), {
+        code: "CHO_CORE_UNKNOWN_MODULE",
         message: "Other is not part of this application",
       });
     });
@@ -783,6 +790,7 @@ describe("Injector, debug logging", () => {
     const { output } = await capture(() =>
       with_env({ ...OFF, CHO_DEBUGLOG: "cho:di" }, () => {
         assert.throws(() => new Injector(NotAModule), {
+          code: "CHO_CORE_NOT_A_MODULE",
           message: "Class NotAModule is not a module. Did you forget @Module?",
         });
       })
@@ -814,6 +822,7 @@ describe("Injector, sync factories and iteration", () => {
       })],
     })(App);
     await assert.rejects(new Injector(App).resolve(PORT), {
+      code: "CHO_CORE_CREATE_FAILED",
       message: "Failed to create InjectionToken(PORT) in module App",
     });
   });
@@ -994,6 +1003,7 @@ describe("Injector.dispose", () => {
 
     const injector = new Injector(App);
     await assert.rejects(injector.init(), {
+      code: "CHO_CORE_CREATE_FAILED",
       message: "Failed to create InjectionToken(FAIL) in module A",
     });
     const disposal = injector.dispose();
@@ -1016,9 +1026,11 @@ describe("Injector.dispose", () => {
     await injector.dispose();
     assert.equal(log.length, 3);
     await assert.rejects(injector.resolve(Service), {
+      code: "CHO_CORE_DISPOSED",
       message: "The injector is disposed",
     });
     await assert.rejects(injector.init(), {
+      code: "CHO_CORE_DISPOSED",
       message: "The injector is disposed",
     });
   });
@@ -1053,6 +1065,7 @@ describe("Injector.dispose", () => {
         error.errors[0].message,
         "Failed to dispose B in module App",
       );
+      assert.equal(error.errors[0].code, "CHO_CORE_DISPOSE_FAILED");
       assert.equal(error.errors[0].cause.message, "B is stuck");
       return true;
     });
@@ -1169,6 +1182,7 @@ describe("Injector, overrides", () => {
           overrides: [provider({ provide: TYPO, factory: () => "x" })],
         }),
       {
+        code: "CHO_CORE_UNKNOWN_OVERRIDE",
         message:
           "Cannot override InjectionToken(TYPO): no module of the application provides it",
       },
@@ -1182,11 +1196,15 @@ describe("Injector, overrides", () => {
       factory: () => ({}) as InstanceType<typeof Db>,
     });
     assert.throws(() => new Injector(App, { overrides: [Db as never] }), {
+      code: "CHO_CORE_INVALID_OVERRIDE",
       message: "An override must be a provider object, built with provider()",
     });
     assert.throws(
       () => new Injector(App, { overrides: [override, override] }),
-      { message: "Db is overridden more than once" },
+      {
+        code: "CHO_CORE_DUPLICATE_OVERRIDE",
+        message: "Db is overridden more than once",
+      },
     );
   });
 });

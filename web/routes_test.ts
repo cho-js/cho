@@ -646,7 +646,7 @@ describe("routes, the application's error handler", () => {
     await assert.rejects(
       ChoWeb.create(App, { linker, onError: loose("handler") }),
       {
-        // the same message as @chojs/command, from the core
+        code: "CHO_CORE_INVALID_ERROR_HANDLER", // the same message as @chojs/command, from the core
         message:
           "Invalid error handler \"handler\": must be a function or a class with a 'handle' method.",
       },
@@ -655,6 +655,7 @@ describe("routes, the application's error handler", () => {
     await assert.rejects(
       ChoWeb.create(App, { linker, onError: loose(NoHandle) }),
       {
+        code: "CHO_CORE_INVALID_ERROR_HANDLER",
         message: "Error handler class NoHandle must implement 'handle' method.",
       },
     );
@@ -662,6 +663,7 @@ describe("routes, the application's error handler", () => {
       handle() {}
     }
     await assert.rejects(ChoWeb.create(App, { linker, onError: NotProvided }), {
+      code: "CHO_WEB_CREATE_FAILED",
       message: "Failed to create error handler NotProvided in module Feature",
     });
   });
@@ -677,6 +679,7 @@ describe("routes, duplicates", () => {
     legacy(Get(" :id "), Users, "b");
     Controller({ route: "users" })(Users);
     await assert.rejects(create(feature([Users])), {
+      code: "CHO_WEB_DUPLICATE_ROUTE",
       message:
         'Duplicate route "GET /users/:id": declared by Users.a and Users.b',
     });
@@ -696,6 +699,7 @@ describe("routes, duplicates", () => {
     class App {}
     Module({ imports: [feature([A]), feature([B])] })(App);
     await assert.rejects(create(App), {
+      code: "CHO_WEB_DUPLICATE_ROUTE",
       message: 'Duplicate route "GET /items/:id": declared by A.get and B.find',
     });
   });
@@ -706,6 +710,7 @@ describe("routes, duplicates", () => {
     class App {}
     Module({ imports: [Feature], controllers: [Users] })(App);
     await assert.rejects(create(App), {
+      code: "CHO_WEB_DUPLICATE_ROUTE",
       message:
         'Duplicate route "GET /users": declared by Ctrl.run and Ctrl.run. ' +
         "Its controller is declared in more than one module: declare it in one.",

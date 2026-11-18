@@ -13,6 +13,8 @@
  * - {@link tc39} calls it the TC39 way: `(method, context)`.
  *
  * {@link with_env} sets environment variables for the duration of a test.
+ * {@link check_codes} checks the error codes of a package against its
+ * documentation and its tests.
  *
  * @module
  */
@@ -189,4 +191,88 @@ export function with_env(
     if (saved) Object.defineProperty(globalThis, "process", saved);
     else delete (globalThis as { process?: unknown }).process;
   }
+}
+
+/**
+ * Check the error codes of a package against what it documents and what it
+ * tests:
+ *
+ * - every code is in the document, and the document has no other code with
+ *   the prefix of the package;
+ * - every code is named by a test of the package, other than the test that
+ *   calls this function.
+ *
+ * It reads files, so it needs a permission on Deno (`--allow-read`). Without
+ * it nothing is checked, and `undefined` is returned.
+ *
+ * @param codes The codes of the package.
+ * @param prefix What the codes of the package start with: `"CHO_WEB_"`.
+ * @param url `import.meta.url` of the test: the folder of the package is the
+ *   one it is in.
+ * @param doc The document with the table of the codes, from that folder:
+ *   `"specs.md"`.
+ * @returns What is wrong, one line for each problem: an empty list when
+ *   nothing is. `undefined` when the files cannot be read.
+ *
+ * @example
+ * ```ts
+ * const problems = await check_codes(CODES, "CHO_WEB_", import.meta.url, "specs.md");
+ * assert.deepEqual(problems ?? [], []);
+ * ```
+ */
+export async function check_codes(
+  codes: readonly string[],
+  prefix: string,
+  url: string,
+  doc: string,
+): Promise<string[] | undefined> {
+  const fs = await import("node:fs");
+  const root = new URL(".", url);
+  const itself = new URL(url).pathname;
+  let documented: string;
+  let tests = "";
+  try {
+    documented = fs.readFileSync(new URL(doc, root), "utf8");
+    const read = (dir: URL) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          if (entry.name !== "node_modules") {
+            read(new URL(`${entry.name}/`, dir));
+          }
+          continue;
+        }
+        const file = new URL(entry.name, dir);
+        if (entry.name.endsWith("_test.ts") && file.pathname !== itself) {
+          tests += fs.readFileSync(file, "utf8");
+        }
+      }
+    };
+    read(root);
+  } catch (error) {
+    const name = (error as { name?: unknown } | null)?.name;
+    if (name === "NotCapable" || name === "PermissionDenied") {
+      return undefined;
+    }
+    throw error;
+  }
+  const known = new Set(codes);
+  const in_doc = new Set(
+    documented.match(new RegExp(`\\b${prefix}[A-Z0-9_]*[A-Z0-9]\\b`, "g")),
+  );
+  const problems: string[] = [];
+  for (const code of known) {
+    if (!in_doc.has(code)) {
+      problems.push(`${code} is not in ${doc}`);
+    }
+    // The whole code: not the start of a longer one.
+    if (!new RegExp(`\\b${code}\\b`).test(tests)) {
+      problems.push(`${code} is not thrown by a test`);
+    }
+  }
+  for (const code of in_doc) {
+    if (!known.has(code)) {
+      problems.push(`${code} is in ${doc}, and is not a code of the package`);
+    }
+  }
+  return problems;
 }

@@ -3,7 +3,8 @@
  * An HTTP application with its documentation, with `@chojs/openapi`.
  *
  * - `UsersController` declares four handlers. Their arguments have
- *   validators, and `@Doc` says what the code cannot tell.
+ *   validators, and `@Doc` says what the code cannot tell. A user that does
+ *   not exist is an `HttpError`: the request is answered with its status.
  * - `openApi` mounts the OpenAPI document of the application, and a page that
  *   shows it. It is called three times here, to show the three clients:
  *
@@ -29,6 +30,7 @@ import {
   Controller,
   Doc,
   Get,
+  HttpError,
   Middlewares,
   Module,
   Param,
@@ -138,8 +140,12 @@ export class UsersController {
   @Get(":id")
   @Args(Param("id"))
   get(id: string) {
-    return users.get(id) ??
-      Response.json({ error: "no such user" }, { status: 404 });
+    const user = users.get(id);
+    if (!user) {
+      // Answered 404, with { "error": "no such user" }.
+      throw new HttpError(404, "no such user");
+    }
+    return user;
   }
 
   @Doc({

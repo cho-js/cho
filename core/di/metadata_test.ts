@@ -347,6 +347,7 @@ describe("metadata format", () => {
 
   it("refuses to read a record of another format", () => {
     assert.throws(() => read_metadata_object(foreign(METADATA_FORMAT + 1)), {
+      code: "CHO_CORE_METADATA_FORMAT",
       message:
         `The CHO metadata of Foo was written in format ${
           METADATA_FORMAT + 1
@@ -359,14 +360,23 @@ describe("metadata format", () => {
   it("refuses a record with no format stamp (an older copy)", () => {
     assert.throws(
       () => read_metadata_object(foreign(undefined)),
-      /was written in format \(none\)/,
+      {
+        code: "CHO_CORE_METADATA_FORMAT",
+        message: /was written in format \(none\)/,
+      },
     );
   });
 
   it("refuses to overwrite or extend a record of another format", () => {
     const Foo = foreign(METADATA_FORMAT + 1);
-    assert.throws(() => write_metadata_object(Foo, { b: 2 }), /format/);
-    assert.throws(() => add_to_metadata_object(Foo, { b: 2 }), /format/);
+    assert.throws(() => write_metadata_object(Foo, { b: 2 }), {
+      code: "CHO_CORE_METADATA_FORMAT",
+      message: /format/,
+    });
+    assert.throws(() => add_to_metadata_object(Foo, { b: 2 }), {
+      code: "CHO_CORE_METADATA_FORMAT",
+      message: /format/,
+    });
     assert.deepEqual(bag_of(Foo)[META], { a: 1 });
   });
 

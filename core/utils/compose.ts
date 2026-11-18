@@ -7,6 +7,7 @@
  * @module
  */
 
+import { core_error } from "../errors.ts";
 import { describe } from "./describe.ts";
 
 /**
@@ -165,7 +166,8 @@ export function compose<Ctx, Result>(
       const next = (): Promise<Result> => {
         if (downstream) {
           return Promise.reject(
-            new Error(
+            core_error(
+              "CHO_CORE_NEXT_CALLED_TWICE",
               `middleware ${
                 describe(middleware)
               }: next() called more than once`,
@@ -190,14 +192,16 @@ export function compose<Ctx, Result>(
         return result;
       }
       if (result !== undefined) {
-        throw new TypeError(
+        throw core_error(
+          "CHO_CORE_INVALID_MIDDLEWARE_RESULT",
           `middleware ${
             describe(middleware)
           } must return ${kind.name} or nothing, got ${typeof result}`,
         );
       }
       if (!downstream) {
-        throw new Error(
+        throw core_error(
+          "CHO_CORE_MISSING_MIDDLEWARE_RESULT",
           `middleware ${
             describe(middleware)
           } returned no ${kind.noun}: return ${kind.name} or call next()`,

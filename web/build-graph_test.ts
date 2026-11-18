@@ -6,6 +6,7 @@
  * runtime.
  */
 
+import { isChoError } from "@chojs/core";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { add_to_metadata_object, Injectable, Injector } from "@chojs/core/di";
@@ -210,6 +211,7 @@ describe("build_http_graph", () => {
     Module({ controllers: [Users] })(App);
 
     await assert.rejects(build_http_graph(new Injector(App), ""), {
+      code: "CHO_WEB_INVALID_ROUTE",
       message:
         'Invalid route "a//b" of method list of controller Users: it must not contain an empty segment ("//")',
     });
@@ -226,6 +228,7 @@ describe("build_http_graph", () => {
     Module({ controllers: [Users] })(App);
 
     await assert.rejects(build_http_graph(new Injector(App), ""), {
+      code: "CHO_WEB_INVALID_ROUTE",
       message:
         'Invalid route "a//b" of controller Users: it must not contain an empty segment ("//")',
     });
@@ -254,6 +257,7 @@ describe("build_http_graph, invalid middlewares and error handlers", () => {
     Injectable()(Auth);
     const App = app_with((Users) => Middlewares(loose(Auth))(Users), [Auth]);
     await assert.rejects(build_http_graph(new Injector(App), ""), {
+      code: "CHO_CORE_INVALID_MIDDLEWARE",
       message: "Middleware class Auth must implement 'handle' method.",
     });
   });
@@ -264,13 +268,14 @@ describe("build_http_graph, invalid middlewares and error handlers", () => {
     }
     const App = app_with((Users) => Middlewares(Auth)(Users)); // not provided
     await assert.rejects(build_http_graph(new Injector(App), ""), (error) => {
-      assert.ok(error instanceof Error);
+      assert.ok(isChoError(error, "CHO_WEB_CREATE_FAILED"));
       assert.equal(
         error.message,
         "Failed to create middleware Auth in module App",
       );
+      assert.ok(isChoError(error.cause, "CHO_CORE_NOT_VISIBLE"));
       assert.equal(
-        (error.cause as Error).message,
+        error.cause.message,
         "Auth is not visible in module App",
       );
       return true;
@@ -285,6 +290,7 @@ describe("build_http_graph, invalid middlewares and error handlers", () => {
       })
     );
     await assert.rejects(build_http_graph(new Injector(App), ""), {
+      code: "CHO_CORE_INVALID_MIDDLEWARE",
       message:
         "Invalid middleware \"auth\": must be a function or a class with a 'handle' method.",
     });
@@ -295,6 +301,7 @@ describe("build_http_graph, invalid middlewares and error handlers", () => {
     Injectable()(OnError);
     const App = app_with((Users) => Catch(loose(OnError))(Users), [OnError]);
     await assert.rejects(build_http_graph(new Injector(App), ""), {
+      code: "CHO_CORE_INVALID_ERROR_HANDLER",
       message: "Error handler class OnError must implement 'handle' method.",
     });
   });
@@ -305,12 +312,12 @@ describe("build_http_graph, invalid middlewares and error handlers", () => {
     }
     const App = app_with((Users) => Catch(OnError)(Users)); // not provided
     await assert.rejects(build_http_graph(new Injector(App), ""), (error) => {
-      assert.ok(error instanceof Error);
+      assert.ok(isChoError(error, "CHO_WEB_CREATE_FAILED"));
       assert.equal(
         error.message,
         "Failed to create error handler OnError in module App",
       );
-      assert.ok(error.cause instanceof Error);
+      assert.ok(isChoError(error.cause, "CHO_CORE_NOT_VISIBLE"));
       return true;
     });
   });
@@ -326,6 +333,7 @@ describe("build_http_graph, anonymous classes", () => {
       [NoHandle],
     );
     await assert.rejects(build_http_graph(new Injector(WithMiddleware), ""), {
+      code: "CHO_CORE_INVALID_MIDDLEWARE",
       message: "Middleware class <anonymous> must implement 'handle' method.",
     });
 
@@ -334,6 +342,7 @@ describe("build_http_graph, anonymous classes", () => {
       [NoHandle],
     );
     await assert.rejects(build_http_graph(new Injector(WithCatch), ""), {
+      code: "CHO_CORE_INVALID_ERROR_HANDLER",
       message:
         "Error handler class <anonymous> must implement 'handle' method.",
     });

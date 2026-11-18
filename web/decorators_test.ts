@@ -78,7 +78,7 @@ describe("HTTP method decorators", () => {
 
   it("rejects anything but a method", () => {
     assert.throws(() => Get("")(class {}, undefined as never), {
-      name: "TypeError",
+      code: "CHO_CORE_INVALID_TARGET",
       message: "@Get() can only decorate a method",
     });
   });
@@ -88,11 +88,12 @@ describe("HTTP method decorators", () => {
       run() {}
     }
     assert.throws(() => legacy(Get("/users"), Users, "run"), {
+      code: "CHO_WEB_INVALID_ROUTE",
       message:
         'Invalid route "/users" of @Get() on method run: it must not start or end with "/"',
     });
     assert.throws(() => legacy(Get(loose(42)), Users, "run"), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_ROUTE",
     });
     assert.equal(read_method_metadata(Users, "run"), undefined);
   });
@@ -103,6 +104,7 @@ describe("HTTP method decorators", () => {
     }
     legacy(Post("x"), Users, "run");
     assert.throws(() => legacy(Get("y"), Users, "run"), {
+      code: "CHO_WEB_DUPLICATE_DECORATOR",
       message:
         'Cannot add @Get() to method run: it already handles POST "x". A method can have one HTTP method decorator.',
     });
@@ -115,7 +117,7 @@ describe("HTTP method decorators", () => {
     assert.throws(
       () => legacy(Get(""), Users, "run", { isStatic: true }),
       {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_TARGET",
         message:
           "@Get() cannot decorate static method run: a handler must not be static",
       },
@@ -123,13 +125,13 @@ describe("HTTP method decorators", () => {
     assert.throws(
       () => tc39(Get(""), () => {}, "#run", { isPrivate: true }),
       {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_TARGET",
         message:
           "@Get() cannot decorate private method #run: a handler must be public",
       },
     );
     assert.throws(() => tc39(Get(""), () => {}, Symbol("run")), {
-      name: "TypeError",
+      code: "CHO_WEB_INVALID_TARGET",
       message:
         "@Get() cannot decorate method Symbol(run): a handler must have a string name",
     });
@@ -171,6 +173,7 @@ describe("@Sse", () => {
 
   it("rejects an unknown option, when it is called", () => {
     assert.throws(() => Sse("events", loose({ keepalive: 1000 })), {
+      code: "CHO_CORE_UNKNOWN_OPTION",
       message:
         '@Sse(): unknown option "keepalive". Known options: keepAlive, method',
     });
@@ -179,7 +182,7 @@ describe("@Sse", () => {
   it("rejects a method a stream cannot answer", () => {
     for (const method of ["HEAD", "OPTIONS", "get", 1]) {
       assert.throws(() => Sse("events", loose({ method })), {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_OPTION",
         message:
           /^@Sse\(\): method must be one of GET, POST, PUT, PATCH, DELETE, got /,
       });
@@ -189,7 +192,7 @@ describe("@Sse", () => {
   it("rejects a keep-alive delay that is not a positive whole number", () => {
     for (const keepAlive of [0, -1, 1.5, "1000", NaN]) {
       assert.throws(() => Sse("events", loose({ keepAlive })), {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_OPTION",
         message:
           /^@Sse\(\): keepAlive must be a positive whole number of milliseconds, got /,
       });
@@ -202,18 +205,20 @@ describe("@Sse", () => {
       static fixed() {}
     }
     assert.throws(() => legacy(loose(Sse("/events")), Feed, "run"), {
+      code: "CHO_WEB_INVALID_ROUTE",
       message:
         'Invalid route "/events" of @Sse() on method run: it must not start or end with "/"',
     });
     legacy(Get("x"), Feed, "run");
     assert.throws(() => legacy(loose(Sse("y")), Feed, "run"), {
+      code: "CHO_WEB_DUPLICATE_DECORATOR",
       message:
         'Cannot add @Sse() to method run: it already handles GET "x". A method can have one HTTP method decorator.',
     });
     assert.throws(
       () => legacy(loose(Sse("")), Feed, "fixed", { isStatic: true }),
       {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_TARGET",
         message:
           "@Sse() cannot decorate static method fixed: a handler must not be static",
       },
@@ -248,9 +253,11 @@ describe("@Middlewares and @Catch", () => {
 
   it("reject what is not a function or a class", () => {
     assert.throws(() => Middlewares(loose("auth"))(class {}), {
+      code: "CHO_CORE_INVALID_MIDDLEWARE",
       message: 'all middlewares must be functions: "auth"',
     });
     assert.throws(() => Catch(loose(1))(class {}), {
+      code: "CHO_CORE_INVALID_ERROR_HANDLER",
       message: "the error handler must be a function or a class: 1",
     });
   });
@@ -280,6 +287,7 @@ describe("@Module and @Controller", () => {
       // @ts-expect-error `deps` is not an option: it is `dependencies`
       () => Controller({ deps: [Store] })(class {}),
       {
+        code: "CHO_CORE_UNKNOWN_OPTION",
         message:
           '@Controller(): unknown option "deps". Known options: dependencies, route',
       },
@@ -288,6 +296,7 @@ describe("@Module and @Controller", () => {
       // @ts-expect-error `provider` is not an option: it is `providers`
       () => Module({ provider: [Store] })(class {}),
       {
+        code: "CHO_CORE_UNKNOWN_OPTION",
         message:
           '@Module(): unknown option "provider". Known options: dependencies, imports, providers, controllers, exports, route',
       },
@@ -295,7 +304,10 @@ describe("@Module and @Controller", () => {
     assert.throws(
       // @ts-expect-error middlewares are declared with @Middlewares
       () => Controller({ middlewares: [() => new Response()] })(class {}),
-      { message: /unknown option "middlewares"/ },
+      {
+        code: "CHO_CORE_UNKNOWN_OPTION",
+        message: /unknown option "middlewares"/,
+      },
     );
   });
 

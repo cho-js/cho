@@ -84,7 +84,7 @@ describe("basicAuth", () => {
       const options of [{}, { username: "ada" }, { password: "x" }, undefined]
     ) {
       assert.throws(() => basicAuth(loose(options)), {
-        name: "TypeError",
+        code: "CHO_VENDOR_INVALID_OPTION",
         message:
           "basicAuth(): give a username and a password, or a verify function",
       });

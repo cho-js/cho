@@ -4,6 +4,7 @@
  * @module
  */
 
+import { vendor_error } from "./errors.ts";
 import type { ChoWebContext, ChoWebMiddlewareFn } from "@chojs/web";
 import { with_headers } from "./headers.ts";
 
@@ -63,7 +64,10 @@ function assert_strings(name: string, value: unknown): void {
     value !== undefined &&
     !(Array.isArray(value) && value.every((one) => typeof one === "string"))
   ) {
-    throw new TypeError(`cors(): ${name} must be a list of strings`);
+    throw vendor_error(
+      "CHO_VENDOR_INVALID_OPTION",
+      `cors(): ${name} must be a list of strings`,
+    );
   }
 }
 
@@ -92,7 +96,7 @@ function assert_strings(name: string, value: unknown): void {
  * @param options The origins, methods and headers to allow. Default: any
  *   origin, without credentials.
  * @returns A CHO middleware function.
- * @throws {TypeError} When an option is not of the right type.
+ * @throws {ChoError} When an option is not of the right type.
  *
  * @example On every request
  * ```ts
@@ -137,7 +141,8 @@ export function cors(options: CorsOptions = {}): ChoWebMiddlewareFn {
     typeof origin !== "string" && typeof origin !== "function" &&
     !(Array.isArray(origin) && origin.every((one) => typeof one === "string"))
   ) {
-    throw new TypeError(
+    throw vendor_error(
+      "CHO_VENDOR_INVALID_OPTION",
       "cors(): origin must be a string, a list of strings or a function",
     );
   }
@@ -145,10 +150,16 @@ export function cors(options: CorsOptions = {}): ChoWebMiddlewareFn {
   assert_strings("allowedHeaders", allowedHeaders);
   assert_strings("exposedHeaders", exposedHeaders);
   if (typeof credentials !== "boolean") {
-    throw new TypeError("cors(): credentials must be a boolean");
+    throw vendor_error(
+      "CHO_VENDOR_INVALID_OPTION",
+      "cors(): credentials must be a boolean",
+    );
   }
   if (maxAge !== undefined && !(Number.isInteger(maxAge) && maxAge >= 0)) {
-    throw new TypeError("cors(): maxAge must be a whole number of seconds");
+    throw vendor_error(
+      "CHO_VENDOR_INVALID_OPTION",
+      "cors(): maxAge must be a whole number of seconds",
+    );
   }
 
   const any = origin === "*";

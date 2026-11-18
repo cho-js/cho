@@ -458,34 +458,39 @@ calls them.
 
 ## 8. Errors
 
+Every mistake is a `ChoError` with a `code` (`core/specs.md`, section 2.8). The
+code is part of the API; the messages are for people, and can change. The codes
+of this package start with `CHO_OPENAPI_` (type `ChoOpenApiErrorCode`); a
+mistake the core or `@chojs/web` finds has a code of theirs.
+
 Thrown by `openApiDocument`, and so by `openApi`, which makes the document when
 it is called:
 
-| Mistake                               | Message                                                                                                                                 |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| No `info`, or no title or version     | `openApiDocument(): the "info" option is required: { title: "My API", version: "1.0.0" }`                                               |
-| An unknown option                     | `openApiDocument(): unknown option "<name>". Known options: externalDocs, info, security, securitySchemes, servers, tags, toJsonSchema` |
-| Two operations with one `operationId` | `openApiDocument(): the operationId "<id>" is used by <Controller.method> and <Controller.method>`                                      |
-| A `security` with an unknown scheme   | `openApiDocument(): <Controller.method> requires the security scheme "<name>", which is not in the "securitySchemes" option`            |
-| The same, for the `security` option   | `openApiDocument(): the "security" option requires the security scheme "<name>", which is not in the "securitySchemes" option`          |
-| No options                            | `TypeError: openApiDocument(): expected options, such as { info: { title: "My API", version: "1.0.0" } }`                               |
+| Mistake                               | Code                                  | Message                                                                                                                                 |
+| ------------------------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| No `info`, or no title or version     | `CHO_OPENAPI_INVALID_OPTION`          | `openApiDocument(): the "info" option is required: { title: "My API", version: "1.0.0" }`                                               |
+| An unknown option                     | `CHO_CORE_UNKNOWN_OPTION`             | `openApiDocument(): unknown option "<name>". Known options: externalDocs, info, security, securitySchemes, servers, tags, toJsonSchema` |
+| Two operations with one `operationId` | `CHO_OPENAPI_DUPLICATE_OPERATION_ID`  | `openApiDocument(): the operationId "<id>" is used by <Controller.method> and <Controller.method>`                                      |
+| A `security` with an unknown scheme   | `CHO_OPENAPI_UNKNOWN_SECURITY_SCHEME` | `openApiDocument(): <Controller.method> requires the security scheme "<name>", which is not in the "securitySchemes" option`            |
+| The same, for the `security` option   | `CHO_OPENAPI_UNKNOWN_SECURITY_SCHEME` | `openApiDocument(): the "security" option requires the security scheme "<name>", which is not in the "securitySchemes" option`          |
+| No options                            | `CHO_OPENAPI_INVALID_OPTION`          | `openApiDocument(): expected options, such as { info: { title: "My API", version: "1.0.0" } }`                                          |
 
 Thrown by `openApi`, when it is called:
 
-| Mistake                             | Message                                                                                                                                                         |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No `info`, or no title or version   | `openApi(): the "info" option is required: { title: "My API", version: "1.0.0" }`                                                                               |
-| An unknown option                   | `openApi(): unknown option "<name>". Known options: assets, externalDocs, info, middlewares, route, security, securitySchemes, servers, tags, toJsonSchema, ui` |
-| An unknown client                   | `openApi(): unknown ui "<name>". Known: redoc, scalar, swagger, false, or a function that returns the HTML`                                                     |
-| A route that is not valid, or taken | the error of `app.mount` (`web/specs.md`, section 9)                                                                                                            |
-| A middleware that is not a function | the error of `app.mount`                                                                                                                                        |
+| Mistake                             | Code                         | Message                                                                                                                                                         |
+| ----------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No `info`, or no title or version   | `CHO_OPENAPI_INVALID_OPTION` | `openApi(): the "info" option is required: { title: "My API", version: "1.0.0" }`                                                                               |
+| An unknown option                   | `CHO_CORE_UNKNOWN_OPTION`    | `openApi(): unknown option "<name>". Known options: assets, externalDocs, info, middlewares, route, security, securitySchemes, servers, tags, toJsonSchema, ui` |
+| An unknown client                   | `CHO_OPENAPI_UNKNOWN_UI`     | `openApi(): unknown ui "<name>". Known: redoc, scalar, swagger, false, or a function that returns the HTML`                                                     |
+| A route that is not valid, or taken | the one of `app.mount`       | the error of `app.mount` (`web/specs.md`, section 9): `CHO_WEB_INVALID_ROUTE`, `CHO_WEB_DUPLICATE_ROUTE`                                                        |
+| A middleware that is not a function | the one of `app.mount`       | the error of `app.mount`: `CHO_WEB_INVALID_MIDDLEWARE`                                                                                                          |
 
 Thrown by `docsPage`:
 
-| Mistake           | Message                                                                                               |
-| ----------------- | ----------------------------------------------------------------------------------------------------- |
-| No `url`          | `docsPage(): the "url" option is required: where the OpenAPI document is`                             |
-| An unknown client | `docsPage(): unknown ui "<name>". Known: redoc, scalar, swagger, or a function that returns the HTML` |
+| Mistake           | Code                         | Message                                                                                               |
+| ----------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| No `url`          | `CHO_OPENAPI_INVALID_OPTION` | `docsPage(): the "url" option is required: where the OpenAPI document is`                             |
+| An unknown client | `CHO_OPENAPI_UNKNOWN_UI`     | `docsPage(): unknown ui "<name>". Known: redoc, scalar, swagger, or a function that returns the HTML` |
 
 A validator that cannot be converted is not an error (section 2.5).
 
@@ -532,6 +537,9 @@ The page needs a browser that can reach the CDN, or the `assets` option.
 - **Examples** of a request or a response.
 - **Multipart bodies**, and files: `Form` reads URL-encoded forms.
 - **Response headers**, links, callbacks and webhooks.
+- **The responses of an `HttpError`.** A handler that throws
+  `new HttpError(404, …)` (`web/specs.md`, section 5.1) answers `404`, and the
+  document does not know: `@Doc` declares the response, as for any other.
 - **A function that changes the document** before it is served.
   `openApiDocument` returns a plain object: an application that serves it from a
   controller of its own can change it.

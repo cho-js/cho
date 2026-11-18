@@ -161,10 +161,13 @@ describe("openApiDocument, the document", () => {
         { info: "Shop" },
       ]
     ) {
-      assert.throws(() => openApiDocument(app, loose(options)), { message });
+      assert.throws(() => openApiDocument(app, loose(options)), {
+        code: "CHO_OPENAPI_INVALID_OPTION",
+        message,
+      });
     }
     assert.throws(() => openApiDocument(app, loose(undefined)), {
-      name: "TypeError",
+      code: "CHO_OPENAPI_INVALID_OPTION",
       message: /^openApiDocument\(\): expected options/,
     });
   });
@@ -174,6 +177,7 @@ describe("openApiDocument, the document", () => {
     assert.throws(
       () => openApiDocument(app, loose({ info: INFO, server: [] })),
       {
+        code: "CHO_CORE_UNKNOWN_OPTION",
         message:
           'openApiDocument(): unknown option "server". Known options: externalDocs, info, security, securitySchemes, servers, tags, toJsonSchema',
       },
@@ -308,6 +312,7 @@ describe("openApiDocument, the operations", () => {
     legacy(Doc({ operationId: "users" }), Users, "all");
     Controller({})(Users);
     await assert.rejects(document_of([Users]), {
+      code: "CHO_OPENAPI_DUPLICATE_OPERATION_ID",
       message:
         'openApiDocument(): the operationId "users" is used by Users.list and Users.all',
     });
@@ -454,10 +459,12 @@ describe("openApiDocument, security", () => {
     legacy(Doc({ security: [{ bearer: [] }, { key: [] }] }), Users, "get");
     Controller({})(Users);
     await assert.rejects(document_of([Users], { securitySchemes }), {
+      code: "CHO_OPENAPI_UNKNOWN_SECURITY_SCHEME",
       message:
         'openApiDocument(): Users.get requires the security scheme "key", which is not in the "securitySchemes" option',
     });
     await assert.rejects(document_of([], { security: [{ bearer: [] }] }), {
+      code: "CHO_OPENAPI_UNKNOWN_SECURITY_SCHEME",
       message:
         'openApiDocument(): the "security" option requires the security scheme "bearer", which is not in the "securitySchemes" option',
     });

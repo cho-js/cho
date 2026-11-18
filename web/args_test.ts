@@ -221,16 +221,16 @@ describe("the four call forms", () => {
       const bad = (...args: unknown[]) => () => loose(fn)(...args);
       for (const value of [1, true, null, {}, [], () => {}]) {
         assert.throws(bad(value), {
-          name: "TypeError",
+          code: "CHO_WEB_INVALID_ARGUMENT",
           message: new RegExp(
             `^${name}\\(\\): expected a key \\(a string\\) or a validator \\(an object with a parse method\\), got `,
           ),
         });
-        assert.throws(bad("key", value), { name: "TypeError" });
+        assert.throws(bad("key", value), { code: "CHO_WEB_INVALID_ARGUMENT" });
       }
       // a validator is the last argument
       assert.throws(bad(number, "key"), {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_ARGUMENT",
         message: new RegExp(`^${name}\\(\\): a validator is the last argument`),
       });
     });

@@ -48,6 +48,7 @@
  * @module
  */
 
+import { core_error } from "../errors.ts";
 import type { Any, Target } from "./types.ts";
 
 // Storage
@@ -169,7 +170,7 @@ export function read_metadata_object<T>(target: MetaTarget): T | undefined {
  *
  * @param bag The metadata object that holds the record.
  * @param target What the record was read from, for the message.
- * @throws {Error} When the record's format is not {@link METADATA_FORMAT}.
+ * @throws {ChoError} When the record's format is not {@link METADATA_FORMAT}.
  */
 function assert_format(bag: Bag, target: MetaTarget): void {
   const format = Object.hasOwn(bag, FormatKey) ? bag[FormatKey] : undefined;
@@ -177,7 +178,8 @@ function assert_format(bag: Bag, target: MetaTarget): void {
     const name = typeof target === "function" && target.name
       ? ` of ${target.name}`
       : "";
-    throw new Error(
+    throw core_error(
+      "CHO_CORE_METADATA_FORMAT",
       `The CHO metadata${name} was written in format ${
         format === undefined ? "(none)" : String(format)
       }, but this copy of @chojs/core reads format ${METADATA_FORMAT}. ` +

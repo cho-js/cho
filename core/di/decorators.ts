@@ -80,7 +80,7 @@ export type {
  * @param dependencies The constructor's dependencies, in argument order.
  *   Defaults to `[]`.
  * @returns The class decorator.
- * @throws {Error} When the class already has a DI decorator.
+ * @throws {ChoError} When the class already has a DI decorator.
  *
  * @example Without dependencies
  * ```ts
@@ -128,8 +128,8 @@ export function Injectable<const D extends readonly Dependency[] = []>(
  * @param options What the module imports, declares and exports. Every field
  *   defaults to `[]`.
  * @returns The class decorator.
- * @throws {Error} When the class already has a DI decorator.
- * @throws {Error} When an option is invalid. Nothing is written: the class is
+ * @throws {ChoError} When the class already has a DI decorator.
+ * @throws {ChoError} When an option is invalid. Nothing is written: the class is
  *   left undecorated.
  *
  * @example
@@ -191,7 +191,7 @@ export function Module<
  *   options of `E`.
 
  * @returns The class decorator.
- * @throws {Error} When the class already has a DI decorator, or when
+ * @throws {ChoError} When the class already has a DI decorator, or when
  *   `dependencies` is invalid.
  *
  * @example
@@ -233,8 +233,8 @@ export function Controller<
  *
  * @param middlewares The middlewares, in the order they run.
  * @returns A class or method decorator.
- * @throws {TypeError} When applied to anything other than a class or a method.
- * @throws {Error} When a middleware is not a function.
+ * @throws {ChoError} When applied to anything other than a class or a method.
+ * @throws {ChoError} When a middleware is not a function.
  *
  * @example
  * ```ts
@@ -271,8 +271,8 @@ export function Middlewares(
  * @param handler A function called with the error, or an injectable class
  *   that handles it.
  * @returns A class or method decorator.
- * @throws {TypeError} When applied to anything other than a class or a method.
- * @throws {Error} When `handler` is not a function or a class, or when the
+ * @throws {ChoError} When applied to anything other than a class or a method.
+ * @throws {ChoError} When `handler` is not a function or a class, or when the
  *   class or method already has an error handler.
  *
  * @example

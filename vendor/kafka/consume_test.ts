@@ -178,6 +178,9 @@ function route(
   };
 }
 
+/** The code of an error of the framework. */
+const code_of = (error: unknown) => (error as { code?: string } | null)?.code;
+
 /** A pump on fakes, with settings that make the tests quick. */
 function pump_of(routes: Route[], settings: Partial<PumpSettings> = {}) {
   const consumer = new FakeConsumer();
@@ -446,6 +449,7 @@ describe("Pump", () => {
       /^KafkaLinker: Test\.orders failed 2 time\(s\) for orders\[2\]@5, and there is no dead-letter topic/,
     );
     assert.equal(fatal[0]!.cause, cause);
+    assert.equal(code_of(fatal[0]), "CHO_KAFKA_NO_DEAD_LETTER");
     // The clients are closed before the application is told.
     assert.deepEqual(consumer.closed, [true]);
     assert.equal(producer.closed, 1);
@@ -473,6 +477,7 @@ describe("Pump", () => {
       /cannot send orders\[0\]@0 to the dead-letter topic "dead"/,
     );
     assert.equal(fatal[0]!.cause, producer.send_error);
+    assert.equal(code_of(fatal[0]), "CHO_KAFKA_DEAD_LETTER_FAILED");
     await pump.stop();
   });
 
@@ -681,6 +686,7 @@ describe("Pump", () => {
       fatal[0]!.message,
       "KafkaLinker: cannot read the topics again",
     );
+    assert.equal(code_of(fatal[0]), "CHO_KAFKA_CONSUME_FAILED");
     assert.equal(fatal[0]!.cause, consumer.consume_error);
     assert.deepEqual(consumer.closed, [true]);
   });

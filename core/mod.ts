@@ -14,6 +14,7 @@
  * @module
  */
 
+export { type ChoCoreErrorCode, ChoError, isChoError } from "./errors.ts";
 export * from "./di/decorators.ts";
 export * from "./di/injector.ts";
 export { provider, token } from "./di/tokens.ts";

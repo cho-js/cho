@@ -131,7 +131,7 @@ describe("@Args", () => {
     }
     for (const bad of ["id", 1, null, undefined, {}, number]) {
       assert.throws(() => legacy(args(Param("id"), bad), Users, "get"), {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_ARGUMENT",
         message:
           /^@Args\(\) on method get: argument 2 must be made with Param, Query, Header, Body or Form, or be a function, got /,
       });
@@ -146,6 +146,7 @@ describe("@Args", () => {
     }
     legacy(args(Param("id")), Users, "get");
     assert.throws(() => legacy(args(Query()), Users, "get"), {
+      code: "CHO_WEB_DUPLICATE_DECORATOR",
       message: "Cannot add @Args() to method get: it already has one.",
     });
   });
@@ -154,21 +155,23 @@ describe("@Args", () => {
     class Users {
       static create() {}
     }
-    assert.throws(() => loose(Args())(Users), { name: "TypeError" });
+    assert.throws(() => loose(Args())(Users), {
+      code: "CHO_CORE_INVALID_TARGET",
+    });
     assert.throws(
       () => legacy(args(), Users, "create", { isStatic: true }),
       {
-        name: "TypeError",
+        code: "CHO_CORE_INVALID_TARGET",
         message:
           "@Args() cannot decorate static method create: only public, non-static methods with a string name are supported",
       },
     );
     assert.throws(
       () => tc39(args(), function secret() {}, "#secret", { isPrivate: true }),
-      { name: "TypeError", message: /private method/ },
+      { code: "CHO_CORE_INVALID_TARGET", message: /private method/ },
     );
     assert.throws(() => tc39(args(), function sym() {}, Symbol("sym")), {
-      name: "TypeError",
+      code: "CHO_CORE_INVALID_TARGET",
       message: /symbol-named method/,
     });
   });
@@ -424,6 +427,7 @@ describe("Param, checked when the application is created", () => {
     await assert.rejects(
       create(feature([Users], { route: "v1" }), "api"),
       {
+        code: "CHO_WEB_UNKNOWN_PARAM",
         message:
           '@Args() of Users.get: Param("userId") is not a parameter of the route "/api/v1/users/:id"',
       },
@@ -480,6 +484,7 @@ describe("@Doc", () => {
 
   it("rejects an unknown option", () => {
     assert.throws(() => Doc(loose({ tag: ["users"] })), {
+      code: "CHO_CORE_UNKNOWN_OPTION",
       message:
         '@Doc(): unknown option "tag". Known options: deprecated, description, hidden, operationId, responses, security, summary, tags',
     });
@@ -489,6 +494,7 @@ describe("@Doc", () => {
     class Users {}
     for (const key of ["summary", "responses"]) {
       assert.throws(() => Doc(loose({ [key]: "x" }))(Users), {
+        code: "CHO_WEB_INVALID_OPTION",
         message:
           `@Doc(): option "${key}" is for a handler, not for a class (class Users)`,
       });
@@ -528,6 +534,7 @@ describe("@Doc", () => {
   it("rejects an operationId on a class", () => {
     class Users {}
     assert.throws(() => Doc(loose({ operationId: "x" }))(Users), {
+      code: "CHO_WEB_INVALID_OPTION",
       message:
         '@Doc(): option "operationId" is for a handler, not for a class (class Users)',
     });
@@ -536,7 +543,7 @@ describe("@Doc", () => {
   it("rejects an operationId, a security or a contentType of the wrong shape", () => {
     for (const operationId of ["", 7, null]) {
       assert.throws(() => Doc(loose({ operationId })), {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_OPTION",
         message: /^@Doc\(\): operationId must be a non-empty string, got /,
       });
     }
@@ -552,7 +559,7 @@ describe("@Doc", () => {
       ]
     ) {
       assert.throws(() => Doc(loose({ security })), {
-        name: "TypeError",
+        code: "CHO_WEB_INVALID_OPTION",
         message:
           /^@Doc\(\): security must be a list of objects of lists of strings, such as \[\{ bearer: \[\] \}\], got /,
       }, JSON.stringify(security));
@@ -561,7 +568,7 @@ describe("@Doc", () => {
       assert.throws(
         () => Doc(loose({ responses: { 404: { contentType } } })),
         {
-          name: "TypeError",
+          code: "CHO_WEB_INVALID_OPTION",
           message:
             /^@Doc\(\): the contentType of response 404 must be a non-empty string, got /,
         },
@@ -579,10 +586,12 @@ describe("@Doc", () => {
     }
     Doc({ tags: ["a"] })(Users);
     assert.throws(() => Doc({ tags: ["b"] })(Users), {
+      code: "CHO_WEB_DUPLICATE_DECORATOR",
       message: "Cannot add @Doc() to class Users: it already has one.",
     });
     legacy(Doc({ summary: "a" }), Users, "get");
     assert.throws(() => legacy(Doc({ summary: "b" }), Users, "get"), {
+      code: "CHO_WEB_DUPLICATE_DECORATOR",
       message: "Cannot add @Doc() to method get: it already has one.",
     });
   });

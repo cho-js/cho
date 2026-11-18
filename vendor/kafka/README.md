@@ -101,8 +101,10 @@ again.
 | `client`      | none          | the connection options of the client library: `tls`, `sasl`, `connectTimeout`, …           |
 | `consume`     | none          | more consumer options of the client library: `sessionTimeout`, `maxBytes`, `maxWaitTime`,… |
 
-An option that is missing, unknown or wrong throws a `TypeError` from the
-constructor, which names it.
+An option that is missing, unknown or wrong throws from the constructor, with a
+message that names it: a `ChoError` with the code `CHO_KAFKA_INVALID_OPTION`
+(`CHO_CORE_UNKNOWN_OPTION` for an option that does not exist). Every error of
+the adapter has such a [code](./specs.md#5-errors).
 
 ```ts
 new KafkaLinker({
@@ -236,7 +238,9 @@ The consumer stops by itself in three cases: a dead message with no `deadLetter`
 topic, a dead letter that cannot be sent, and a connection the client library
 could not restore. It then finishes the messages in hand, closes its clients,
 and calls `onFatal` with the error (its `cause` is the error of the handler, or
-of the client).
+of the client). The error of the first two cases, and of a consumer that cannot
+read its topics again, is a `ChoError` with a code: `CHO_KAFKA_NO_DEAD_LETTER`,
+`CHO_KAFKA_DEAD_LETTER_FAILED`, `CHO_KAFKA_CONSUME_FAILED`.
 
 Without `onFatal`, the error is thrown: an uncaught exception, which ends the
 process, so that what runs the application starts it again. Give `onFatal` to do

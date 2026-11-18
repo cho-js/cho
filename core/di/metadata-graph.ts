@@ -26,6 +26,7 @@
  * @module
  */
 
+import { core_error } from "../errors.ts";
 import type {
   ChoErrorHandler,
   ChoMiddleware,
@@ -223,17 +224,21 @@ function handlers(record: HandlersRecord): HandlersMetadata {
  *
  * @returns The controller's normalized metadata, including the metadata of its
  *   methods and every key of its record.
- * @throws {TypeError} When the entry is not a class.
- * @throws {Error} When the class is not decorated with `@Controller`.
+ * @throws {ChoError} When the entry is not a class.
+ * @throws {ChoError} When the class is not decorated with `@Controller`.
  */
 function controller_metadata(ctr: Ctr): ControllerMetadata {
   if (typeof ctr !== "function") {
-    throw new TypeError(`Expected a controller class, got ${typeof ctr}`);
+    throw core_error(
+      "CHO_CORE_NOT_A_CLASS",
+      `Expected a controller class, got ${typeof ctr}`,
+    );
   }
 
   const record = read_metadata_object<ControllerRecord>(ctr);
   if (!record?.[CONTROLLER]) {
-    throw new Error(
+    throw core_error(
+      "CHO_CORE_NOT_A_CONTROLLER",
       `Class ${describe(ctr)} is not a controller. Did you forget @Controller?`,
     );
   }
@@ -269,7 +274,7 @@ function controller_metadata(ctr: Ctr): ControllerMetadata {
  *   objects are taken as they are.
  * @returns The normalized declaration: {@link InjectableMetadata} for a class,
  *   {@link ProviderMetadata} for a provider object.
- * @throws {Error} When the entry is a class that is not decorated with
+ * @throws {ChoError} When the entry is a class that is not decorated with
  *   `@Injectable`, or that is a `@Controller` or a `@Module`: those belong in
  *   `controllers` and `imports`.
  */
@@ -281,7 +286,8 @@ function provider_metadata(
       InjectableRecord & Partial<ControllerRecord & ModuleRecord>
     >(p);
     if (!record?.[INJECTABLE]) {
-      throw new Error(
+      throw core_error(
+        "CHO_CORE_NOT_INJECTABLE",
         `Class ${describe(p)} is not injectable. Did you forget @Injectable?`,
       );
     }
@@ -289,14 +295,16 @@ function provider_metadata(
     // provider: its routes or commands, or its declarations, would silently
     // not exist.
     if (record[CONTROLLER]) {
-      throw new Error(
+      throw core_error(
+        "CHO_CORE_MISPLACED_PROVIDER",
         `Class ${
           describe(p)
         } is a controller: declare it in "controllers", not in "providers".`,
       );
     }
     if (record[MODULE]) {
-      throw new Error(
+      throw core_error(
+        "CHO_CORE_MISPLACED_PROVIDER",
         `Class ${
           describe(p)
         } is a module: list it in "imports", not in "providers".`,
@@ -329,8 +337,8 @@ function provider_metadata(
  *   detect circular imports.
  * @param overrides The providers that replace declared ones.
  * @returns The module's normalized metadata.
- * @throws {TypeError} When `mdl` is not a class.
- * @throws {Error} When the imports are circular, when a class is not
+ * @throws {ChoError} When `mdl` is not a class.
+ * @throws {ChoError} When the imports are circular, when a class is not
  *   decorated with `@Module`, or when a `providers` or `controllers` entry is
  *   invalid.
  */
@@ -341,14 +349,20 @@ function module_metadata(
   overrides: Overrides,
 ): ModuleMetadata {
   if (typeof mdl !== "function") {
-    throw new TypeError(`Expected a module class, got ${typeof mdl}`);
+    throw core_error(
+      "CHO_CORE_NOT_A_CLASS",
+      `Expected a module class, got ${typeof mdl}`,
+    );
   }
 
   // Checked before the cache: a module on the current path is still being
   // normalized, so it is not in `modules` yet.
   if (path.includes(mdl)) {
     const cycle = [...path, mdl].map(describe).join(" → ");
-    throw new Error(`Circular dependency detected: ${cycle}`);
+    throw core_error(
+      "CHO_CORE_CIRCULAR_DEPENDENCY",
+      `Circular dependency detected: ${cycle}`,
+    );
   }
 
   const known = modules.get(mdl);
@@ -358,7 +372,8 @@ function module_metadata(
 
   const record = read_metadata_object<ModuleRecord>(mdl);
   if (!record?.[MODULE]) {
-    throw new Error(
+    throw core_error(
+      "CHO_CORE_NOT_A_MODULE",
       `Class ${describe(mdl)} is not a module. Did you forget @Module?`,
     );
   }
@@ -398,7 +413,7 @@ class Overrides {
 
   /**
    * @param providers The overriding providers.
-   * @throws {Error} When an entry is not a provider object, or when two
+   * @throws {ChoError} When an entry is not a provider object, or when two
    *   entries have the same token.
    */
   constructor(providers: readonly Provider[]) {
@@ -407,12 +422,16 @@ class Overrides {
         typeof p !== "object" || p === null || !is_token(p.provide) ||
         typeof p.factory !== "function"
       ) {
-        throw new Error(
+        throw core_error(
+          "CHO_CORE_INVALID_OVERRIDE",
           "An override must be a provider object, built with provider()",
         );
       }
       if (this.#providers.has(p.provide)) {
-        throw new Error(`${describe(p.provide)} is overridden more than once`);
+        throw core_error(
+          "CHO_CORE_DUPLICATE_OVERRIDE",
+          `${describe(p.provide)} is overridden more than once`,
+        );
       }
       this.#providers.set(p.provide, provider(p));
     }
@@ -439,12 +458,13 @@ class Overrides {
    * Throw if an override replaced nothing: its token is misspelled, or no
    * module of the application provides it.
    *
-   * @throws {Error} Naming the first unused override.
+   * @throws {ChoError} Naming the first unused override.
    */
   assert_all_used(): void {
     for (const token of this.#providers.keys()) {
       if (!this.#used.has(token)) {
-        throw new Error(
+        throw core_error(
+          "CHO_CORE_UNKNOWN_OVERRIDE",
           `Cannot override ${
             describe(token)
           }: no module of the application provides it`,
@@ -465,7 +485,7 @@ class Overrides {
  * @returns The metadata graph: the root module and every module it imports,
  *   directly or not. In `modules`, imported modules come before the modules
  *   that import them, and the root comes last.
- * @throws {Error} On any invalid declaration (see {@link module_metadata}).
+ * @throws {ChoError} On any invalid declaration (see {@link module_metadata}).
  *
  * @example
  * ```ts

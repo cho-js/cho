@@ -25,6 +25,7 @@ asynchronous, decorator-driven, and free of reflection.
 - [Lifecycle](#lifecycle)
 - [Testing with overrides](#testing-with-overrides)
 - [Writing a CHO module](#writing-a-cho-module)
+- [Errors](#errors)
 - [Entry points](#entry-points)
 - [Runtime support](#runtime-support)
 - [Documentation](#documentation)
@@ -179,6 +180,36 @@ for (const node of injector.controllers()) {
 The core also provides what every CHO module needs around that loop: `compose`
 runs a chain of middlewares, and `assert_handle` / `resolve_handle` accept
 middlewares and error handlers written as injectable classes.
+
+## Errors
+
+Every mistake the framework finds is a `ChoError`: an `Error` with a `code`. The
+code is stable: it is part of the API, where the message is for people and can
+change in any release.
+
+```ts
+import { Injector, isChoError } from "@chojs/core";
+
+try {
+  new Injector(App);
+} catch (error) {
+  if (isChoError(error, "CHO_CORE_CIRCULAR_DEPENDENCY")) {
+    // ...
+  }
+  throw error;
+}
+```
+
+- Use `isChoError(error)` or `isChoError(error, code)`, and not `instanceof`:
+  two versions of the package in one process have a class each.
+- The codes of this package start with `CHO_CORE_` (type `ChoCoreErrorCode`).
+  Each CHO module has codes of its own (`CHO_WEB_`, `CHO_COMMAND_`, …) and gives
+  `ChoError` and `isChoError` again.
+- An error that is not the framework's own (what a factory or a handler throws)
+  is passed on as it is, or kept as the `cause` of a `ChoError`.
+
+Every code is listed with its mistake in the
+[specification](./specs.md#28-errors).
 
 ## Entry points
 

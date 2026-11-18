@@ -22,6 +22,7 @@ the command line, runs the right one and returns the exit code.
   - [Dependency injection and cleanup](#dependency-injection-and-cleanup)
   - [Testing](#testing)
 - [Options](#options)
+- [Errors](#errors)
 - [Runtime support](#runtime-support)
 - [Documentation](#documentation)
 
@@ -270,6 +271,36 @@ assert.equal(await app.run(["rm", "a.txt", "--force"]), 0);
 | `parseOptions` | none      | Flags declared for every command                 |
 | `onError`      | none      | The error handler for what no `@Catch` covers    |
 | `overrides`    | none      | Providers that replace declared ones, for tests  |
+
+## Errors
+
+A mistake the framework finds is a `ChoError`: an `Error` with a `code`. The
+code is stable: it is part of the API, where the message is for people and can
+change in any release.
+
+```ts
+import { ChoCommand, isChoError } from "@chojs/command";
+
+try {
+  ChoCommand.create(App);
+} catch (error) {
+  if (isChoError(error, "CHO_COMMAND_NO_COMMANDS")) {
+    // ...
+  }
+  throw error;
+}
+```
+
+The codes of this package start with `CHO_COMMAND_` (type
+`ChoCommandErrorCode`), and those of the core with `CHO_CORE_` (type
+`ChoCoreErrorCode`). Use `isChoError`, and not `instanceof`: two versions of a
+package in one process have a class each.
+
+The error a command throws is the application's: it is given to the error
+handler as it is, and decides the exit code.
+
+Every code is listed with its mistake in the
+[specification](./specs.md#7-errors).
 
 ## Runtime support
 

@@ -55,3 +55,6 @@ export { timeout, type TimeoutOptions } from "./timeout.ts";
 
 // The `@chojs/web` types the middlewares refer to.
 export type { ChoWebContext, ChoWebMiddlewareFn, ChoWebNext } from "@chojs/web";
+
+/** The codes of the errors of this package. */
+export type { ChoVendorErrorCode } from "./errors.ts";

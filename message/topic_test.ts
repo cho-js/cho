@@ -28,11 +28,11 @@ describe("assert_topic", () => {
     for (const topic of [undefined, null, 42, ["orders"], {}]) {
       assert.throws(
         () => assert_topic(topic, "feature App"),
-        (error: unknown) =>
-          error instanceof TypeError &&
-          error.message.startsWith(
-            "Invalid topic of feature App: expected a string, got ",
-          ),
+        {
+          code: "CHO_MESSAGE_INVALID_TOPIC",
+          message:
+            /^Invalid\ topic\ of\ feature\ App:\ expected\ a\ string,\ got\ /,
+        },
       );
     }
   });
@@ -40,6 +40,7 @@ describe("assert_topic", () => {
   it("rejects a leading or trailing dot", () => {
     for (const topic of [".orders", "orders.", "."]) {
       assert.throws(() => assert_topic(topic, "here"), {
+        code: "CHO_MESSAGE_INVALID_TOPIC",
         message: `Invalid topic ${
           JSON.stringify(topic)
         } of here: it must not start or end with "."`,
@@ -49,6 +50,7 @@ describe("assert_topic", () => {
 
   it("rejects an empty segment", () => {
     assert.throws(() => assert_topic("orders..created", "here"), {
+      code: "CHO_MESSAGE_INVALID_TOPIC",
       message:
         'Invalid topic "orders..created" of here: it must not contain an empty segment ("..")',
     });
@@ -64,6 +66,7 @@ describe("assert_topic", () => {
       ] as const
     ) {
       assert.throws(() => assert_topic(topic, "here"), {
+        code: "CHO_MESSAGE_INVALID_TOPIC",
         message: `Invalid topic ${JSON.stringify(topic)} of here: ${
           JSON.stringify(segment)
         } has a "${char}": wildcards are not part of the topic syntax`,
@@ -82,6 +85,7 @@ describe("assert_topic", () => {
       ] as const
     ) {
       assert.throws(() => assert_topic(topic, "here"), {
+        code: "CHO_MESSAGE_INVALID_TOPIC",
         message: `Invalid topic ${JSON.stringify(topic)} of here: ${
           JSON.stringify(segment)
         } is not a valid segment: write letters, digits, "_" and "-"`,
@@ -101,10 +105,13 @@ describe("normalize_topic", () => {
 
   it("checks the trimmed topic", () => {
     assert.throws(() => normalize_topic(" orders. ", "here"), {
+      code: "CHO_MESSAGE_INVALID_TOPIC",
       message:
         'Invalid topic "orders." of here: it must not start or end with "."',
     });
-    assert.throws(() => normalize_topic(7, "here"), TypeError);
+    assert.throws(() => normalize_topic(7, "here"), {
+      code: "CHO_MESSAGE_INVALID_TOPIC",
+    });
   });
 });
 

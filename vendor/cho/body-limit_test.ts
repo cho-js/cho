@@ -97,6 +97,26 @@ describe("bodyLimit", () => {
     assert.equal(response.status, 413);
   });
 
+  it("fails the reading of a body over the limit with an error of its own", async () => {
+    let failure: unknown;
+    await run(bodyLimit({ maxSize: 2 }), streamed("abc"), async (ctx) => {
+      try {
+        return new Response(await ctx.req.text());
+      } catch (error) {
+        failure = error;
+        return new Response("oops", { status: 500 });
+      }
+    });
+    assert.equal(
+      (failure as { code?: string }).code,
+      "CHO_VENDOR_BODY_TOO_LARGE",
+    );
+    assert.equal(
+      (failure as Error).message,
+      "the body of the request is too large",
+    );
+  });
+
   it("does not count a streamed body nobody reads", async () => {
     const { response } = await run(
       bodyLimit({ maxSize: 1 }),
@@ -132,10 +152,12 @@ describe("bodyLimit", () => {
   it("needs a whole number of bytes", () => {
     for (const maxSize of [-1, 1.5, "1", undefined]) {
       assert.throws(() => bodyLimit(loose({ maxSize })), {
-        name: "TypeError",
+        code: "CHO_VENDOR_INVALID_OPTION",
         message: "bodyLimit(): maxSize must be a whole number of bytes",
       });
     }
-    assert.throws(() => bodyLimit(loose(undefined)), { name: "TypeError" });
+    assert.throws(() => bodyLimit(loose(undefined)), {
+      code: "CHO_VENDOR_INVALID_OPTION",
+    });
   });
 });

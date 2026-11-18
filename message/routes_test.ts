@@ -170,6 +170,7 @@ describe("topics", () => {
     await assert.rejects(
       ChoMessage.create(module_of([Orders])),
       {
+        code: "CHO_MESSAGE_INVALID_TOPIC",
         message:
           'Invalid topic "orders/created" of controller Orders: "orders/created" is not a valid segment: write letters, digits, "_" and "-"',
       },
@@ -178,6 +179,7 @@ describe("topics", () => {
     await assert.rejects(
       ChoMessage.create(module_of([controller("orders")], "shop.")),
       {
+        code: "CHO_MESSAGE_INVALID_TOPIC",
         message:
           'Invalid topic "shop." of feature Mod: it must not start or end with "."',
       },
@@ -187,6 +189,7 @@ describe("topics", () => {
         prefix: "staging.*",
       }),
       {
+        code: "CHO_MESSAGE_INVALID_TOPIC",
         message:
           'Invalid topic "staging.*" of the global prefix: "*" has a "*": wildcards are not part of the topic syntax',
       },
@@ -196,7 +199,7 @@ describe("topics", () => {
         prefix: loose(7),
       }),
       {
-        name: "TypeError",
+        code: "CHO_MESSAGE_INVALID_TOPIC",
         message: "Invalid topic of the global prefix: expected a string, got 7",
       },
     );
@@ -204,6 +207,7 @@ describe("topics", () => {
 
   it("rejects a handler whose topic is empty", async () => {
     await assert.rejects(ChoMessage.create(module_of([controller("")])), {
+      code: "CHO_MESSAGE_INVALID_TOPIC",
       message:
         "Invalid topic of Ctrl.run: it is empty. Give @Subscribe(), its controller or its module a topic",
     });
@@ -224,6 +228,7 @@ describe("topics", () => {
     legacy(Subscribe("created"), Audit, "log");
     Controller({ topic: "orders" })(Audit);
     await assert.rejects(ChoMessage.create(module_of([Orders, Audit])), {
+      code: "CHO_MESSAGE_DUPLICATE_TOPIC",
       message:
         'Duplicate topic "orders.created": declared by Orders.created and Audit.log',
     });
@@ -234,6 +239,7 @@ describe("topics", () => {
     await assert.rejects(
       ChoMessage.create(module_of([Ctrl], undefined, [module_of([Ctrl])])),
       {
+        code: "CHO_MESSAGE_DUPLICATE_TOPIC",
         message:
           'Duplicate topic "orders": declared by Ctrl.run and Ctrl.run. Its controller is declared in more than one module: declare it in one.',
       },
@@ -322,7 +328,7 @@ describe("handlers", () => {
     await assert.rejects(app.handle("orders", { value: "{" }), SyntaxError);
     await assert.rejects(
       app.handle("orders", { value: loose(42) }),
-      TypeError,
+      { code: "CHO_MESSAGE_INVALID_VALUE" },
     );
   });
 });
@@ -428,6 +434,7 @@ describe("middlewares", () => {
     class AppA {}
     Module({ providers: [NoHandle], controllers: [A] })(AppA);
     await assert.rejects(ChoMessage.create(AppA), {
+      code: "CHO_CORE_INVALID_MIDDLEWARE",
       message: "Middleware class NoHandle must implement 'handle' method.",
     });
 
@@ -438,6 +445,7 @@ describe("middlewares", () => {
     const B = controller("b");
     Middlewares(Missing)(B);
     await assert.rejects(ChoMessage.create(module_of([B])), {
+      code: "CHO_MESSAGE_CREATE_FAILED",
       message: "Failed to create middleware Missing in module Mod",
     });
   });
@@ -450,6 +458,7 @@ describe("middlewares", () => {
     })(Ctrl);
     const app = await ChoMessage.create(module_of([Ctrl]));
     await assert.rejects(app.handle("orders"), {
+      code: "CHO_CORE_NEXT_CALLED_TWICE",
       message: "middleware twice: next() called more than once",
     });
   });
@@ -613,6 +622,7 @@ describe("error handlers", () => {
         onError: loose("nope"),
       }),
       {
+        code: "CHO_CORE_INVALID_ERROR_HANDLER",
         message:
           `Invalid error handler "nope": must be a function or a class with a 'handle' method.`,
       },
@@ -624,6 +634,7 @@ describe("error handlers", () => {
     const Ctrl = controller("orders");
     Catch(Missing)(Ctrl);
     await assert.rejects(ChoMessage.create(module_of([Ctrl])), {
+      code: "CHO_MESSAGE_CREATE_FAILED",
       message: "Failed to create error handler Missing in module Mod",
     });
   });

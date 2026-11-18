@@ -88,6 +88,7 @@ describe("ChoCommand.create", () => {
     Module({ controllers: [Web] })(App);
 
     assert.throws(() => ChoCommand.create(App), {
+      code: "CHO_COMMAND_NO_COMMANDS",
       message: "No @Main or @Action methods found in the application",
     });
   });
@@ -519,6 +520,20 @@ describe("ChoCommand.run, failures without a usable handler", () => {
     assert.deepEqual(output.error, [
       "Error: Method 'run' is not a function on controller 'Cli'.",
     ]);
+
+    // An error handler gets the error, with its code.
+    let seen: unknown;
+    const handled = await ChoCommand.create(App, {
+      onError: (error) => {
+        seen = error;
+        return 3;
+      },
+    }).run([]);
+    assert.equal(handled, 3);
+    assert.equal(
+      (seen as { code?: string }).code,
+      "CHO_COMMAND_INVALID_METHOD",
+    );
   });
 
   it("calls a class error handler's handle with the error and the context", async () => {

@@ -242,6 +242,7 @@ describe("build_meta_graph", () => {
       class WithController {}
       Module({ providers: [SomeController] })(WithController);
       assert.throws(() => build_meta_graph(WithController), {
+        code: "CHO_CORE_MISPLACED_PROVIDER",
         message:
           'Class SomeController is a controller: declare it in "controllers", not in "providers".',
       });
@@ -251,6 +252,7 @@ describe("build_meta_graph", () => {
       class WithModule {}
       Module({ providers: [SomeModule] })(WithModule);
       assert.throws(() => build_meta_graph(WithModule), {
+        code: "CHO_CORE_MISPLACED_PROVIDER",
         message:
           'Class SomeModule is a module: list it in "imports", not in "providers".',
       });
@@ -517,6 +519,7 @@ describe("build_meta_graph", () => {
     it("throws when the root is not a module", () => {
       class NotAModule {}
       assert.throws(() => build_meta_graph(NotAModule), {
+        code: "CHO_CORE_NOT_A_MODULE",
         message: "Class NotAModule is not a module. Did you forget @Module?",
       });
     });
@@ -527,18 +530,19 @@ describe("build_meta_graph", () => {
       class App {}
       Module({ imports: [NotAModule] })(App);
       assert.throws(() => build_meta_graph(App), {
+        code: "CHO_CORE_NOT_A_MODULE",
         message: "Class NotAModule is not a module. Did you forget @Module?",
       });
     });
 
-    it("throws a TypeError when the root is not a class", () => {
+    it("throws when the root is not a class", () => {
       assert.throws(() => build_meta_graph(not_a_class), {
-        name: "TypeError",
+        code: "CHO_CORE_NOT_A_CLASS",
         message: "Expected a module class, got string",
       });
     });
 
-    it("throws a TypeError when an import is not a class", () => {
+    it("throws when an import is not a class", () => {
       // @Module rejects a non-class import, so write the record directly,
       // with the keys spelled out: what another copy of the package writes.
       class App {}
@@ -552,7 +556,7 @@ describe("build_meta_graph", () => {
         [Symbol.for("chojs.core.controllers")]: [],
       });
       assert.throws(() => build_meta_graph(App), {
-        name: "TypeError",
+        code: "CHO_CORE_NOT_A_CLASS",
         message: "Expected a module class, got string",
       });
     });
@@ -563,6 +567,7 @@ describe("build_meta_graph", () => {
       Module({ imports: [B] })(A);
       Module({ imports: [A] })(B);
       assert.throws(() => build_meta_graph(A), {
+        code: "CHO_CORE_CIRCULAR_DEPENDENCY",
         message: "Circular dependency detected: A → B → A",
       });
     });
@@ -571,6 +576,7 @@ describe("build_meta_graph", () => {
       class A {}
       Module({ imports: [A] })(A);
       assert.throws(() => build_meta_graph(A), {
+        code: "CHO_CORE_CIRCULAR_DEPENDENCY",
         message: "Circular dependency detected: A → A",
       });
     });
@@ -580,6 +586,7 @@ describe("build_meta_graph", () => {
       class App {}
       Module({ providers: [Plain] })(App);
       assert.throws(() => build_meta_graph(App), {
+        code: "CHO_CORE_NOT_INJECTABLE",
         message: "Class Plain is not injectable. Did you forget @Injectable?",
       });
     });
@@ -590,12 +597,13 @@ describe("build_meta_graph", () => {
       class App {}
       Module({ controllers: [Service] })(App);
       assert.throws(() => build_meta_graph(App), {
+        code: "CHO_CORE_NOT_A_CONTROLLER",
         message:
           "Class Service is not a controller. Did you forget @Controller?",
       });
     });
 
-    it("throws a TypeError when a controller entry is not a class", () => {
+    it("throws when a controller entry is not a class", () => {
       // @Module rejects a non-class controller, so write the record directly.
       class App {}
       write_metadata_object(App, {
@@ -608,7 +616,7 @@ describe("build_meta_graph", () => {
         [CONTROLLERS]: [not_a_class],
       });
       assert.throws(() => build_meta_graph(App), {
-        name: "TypeError",
+        code: "CHO_CORE_NOT_A_CLASS",
         message: "Expected a controller class, got string",
       });
     });
@@ -622,6 +630,7 @@ describe("build_meta_graph, anonymous classes", () => {
   it("names an anonymous class <anonymous> in every message", () => {
     const NotAModule = anonymous();
     assert.throws(() => build_meta_graph(NotAModule), {
+      code: "CHO_CORE_NOT_A_MODULE",
       message: "Class <anonymous> is not a module. Did you forget @Module?",
     });
 
@@ -629,6 +638,7 @@ describe("build_meta_graph, anonymous classes", () => {
     const WithProvider = anonymous();
     Module({ providers: [Plain] })(WithProvider);
     assert.throws(() => build_meta_graph(WithProvider), {
+      code: "CHO_CORE_NOT_INJECTABLE",
       message:
         "Class <anonymous> is not injectable. Did you forget @Injectable?",
     });
@@ -638,6 +648,7 @@ describe("build_meta_graph, anonymous classes", () => {
     const WithController = anonymous();
     Module({ controllers: [Service] })(WithController);
     assert.throws(() => build_meta_graph(WithController), {
+      code: "CHO_CORE_NOT_A_CONTROLLER",
       message:
         "Class <anonymous> is not a controller. Did you forget @Controller?",
     });
@@ -645,6 +656,7 @@ describe("build_meta_graph, anonymous classes", () => {
     const A = anonymous();
     Module({ imports: [A] })(A);
     assert.throws(() => build_meta_graph(A), {
+      code: "CHO_CORE_CIRCULAR_DEPENDENCY",
       message: "Circular dependency detected: <anonymous> → <anonymous>",
     });
   });
