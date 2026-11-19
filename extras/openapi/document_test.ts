@@ -27,6 +27,8 @@ import {
   Query,
   Sse,
   validate,
+  Ws,
+  WsMessage,
 } from "@chojs/web";
 import { legacy, loose } from "@chojs/core/utils/test_utils";
 import { openApiDocument } from "./document.ts";
@@ -290,6 +292,21 @@ describe("openApiDocument, the operations", () => {
     app.mount("GET", "health", () => "ok");
     const document = openApiDocument(app, { info: INFO });
     assert.deepEqual(Object.keys(document.paths), ["/users"]);
+  });
+
+  it("leaves out a route that upgrades to a WebSocket", async () => {
+    class Chat {
+      join() {}
+      message() {}
+      history() {}
+    }
+    legacy(Ws(":room"), Chat, "join");
+    legacy(loose(WsMessage()), Chat, "message");
+    legacy(Get(":room/history"), Chat, "history");
+    Controller({ route: "chat" })(Chat);
+    const app = await create(module_of([Chat]));
+    const document = openApiDocument(app, { info: INFO });
+    assert.deepEqual(Object.keys(document.paths), ["/chat/{room}/history"]);
   });
 
   it("names an operation after its handler, or as its @Doc says", async () => {

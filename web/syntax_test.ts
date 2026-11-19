@@ -19,6 +19,7 @@ import {
   type ChoWebArg,
   type ChoWebContext,
   type ChoWebMiddlewareFn,
+  type ChoWebSocket,
   type ChoWebSseEvent,
   Controller,
   Doc,
@@ -36,6 +37,10 @@ import {
   Sse,
   token,
   validate,
+  Ws,
+  WsClose,
+  WsMessage,
+  WsOpen,
 } from "./mod.ts";
 import { TestLinker } from "./testing.ts";
 
@@ -632,5 +637,124 @@ describe("@Sse, in decorator syntax", () => {
       const _head = Sse("e", { method: "HEAD" });
       return Wrong;
     };
+  });
+});
+
+describe("@Ws, in decorator syntax", () => {
+  const seen: unknown[] = [];
+
+  @Injectable()
+  class Rooms {
+    readonly open = new Map<string, Set<ChoWebSocket>>();
+    of(room: string): Set<ChoWebSocket> {
+      let sockets = this.open.get(room);
+      if (!sockets) {
+        this.open.set(room, sockets = new Set());
+      }
+      return sockets;
+    }
+  }
+
+  @Controller({ route: "chat", dependencies: [Rooms] })
+  class ChatController {
+    constructor(readonly rooms: Rooms) {}
+
+    @Ws(":room")
+    @Args(Param("room"))
+    join(room: string, ctx: ChoWebContext) {
+      ctx.state.set("joined", room);
+      return { joined: room };
+    }
+
+    @WsOpen()
+    open(socket: ChoWebSocket) {
+      this.rooms.of(socket.ctx.params.room!).add(socket);
+    }
+
+    @WsMessage()
+    async message(data: string | Uint8Array, socket: ChoWebSocket) {
+      await Promise.resolve();
+      seen.push([socket.ctx.state.get("joined"), data]);
+      return `echo ${data}`;
+    }
+
+    @WsClose()
+    close(code: number, _reason: string, socket: ChoWebSocket) {
+      this.rooms.of(socket.ctx.params.room!).delete(socket);
+      seen.push(["closed", code]);
+    }
+  }
+
+  @Module({ controllers: [ChatController], providers: [Rooms] })
+  class App {}
+
+  it("upgrades, and runs the methods of the events on the controller", async () => {
+    const app = await ChoWeb.create(App, { linker: new TestLinker() });
+    const upgrade = await app.upgrade(
+      new Request("http://localhost/chat/lobby", {
+        headers: { upgrade: "websocket" },
+      }),
+    );
+    assert.ok(!(upgrade instanceof Response));
+    const sent: unknown[] = [];
+    const events = upgrade.accept({
+      send: (data) => void sent.push(data),
+      close() {},
+      native: undefined,
+    });
+    events.message("hi");
+    events.closed(1000, "");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // the close arrived before the reply could be sent
+    assert.deepEqual(sent, ['{"joined":"lobby"}']);
+    assert.deepEqual(seen, [["lobby", "hi"], ["closed", 1000]]);
+    const rooms = await app.injector.resolve(Rooms);
+    assert.equal(rooms.of("lobby").size, 0);
+  });
+
+  it("checks the parameters of the event methods, at compile time", () => {
+    // Type-only: never called, so the class is never defined.
+    const _check = () => {
+      class Wrong {
+        // @ts-expect-error the socket is the only parameter of @WsOpen
+        @WsOpen()
+        a(_data: string, _socket: ChoWebSocket) {}
+
+        // @ts-expect-error a message is a string or bytes, not a string alone
+        @WsMessage()
+        b(_data: string) {}
+
+        // @ts-expect-error the socket comes after the message
+        @WsMessage()
+        c(_socket: ChoWebSocket, _data: string | Uint8Array) {}
+
+        // @ts-expect-error the code of a close is a number
+        @WsClose()
+        d(_code: string) {}
+
+        // @ts-expect-error the socket comes last
+        @WsClose()
+        e(_socket: ChoWebSocket) {}
+      }
+      class Right {
+        // A method can leave its parameters out, and return anything.
+        @WsOpen()
+        a() {
+          return "welcome";
+        }
+
+        @WsMessage()
+        b(data: string | Uint8Array) {
+          return data.length;
+        }
+
+        @WsClose()
+        async c(code: number, reason: string) {
+          await Promise.resolve([code, reason]);
+        }
+      }
+      return [Wrong, Right];
+    };
+    assert.equal(typeof _check, "function");
   });
 });

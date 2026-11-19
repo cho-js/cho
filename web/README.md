@@ -22,6 +22,7 @@ call.
   - [Describing the API](#describing-the-api)
   - [Responses](#responses)
   - [Server-sent events](#server-sent-events)
+  - [WebSockets](#websockets)
   - [Middlewares](#middlewares)
   - [Error handling](#error-handling)
   - [Answering with an error](#answering-with-an-error)
@@ -53,6 +54,9 @@ call.
   conversion of results are done by `@chojs/web` itself.
 - **Server-sent events.** An `async *` method is a stream of events: every
   `yield` is one.
+- **WebSockets.** A controller upgrades a request and handles the events of the
+  socket with four decorators. The same code runs on Deno, Bun, Node.js and
+  Cloudflare Workers, and needs no WebSocket library.
 - **Dependency injection.** Controllers, middlewares and error handlers receive
   their dependencies. Everything is created and checked before the server
   starts.
@@ -108,7 +112,7 @@ class UsersController {
 class App {}
 
 const app = await ChoWeb.create(App);
-await serve(app.handler, { port: 3000 }); // on Deno, Node.js or Bun
+await serve(app, { port: 3000 }); // on Deno, Node.js or Bun
 ```
 
 ## Guide
@@ -439,6 +443,98 @@ the proxy. Everything else ignores the header.
 [`examples/sse-http.ts`](../examples/sse-http.ts) is a runnable application with
 both kinds of streams, and a page that reads them.
 
+### WebSockets
+
+A controller upgrades a request to a WebSocket with `@Ws`, and handles the
+events of the socket with `@WsOpen`, `@WsMessage` and `@WsClose`:
+
+```ts
+import {
+  Args,
+  type ChoWebSocket,
+  Controller,
+  HttpError,
+  Param,
+  Ws,
+  WsClose,
+  WsMessage,
+  WsOpen,
+} from "@chojs/web";
+
+@Controller({ route: "chat", dependencies: [Rooms] })
+class ChatController {
+  constructor(readonly rooms: Rooms) {}
+
+  @Ws(":room") // GET /chat/:room, with "Upgrade: websocket"
+  @Args(Param("room"))
+  join(room: string) {
+    if (!this.rooms.has(room)) throw new HttpError(404); // refused: no socket
+    return { joined: room }; // the first message on the socket
+  }
+
+  @WsOpen()
+  open(socket: ChoWebSocket) {
+    this.rooms.add(socket.ctx.params.room, socket);
+  }
+
+  @WsMessage()
+  async message(data: string | Uint8Array, socket: ChoWebSocket) {
+    await this.rooms.send(socket.ctx.params.room, data);
+    return { ok: true }; // sent back on the socket
+  }
+
+  @WsClose()
+  close(code: number, reason: string, socket: ChoWebSocket) {
+    this.rooms.remove(socket.ctx.params.room, socket);
+  }
+}
+```
+
+- **What a method returns is sent on the socket**: a string as a text message,
+  bytes as a binary message, anything else as JSON. A method that returns
+  nothing sends nothing. Every method can be asynchronous.
+- **`@Ws` is an ordinary `GET` handler.** Its middlewares run before the
+  upgrade, so `bearerAuth()` answers `401` before any socket opens, and it has
+  `@Args`, `validate()` and `@Catch`. To refuse a connection, throw an
+  `HttpError` or return a `Response`. A request that does not ask for an upgrade
+  is answered `426`.
+- **A controller has one socket**: one method at most for each of the four
+  decorators. It can have other handlers next to them.
+- **The data of a connection is `socket.ctx`**, the context of the request that
+  was upgraded: its `params`, its `url`, its headers and its `state`. A
+  controller is one instance for every connection, so nothing of one connection
+  is kept on `this`.
+- **The events of a socket run one after another**, in the order they arrived,
+  also when the methods are asynchronous. `@WsClose` runs once, whoever closed
+  the socket.
+- **A method that throws closes the socket** with the code `1011`, and the error
+  is reported.
+
+The socket has `send(data)`, `close(code?, reason?)`, `open`, `ctx`, and
+`native`, the socket of the runtime. It is one object for a connection: keep it
+in a `Set` to send to every socket of a room.
+
+**Serving.** [`serve(app)`](#serving) upgrades the connections on Deno, Bun and
+Node.js. Give it the application, not `app.handler` alone:
+
+| Runtime            | Who upgrades the connection                               |
+| ------------------ | --------------------------------------------------------- |
+| Deno               | `serve(app)`, or `app.handler` with `Deno.serve`          |
+| Cloudflare Workers | `app.handler`                                             |
+| Bun                | `serve(app)`, or `Bun.serve({ ...bunOptions(app) })`      |
+| Node.js            | `serve(app)`, or `server.on("upgrade", nodeUpgrade(app))` |
+
+Node.js has no WebSocket server: the protocol is part of this package, with no
+dependency and no compression of messages. The Fastify adapter does not upgrade
+connections yet, and refuses a `@Ws` route when the application is created.
+
+> **Security.** A browser does not apply CORS to a WebSocket: any page can open
+> one to your application, with the cookies of the user. A socket that trusts a
+> cookie checks the `Origin` header, in a middleware of its `@Ws` method.
+
+[`examples/ws-chat.ts`](../examples/ws-chat.ts) is a runnable chat, with a page
+that connects to it.
+
 ### Middlewares
 
 `@Middlewares` applies to a feature module, a controller or a handler. A
@@ -613,7 +709,7 @@ import { ChoWeb } from "@chojs/web";
 import { serve } from "@chojs/web/serve";
 
 const app = await ChoWeb.create(App);
-const server = await serve(app.handler, { port: 3000 });
+const server = await serve(app, { port: 3000 });
 
 console.log(`listening on http://localhost:${server.port}`);
 ```
@@ -624,15 +720,19 @@ console.log(`listening on http://localhost:${server.port}`);
 | `hostname`     | the runtime's default | The host name or address to listen on                              |
 | `signal`       | none                  | An `AbortSignal` that closes the server                            |
 | `closeTimeout` | none                  | How long closing waits for the requests in flight, in milliseconds |
+| `maxPayload`   | 1 MiB                 | The bytes a message of a [WebSocket](#websockets) can hold         |
 
-`server.close()` stops accepting requests and waits for the ones in flight. A
-request that never ends, such as an open stream of
-[server-sent events](#server-sent-events), would hold it for ever. With
-`closeTimeout`, the requests that are still in flight after that long are cut;
-their handlers see a client that went away.
+`serve` takes the application, or its handler alone: `serve(app.handler)`. With
+the handler alone, the server upgrades no connection to a WebSocket.
+
+`server.close()` stops accepting requests and waits for the ones in flight. It
+closes the open sockets first, with the code `1001`. A request that never ends,
+such as an open stream of [server-sent events](#server-sent-events), would hold
+it for ever. With `closeTimeout`, the requests that are still in flight after
+that long are cut; their handlers see a client that went away.
 
 ```ts
-const server = await serve(app.handler, { closeTimeout: 10_000 });
+const server = await serve(app, { closeTimeout: 10_000 });
 ```
 
 It resolves, once the server is listening, to
@@ -732,7 +832,7 @@ releases them in reverse creation order: every instance with a
 `app.handler` answers `503`.
 
 ```ts
-const server = await serve(app.handler, { closeTimeout: 10_000 });
+const server = await serve(app, { closeTimeout: 10_000 });
 process.once("SIGTERM", async () => {
   // stop accepting, give the requests in flight 10 seconds to finish
   await server.close();
@@ -761,7 +861,7 @@ app.mount("GET", "internal/routes", () => app.routes.map((r) => r.path), {
   middlewares: [onlyAdmins],
 });
 
-await serve(app.handler);
+await serve(app);
 ```
 
 `app.mount(method, route, handler, options?)`:

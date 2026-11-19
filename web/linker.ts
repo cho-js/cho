@@ -26,6 +26,12 @@ export type Route = {
   /** Where the route is declared, for logs: `"UsersController.get"`. */
   readonly name: string;
   /**
+   * `true` for a route that upgrades its request to a WebSocket (`@Ws`). It
+   * is registered as any `GET` route. An adapter that has a server of its
+   * own, and cannot upgrade a connection, refuses such a route.
+   */
+  readonly socket?: true;
+  /**
    * Answer a request that matches the route. It runs the route's
    * middlewares, its handler and, on an error, its error handler.
    *

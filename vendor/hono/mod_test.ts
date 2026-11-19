@@ -25,6 +25,7 @@ import {
   ChoWeb,
   type ChoWebContext,
   type ChoWebMiddlewareFn,
+  type ChoWebSocket,
   Controller,
   Get,
   Head,
@@ -36,6 +37,8 @@ import {
   Post,
   Query,
   Sse,
+  Ws,
+  WsMessage,
 } from "@chojs/web";
 import type { Route } from "@chojs/web/linker";
 import { engine } from "@chojs/core/utils";
@@ -866,5 +869,87 @@ describe("HonoLinker, server-sent events", () => {
     const response = await send(app, "/feed/short");
     assert.equal(response.headers.get("content-type"), "text/event-stream");
     assert.equal(await response.text(), "data: one\n\ndata: two\n\n");
+  });
+});
+
+describe("HonoLinker, WebSockets", () => {
+  /** An application with a socket at `chat/:room`, behind a Hono middleware. */
+  function chat_app() {
+    const seen: unknown[] = [];
+    class Chat {
+      join(room: string) {
+        return `joined ${room}`;
+      }
+      message(data: string, socket: ChoWebSocket) {
+        seen.push([socket.ctx.params.room, data]);
+        return `echo ${data}`;
+      }
+    }
+    legacy(Ws(":room"), Chat, "join");
+    legacy(loose(Args(Param("room"))), Chat, "join");
+    legacy(loose(WsMessage()), Chat, "message");
+    loose(Controller)({ route: "chat" })(Chat);
+    class App {}
+    loose(Module)({ controllers: [Chat] })(App);
+    const hono = new Hono();
+    // A Hono middleware around every route, as an application has.
+    hono.use(secureHeaders());
+    return { App, hono, seen };
+  }
+
+  it("gives the upgrade a route accepted, through Hono and its middlewares", async () => {
+    const { App, hono, seen } = chat_app();
+    const app = await ChoWeb.create(App, { linker: new HonoLinker(hono) });
+    const upgrade = await app.upgrade(
+      new Request("http://localhost/chat/lobby", {
+        headers: { upgrade: "websocket" },
+      }),
+    );
+    assert.ok(!(upgrade instanceof Response));
+    // what the Hono middleware added is for the 101
+    assert.equal(upgrade.headers.get("x-content-type-options"), "nosniff");
+    const sent: unknown[] = [];
+    const events = upgrade.accept({
+      send: (data) => void sent.push(data),
+      close() {},
+      native: undefined,
+    });
+    events.message("hi");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(sent, ["joined lobby", "echo hi"]);
+    assert.deepEqual(seen, [["lobby", "hi"]]);
+    // and a request that does not ask for it
+    const plain = await send(app, "/chat/lobby");
+    assert.equal(plain.status, 426);
+  });
+
+  it("opens a socket over a connection", {
+    skip: !["deno", "node", "bun"].includes(engine()) &&
+      "this runtime has no server",
+  }, async () => {
+    const { App, hono } = chat_app();
+    const app = await ChoWeb.create(App, { linker: new HonoLinker(hono) });
+    const server = await serve(app, { port: 0, hostname: "127.0.0.1" });
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/chat/kitchen`);
+      const received: unknown[] = [];
+      const done = new Promise<void>((resolve, reject) => {
+        ws.onerror = () => reject(new Error("the socket failed"));
+        ws.onmessage = (event) => {
+          received.push(event.data);
+          if (received.length === 1) {
+            ws.send("hi");
+          } else {
+            ws.close();
+          }
+        };
+        ws.onclose = () => resolve();
+      });
+      await done;
+      assert.deepEqual(received, ["joined kitchen", "echo hi"]);
+    } finally {
+      await server.close();
+      await app.close();
+    }
   });
 });

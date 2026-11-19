@@ -729,6 +729,150 @@ end. The middlewares of `@chojs/vendor-cho` that read or rewrite a body (`etag`,
   `app.handler` of the Fastify adapter goes through `inject()`, which collects
   the whole response: there it only suits a stream that ends (section 7).
 
+### 3.5 WebSockets: `@Ws`
+
+A controller can upgrade a request to a
+[WebSocket](https://developer.mozilla.org/docs/Web/API/WebSockets_API), and
+handle the events of the socket, with four decorators. The code is the same on
+every runtime.
+
+```ts
+@Middlewares(bearerAuth({ verify })) // runs before the upgrade
+@Controller({ route: "chat" })
+class ChatController {
+  constructor(readonly rooms: Rooms) {}
+
+  @Ws(":room") // GET /chat/:room, with "Upgrade: websocket"
+  @Args(Param("room"))
+  join(room: string, ctx: ChoWebContext) {
+    if (!this.rooms.has(room)) throw new HttpError(404); // refused: no socket
+    return { joined: room }; // the first message on the socket
+  }
+
+  @WsOpen()
+  open(socket: ChoWebSocket) {
+    this.rooms.add(socket.ctx.params.room, socket);
+  }
+
+  @WsMessage()
+  async message(data: string | Uint8Array, socket: ChoWebSocket) {
+    await this.rooms.send(socket.ctx.params.room, data);
+    return { ok: true }; // sent back on the socket
+  }
+
+  @WsClose()
+  close(code: number, reason: string, socket: ChoWebSocket) {
+    this.rooms.remove(socket.ctx.params.room, socket);
+  }
+}
+```
+
+| Decorator      | The method                                              | It receives                |
+| -------------- | ------------------------------------------------------- | -------------------------- |
+| `@Ws(route?)`  | handles the request that is upgraded, once a connection | as any handler (`@Args`)   |
+| `@WsOpen()`    | runs when the socket opens                              | `socket`                   |
+| `@WsMessage()` | handles each message                                    | `data`, `socket`           |
+| `@WsClose()`   | runs when the socket is closed, by either side          | `code`, `reason`, `socket` |
+
+**One socket for a controller.** A controller has one method at most for each of
+the four decorators, and its event methods need its `@Ws` method. It can have
+other handlers (`@Get`, …) next to them. A second socket goes in a controller of
+its own. A method handles a request or one event, never both.
+
+**What a method returns is sent on the socket.** The four methods can be
+asynchronous: a promise is awaited.
+
+| Returned                                    | Sent                     |
+| ------------------------------------------- | ------------------------ |
+| nothing (`undefined`)                       | nothing                  |
+| a string                                    | a text message, as it is |
+| bytes (`Uint8Array`, `ArrayBuffer`, a view) | a binary message         |
+| anything else                               | a text message, as JSON  |
+
+- What `@Ws` returns is the **first message**: it is sent when the socket opens,
+  before `@WsOpen` runs.
+- What `@WsClose` returns is not sent: the socket is closed.
+- A value that has no JSON (a function, a symbol, a `bigint`, an object that
+  refers to itself) is an error of the method (`CHO_WEB_INVALID_SOCKET_RESULT`).
+
+**The upgrade is a request.** `@Ws` is an HTTP method decorator, and its method
+an ordinary `GET` handler: the middlewares of the feature, of the controller and
+its own run before it, and it has `@Args`, `validate()` and `@Catch`.
+
+- **To accept**, the method returns.
+- **To refuse**, the request is answered, and no socket opens: a middleware that
+  answers, a `Response` the method returns, an `HttpError` it throws, or what an
+  error handler returns.
+- A request that does not ask for an upgrade (`Upgrade: websocket`) is answered
+  `426 Upgrade Required`, before any middleware runs.
+- A middleware sees the answer of a route that accepted as a `426`: it is what a
+  server that cannot upgrade sends. The headers it adds to it are sent with the
+  `101`, apart from those that describe a body. A middleware that answers with
+  another status after the handler refuses the connection.
+- It is not in an OpenAPI document: that describes requests and responses.
+
+**The socket.** Each event method receives the socket, last:
+
+| Property                | Holds                                                          |
+| ----------------------- | -------------------------------------------------------------- |
+| `ctx`                   | the `ChoWebContext` of the request that was upgraded           |
+| `open`                  | whether the socket is open: `false` once either side closed it |
+| `send(data)`            | sends a message, converted as a returned value is              |
+| `close(code?, reason?)` | closes the socket: `1000` and no reason by default             |
+| `native`                | the socket of the runtime (section 6)                          |
+
+- **The data of a connection is the context of its request.** A controller is
+  one instance for every connection, so nothing of one connection is kept on
+  `this`. `socket.ctx` has the `params` and the `url` of the request, the
+  headers of its `req`, and its `state`: what a middleware put there (the user),
+  and what the methods add.
+- **It is one object for a connection**, for its whole life: keep it in a `Set`
+  to send to the sockets of a room.
+- `send` and `close` do nothing on a socket that is not open.
+- `data` is a string for a text message and a `Uint8Array` for a binary one, on
+  every runtime.
+
+**The events of a socket run one after another**, in the order they arrived:
+`@WsOpen` ends before the first message is handled, and a message is handled
+when the one before it has ended, so the replies are in the order of the
+messages. Two sockets do not wait for each other.
+
+- **An event runs at once when none waits before it.** A method that is not
+  asynchronous has replied before the next message, or the close, is read: a
+  client that sends a message and closes right after it gets its reply.
+- **A reply is not sent once the socket is closed.** The messages that arrived
+  before a close are still handled, in order, and `@WsClose` runs after them.
+  What an asynchronous method returns after the close of the client has arrived
+  has nowhere to go.
+
+**`@WsClose` runs once** for every socket that was opened, after the events that
+arrived before, whoever closed it:
+
+| Who closed                                 | `code`, `reason`                 |
+| ------------------------------------------ | -------------------------------- |
+| the client                                 | what it gave; `1005` for no code |
+| the application, with `socket.close()`     | what it gave                     |
+| an event method that threw                 | `1011`, `Internal Error`         |
+| `app.close()`, or the `close()` of `serve` | `1001`, `Going Away`             |
+| the connection was cut                     | `1006`                           |
+
+**An error of an event method** closes the socket with `1011`, and the messages
+that wait are dropped. It is never silent, as nobody else answers it: it is
+logged to the `cho:web` debug context when that is enabled, and with
+`console.error` otherwise. An error of `@WsClose` is only reported.
+
+**Event methods have no request**: `@Middlewares`, `@Catch`, `@Args` and `@Doc`
+on one of them are a mistake, and the application is not created
+(`CHO_WEB_INVALID_SOCKET`). They belong on the `@Ws` method.
+
+**Security.** A browser does not apply CORS to a WebSocket: any page can open
+one to the application, with the cookies of the user. A socket that trusts a
+cookie checks the `Origin` header of the request, in a middleware of its `@Ws`
+method.
+
+**Not in this version:** compression of messages, subprotocols, a validator for
+messages, and telling the application that a client reads slowly.
+
 ## 4. Middlewares
 
 `@Middlewares(...)` (from `@chojs/web`) applies to a feature module, a
@@ -1005,7 +1149,7 @@ app.mount("GET", "internal/routes", () => app.routes.map((r) => r.path), {
   middlewares: [onlyAdmins],
 });
 
-await serve(app.handler);
+await serve(app);
 ```
 
 ```ts
@@ -1059,12 +1203,15 @@ wherever the application is bundled. It needs the global `URLPattern`; on a
 runtime without it `ChoWeb.create` rejects with
 `ChoLinker needs the URL Pattern API (URLPattern), which this runtime does not have: give ChoWeb.create another linker, such as HonoLinker`.
 
-**Serving.** `serve(handler, options?)`, imported from `@chojs/web/serve`, runs
-a `fetch`-style handler, such as `app.handler`, on the server of the current
-runtime: `Deno.serve` on Deno, `Bun.serve` on Bun, and the `node:http` server on
-Node.js, through a bridge to `Request` and `Response` that is part of this
-package. It resolves, once the server is listening, to
-`{ runtime, port, hostname, close() }`.
+**Serving.** `serve(app, options?)`, imported from `@chojs/web/serve`, runs an
+application on the server of the current runtime: `Deno.serve` on Deno,
+`Bun.serve` on Bun, and the `node:http` server on Node.js, through a bridge to
+`Request` and `Response` that is part of this package. It resolves, once the
+server is listening, to `{ runtime, port, hostname, close() }`.
+
+It takes the application, or a `fetch`-style handler alone, such as
+`app.handler`: `serve(app.handler)`. With a handler alone the server upgrades no
+connection to a WebSocket.
 
 | Option         | Default               | Use                                                                |
 | -------------- | --------------------- | ------------------------------------------------------------------ |
@@ -1072,6 +1219,42 @@ package. It resolves, once the server is listening, to
 | `hostname`     | the runtime's default | the host name or address to listen on                              |
 | `signal`       | none                  | an `AbortSignal` that closes the server                            |
 | `closeTimeout` | none                  | how long closing waits for the requests in flight, in milliseconds |
+| `maxPayload`   | 1 MiB                 | the bytes a message of a WebSocket can hold                        |
+
+**Who upgrades a connection.** A route marked with `@Ws` (section 3.5) accepts
+or refuses; the code that holds the connection upgrades it. What that code needs
+differs by runtime, so it is not in the handler of the route:
+
+| Runtime            | Who upgrades  | With                                                                 |
+| ------------------ | ------------- | -------------------------------------------------------------------- |
+| Deno               | `app.handler` | `Deno.upgradeWebSocket(req)`: the request is enough                  |
+| Cloudflare Workers | `app.handler` | a `WebSocketPair`, and a `101` response                              |
+| Bun                | `serve(app)`  | `server.upgrade(req)`, and one set of callbacks given to `Bun.serve` |
+| Node.js            | `serve(app)`  | the `'upgrade'` event, and the protocol, which Node.js has not       |
+
+- `serve(app)` upgrades on Deno too, so that it knows its sockets.
+- **`app.upgrade(req)`** is what `serve` calls for a request that asks for an
+  upgrade. It runs the route, and resolves with the upgrade the route accepted,
+  or with the `Response` that answers the request: a refusal, `404`, `426`,
+  `503`. An adapter with a server of its own calls it the same way: it upgrades
+  the connection, then gives what the connection can do to `upgrade.accept`,
+  which returns where to give the messages and the close.
+- **A server of your own.** `Bun.serve({ port, ...bunOptions(app) })` gives Bun
+  the `fetch` and the `websocket` it needs, and
+  `server.on("upgrade", nodeUpgrade(app))` gives a `node:http` server its
+  listener. Both are in `@chojs/web/serve`, and take `maxPayload`.
+- **On Node.js the protocol is part of this package** (RFC 6455, the server
+  side), with no dependency. It has no extension: messages are not compressed. A
+  connection is pinged every 30 seconds, and one that does not answer is cut. A
+  frame the protocol does not allow closes the socket with the code of the RFC
+  (`1002`, `1007`), and a message above `maxPayload` with `1009`.
+- `maxPayload` applies on Node.js and on Bun. Deno has no such limit to set.
+- **The socket of the runtime** is `socket.native`: a `WebSocket` on Deno and on
+  Workers, a `ServerWebSocket` on Bun (with its `subscribe` and `publish`), and
+  the connection on Node.js.
+- A middleware that replaces the request of the context (`ctx.req`) before a
+  `@Ws` route refuses its upgrade: the route and who upgrades know the upgrade
+  by the request.
 
 - `serve` is asynchronous because the Node.js modules are imported when they are
   needed, on Node.js only: `@chojs/web` has no dependency, and loads nothing of
@@ -1086,6 +1269,9 @@ package. It resolves, once the server is listening, to
   The handler of a request that is cut sees what it sees when a client goes
   away: `req.signal` is aborted, and the body of its response is cancelled. The
   timeout also applies when the `signal` closes the server.
+- `close()` first closes the sockets the server upgraded, with the code `1001`:
+  their `@WsClose` methods run. A client that does not end its side is cut after
+  `closeTimeout`, and on Node.js after 5 seconds at most.
 - On Deno, a request that arrives while a server with a `closeTimeout` is
   closing is answered `503`: `Deno.serve` cannot both wait for its requests and
   then cut them, so the requests in flight are counted by `serve`, which keeps
@@ -1104,16 +1290,17 @@ package. It resolves, once the server is listening, to
   `serve() has no server for this runtime (<runtime>): give app.handler to the runtime's own entry point`.
 - On Deno it needs `--allow-net`.
 
-**Closing.** `app.close()` disposes the application's instances, in reverse
-creation order: every provider, controller or module with a
-`[Symbol.asyncDispose]()` or `[Symbol.dispose]()` method (`core/specs.md`,
-section 2.7). `@chojs/web` does not run the server, so it never closes on its
-own: stop the server first, then close. A request that still reaches
-`app.handler` after `close()` is answered `503 Service Unavailable`, and runs no
-route.
+**Closing.** `app.close()` closes the open sockets of the application with the
+code `1001`, waits for their `@WsClose` methods, and then disposes the
+application's instances, in reverse creation order: every provider, controller
+or module with a `[Symbol.asyncDispose]()` or `[Symbol.dispose]()` method
+(`core/specs.md`, section 2.7). `@chojs/web` does not run the server, so it
+never closes on its own: stop the server first, then close. A request that still
+reaches `app.handler` after `close()` is answered `503 Service Unavailable`, and
+runs no route.
 
 ```ts
-const server = await serve(app.handler, { closeTimeout: 10_000 });
+const server = await serve(app, { closeTimeout: 10_000 });
 process.once("SIGTERM", async () => {
   // stop accepting, give the requests in flight 10 seconds to finish
   await server.close();
@@ -1268,6 +1455,10 @@ compatibility date `2025-09-01` and, for the package itself, with no
 
 - **The entry point** is `export default { fetch: app.handler }`. `serve()` has
   no server there, and rejects with `CHO_WEB_NO_SERVER`.
+- **WebSockets** (section 3.5) are upgraded by `app.handler`: it answers a
+  request a `@Ws` route accepted with a `101` and the client side of a
+  `WebSocketPair`. Durable Objects, and their sockets that hibernate, are not
+  covered.
 - **The runtime calls `fetch(request, env, ctx)`.** `app.handler` takes the
   request. The bindings and the execution context are reached with the module of
   the runtime, `import { env, waitUntil } from "cloudflare:workers"`, in a
@@ -1289,15 +1480,15 @@ compatibility date `2025-09-01` and, for the package itself, with no
 
 ## 8. Public API
 
-| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoWebMountOptions`, `ChoWebMountMethod`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Sse`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, `HttpError`, `isHttpError`, `HttpErrorOptions`, `ChoError`, `isChoError` (the core's), `ChoWebErrorCode`, `ChoCoreErrorCode`, the types `ChoWebSseEvent`, `ChoWebSseOptions`, `ChoWebSseMethod`, `ChoWebSseResult`, `ChoWebSseDecorator`, `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoValidator`, `ChoParseValidator`, `ChoIssue`, `ChoInput`, `ChoOutput`, `StandardSchemaV1`, `StandardJSONSchemaV1`, `StandardTypedV1` (the core's), `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebDocSecurity`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoWebMountOptions`, `ChoWebMountMethod`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Sse`, `Ws`, `WsOpen`, `WsMessage`, `WsClose`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, `HttpError`, `isHttpError`, `HttpErrorOptions`, `ChoError`, `isChoError` (the core's), `ChoWebErrorCode`, `ChoCoreErrorCode`, the types `ChoWebSseEvent`, `ChoWebSseOptions`, `ChoWebSseMethod`, `ChoWebSseResult`, `ChoWebSseDecorator`, `ChoWebSocket`, `ChoWebUpgrade`, `ChoWebSocketIo`, `ChoWebSocketEvents`, `ChoWebWsOpenDecorator`, `ChoWebWsMessageDecorator`, `ChoWebWsCloseDecorator`, `ChoWebWsEventDecorator`, `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoValidator`, `ChoParseValidator`, `ChoIssue`, `ChoInput`, `ChoOutput`, `StandardSchemaV1`, `StandardJSONSchemaV1`, `StandardTypedV1` (the core's), `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebDocSecurity`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`, `SocketRef`, `SocketMethodRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `@chojs/web/serve`      | `serve`, `bunOptions`, `nodeUpgrade`, `ServeHandler`, `ServeApp`, `ServeOptions`, `SocketOptions`, `BunOptions`, `NodeUpgradeListener`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 
@@ -1328,43 +1519,47 @@ meets it. An `HttpError` (section 5.1) is not a `ChoError`, and has no code.
 
 **Thrown by the decorators**, when the class is defined:
 
-| Mistake                                        | Code                          | Message                                                                                                                         |
-| ---------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| A handler's route is invalid                   | `CHO_WEB_INVALID_ROUTE`       | `Invalid route "<route>" of @Get() on method <name>: <reason>`                                                                  |
-| A second HTTP method decorator on a method     | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Get() to method <name>: it already handles POST "<route>". A method can have one HTTP method decorator.`           |
-| An unknown option of `@Module` / `@Controller` | `CHO_CORE_UNKNOWN_OPTION`     | `@Controller(): unknown option "deps". Known options: dependencies, route`                                                      |
-| An unknown option of `@Doc`                    | `CHO_CORE_UNKNOWN_OPTION`     | `@Doc(): unknown option "tag". Known options: deprecated, description, hidden, operationId, responses, security, summary, tags` |
-| A static, private or symbol-named handler      | `CHO_WEB_INVALID_TARGET`      | `@Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`)                |
-| A second `@Args` on a method                   | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Args() to method <name>: it already has one.`                                                                      |
-| An argument of `@Args` is not a function       | `CHO_WEB_INVALID_ARGUMENT`    | `@Args() on method <name>: argument <n> must be made with Param, Query, Header, Body or Form, or be a function, got <v>`        |
-| A key or a validator of the wrong type         | `CHO_WEB_INVALID_ARGUMENT`    | `Body(): expected a key (a string) or a validator (a Standard Schema, or an object with a parse method), got <v>`               |
-| Something after a validator                    | `CHO_WEB_INVALID_ARGUMENT`    | `Body(): a validator is the last argument, got <v> after it`                                                                    |
-| A second `@Doc` on a class or a method         | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Doc() to class <Name>: it already has one.` (and `… to method <name> …`)                                           |
-| A handler option of `@Doc` on a class          | `CHO_WEB_INVALID_OPTION`      | `@Doc(): option "summary" is for a handler, not for a class (class <Name>)` (and `"responses"`, `"operationId"`)                |
-| An `operationId` that is not a string          | `CHO_WEB_INVALID_OPTION`      | `@Doc(): operationId must be a non-empty string, got <v>`                                                                       |
-| A `security` of the wrong shape                | `CHO_WEB_INVALID_OPTION`      | `@Doc(): security must be a list of objects of lists of strings, such as [{ bearer: [] }], got <v>`                             |
-| A `contentType` that is not a string           | `CHO_WEB_INVALID_OPTION`      | `@Doc(): the contentType of response <status> must be a non-empty string, got <v>`                                              |
-| An unknown option of `@Sse`                    | `CHO_CORE_UNKNOWN_OPTION`     | `@Sse(): unknown option "keepalive". Known options: keepAlive, method`                                                          |
-| A `method` a stream cannot answer              | `CHO_WEB_INVALID_OPTION`      | `@Sse(): method must be one of GET, POST, PUT, PATCH, DELETE, got <v>`                                                          |
-| A `keepAlive` that is not a time               | `CHO_WEB_INVALID_OPTION`      | `@Sse(): keepAlive must be a positive whole number of milliseconds, got <v>`                                                    |
+| Mistake                                         | Code                          | Message                                                                                                                                                                                                     |
+| ----------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A handler's route is invalid                    | `CHO_WEB_INVALID_ROUTE`       | `Invalid route "<route>" of @Get() on method <name>: <reason>`                                                                                                                                              |
+| A second HTTP method decorator on a method      | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Get() to method <name>: it already handles POST "<route>". A method can have one HTTP method decorator.`                                                                                       |
+| An event decorator on a handler, or the reverse | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @WsMessage() to method <name>: it already handles GET "<route>". A method handles a request, or one event of a socket.` (and `Cannot add @Get() to method <name>: it already has @WsOpen(). …`) |
+| An unknown option of `@Module` / `@Controller`  | `CHO_CORE_UNKNOWN_OPTION`     | `@Controller(): unknown option "deps". Known options: dependencies, route`                                                                                                                                  |
+| An unknown option of `@Doc`                     | `CHO_CORE_UNKNOWN_OPTION`     | `@Doc(): unknown option "tag". Known options: deprecated, description, hidden, operationId, responses, security, summary, tags`                                                                             |
+| A static, private or symbol-named handler       | `CHO_WEB_INVALID_TARGET`      | `@Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`)                                                                                            |
+| A second `@Args` on a method                    | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Args() to method <name>: it already has one.`                                                                                                                                                  |
+| An argument of `@Args` is not a function        | `CHO_WEB_INVALID_ARGUMENT`    | `@Args() on method <name>: argument <n> must be made with Param, Query, Header, Body or Form, or be a function, got <v>`                                                                                    |
+| A key or a validator of the wrong type          | `CHO_WEB_INVALID_ARGUMENT`    | `Body(): expected a key (a string) or a validator (a Standard Schema, or an object with a parse method), got <v>`                                                                                           |
+| Something after a validator                     | `CHO_WEB_INVALID_ARGUMENT`    | `Body(): a validator is the last argument, got <v> after it`                                                                                                                                                |
+| A second `@Doc` on a class or a method          | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Doc() to class <Name>: it already has one.` (and `… to method <name> …`)                                                                                                                       |
+| A handler option of `@Doc` on a class           | `CHO_WEB_INVALID_OPTION`      | `@Doc(): option "summary" is for a handler, not for a class (class <Name>)` (and `"responses"`, `"operationId"`)                                                                                            |
+| An `operationId` that is not a string           | `CHO_WEB_INVALID_OPTION`      | `@Doc(): operationId must be a non-empty string, got <v>`                                                                                                                                                   |
+| A `security` of the wrong shape                 | `CHO_WEB_INVALID_OPTION`      | `@Doc(): security must be a list of objects of lists of strings, such as [{ bearer: [] }], got <v>`                                                                                                         |
+| A `contentType` that is not a string            | `CHO_WEB_INVALID_OPTION`      | `@Doc(): the contentType of response <status> must be a non-empty string, got <v>`                                                                                                                          |
+| An unknown option of `@Sse`                     | `CHO_CORE_UNKNOWN_OPTION`     | `@Sse(): unknown option "keepalive". Known options: keepAlive, method`                                                                                                                                      |
+| A `method` a stream cannot answer               | `CHO_WEB_INVALID_OPTION`      | `@Sse(): method must be one of GET, POST, PUT, PATCH, DELETE, got <v>`                                                                                                                                      |
+| A `keepAlive` that is not a time                | `CHO_WEB_INVALID_OPTION`      | `@Sse(): keepAlive must be a positive whole number of milliseconds, got <v>`                                                                                                                                |
 
 **Rejected by `ChoWeb.create`**: any module graph error of the core
 (`core/specs.md`, section 2.8), and:
 
-| Mistake                                       | Code                             | Message                                                                                                                 |
-| --------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| A route is not a string                       | `CHO_WEB_INVALID_ROUTE`          | `Invalid route of <where>: expected a string, got <v>`                                                                  |
-| A route breaks a rule (section 2.3)           | `CHO_WEB_INVALID_ROUTE`          | `Invalid route "<route>" of <where>: <reason>`                                                                          |
-| Two handlers with the same method and path    | `CHO_WEB_DUPLICATE_ROUTE`        | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>`                            |
-| The same controller declared by two modules   | `CHO_WEB_DUPLICATE_ROUTE`        | the message above, followed by `Its controller is declared in more than one module: declare it in one.`                 |
-| A wildcard in a route                         | `CHO_WEB_INVALID_ROUTE`          | `Invalid route "<route>" of <where>: "<segment>" has a "*": wildcards are not part of the route syntax`                 |
-| A malformed parameter (`:`, `:1id`, `:a:b`)   | `CHO_WEB_INVALID_ROUTE`          | `Invalid route "<route>" of <where>: "<segment>" is not a valid parameter: write ":name", with letters, digits and "_"` |
-| `Param("x")` names no parameter of the path   | `CHO_WEB_UNKNOWN_PARAM`          | `@Args() of <Controller.method>: Param("x") is not a parameter of the route "<path>"`                                   |
-| `onError` is not a function or a class        | `CHO_CORE_INVALID_ERROR_HANDLER` | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                      |
-| A middleware class has no `handle` method     | `CHO_CORE_INVALID_MIDDLEWARE`    | `Middleware class <Name> must implement 'handle' method.`                                                               |
-| A middleware class cannot be created          | `CHO_WEB_CREATE_FAILED`          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                             |
-| An error handler class has no `handle` method | `CHO_CORE_INVALID_ERROR_HANDLER` | `Error handler class <Name> must implement 'handle' method.`                                                            |
-| An error handler class cannot be created      | `CHO_WEB_CREATE_FAILED`          | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                |
+| Mistake                                                             | Code                             | Message                                                                                                                                                                                                         |
+| ------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A route is not a string                                             | `CHO_WEB_INVALID_ROUTE`          | `Invalid route of <where>: expected a string, got <v>`                                                                                                                                                          |
+| A route breaks a rule (section 2.3)                                 | `CHO_WEB_INVALID_ROUTE`          | `Invalid route "<route>" of <where>: <reason>`                                                                                                                                                                  |
+| Two handlers with the same method and path                          | `CHO_WEB_DUPLICATE_ROUTE`        | `Duplicate route "<METHOD> <path>": declared by <Controller.method> and <Controller.method>`                                                                                                                    |
+| The same controller declared by two modules                         | `CHO_WEB_DUPLICATE_ROUTE`        | the message above, followed by `Its controller is declared in more than one module: declare it in one.`                                                                                                         |
+| A wildcard in a route                                               | `CHO_WEB_INVALID_ROUTE`          | `Invalid route "<route>" of <where>: "<segment>" has a "*": wildcards are not part of the route syntax`                                                                                                         |
+| A malformed parameter (`:`, `:1id`, `:a:b`)                         | `CHO_WEB_INVALID_ROUTE`          | `Invalid route "<route>" of <where>: "<segment>" is not a valid parameter: write ":name", with letters, digits and "_"`                                                                                         |
+| `Param("x")` names no parameter of the path                         | `CHO_WEB_UNKNOWN_PARAM`          | `@Args() of <Controller.method>: Param("x") is not a parameter of the route "<path>"`                                                                                                                           |
+| A controller with two methods for one of the four socket decorators | `CHO_WEB_INVALID_SOCKET`         | `Controller <Name> has two @WsMessage() methods, <a> and <b>: a controller has one socket, and one method for each of its events. Put the second socket in a controller of its own`                             |
+| Event methods in a controller with no `@Ws` method                  | `CHO_WEB_INVALID_SOCKET`         | `Controller <Name> has @WsOpen(), @WsMessage() and no @Ws() method: the events of a socket need the method that upgrades the request`                                                                           |
+| `@Middlewares`, `@Catch`, `@Args` or `@Doc` on an event method      | `CHO_WEB_INVALID_SOCKET`         | `@WsMessage() method <Controller.method> cannot have @Middlewares(): an event of a socket has no request. Put @Middlewares() on the @Ws() method of the controller, which handles the request that is upgraded` |
+| `onError` is not a function or a class                              | `CHO_CORE_INVALID_ERROR_HANDLER` | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                                                                                                              |
+| A middleware class has no `handle` method                           | `CHO_CORE_INVALID_MIDDLEWARE`    | `Middleware class <Name> must implement 'handle' method.`                                                                                                                                                       |
+| A middleware class cannot be created                                | `CHO_WEB_CREATE_FAILED`          | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                                                                                                                     |
+| An error handler class has no `handle` method                       | `CHO_CORE_INVALID_ERROR_HANDLER` | `Error handler class <Name> must implement 'handle' method.`                                                                                                                                                    |
+| An error handler class cannot be created                            | `CHO_WEB_CREATE_FAILED`          | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                                                                                                        |
 
 `<where>` names the declaration: `the global prefix`, `feature <Module>`,
 `controller <Controller>` or `method <name> of controller <Controller>`.
@@ -1394,22 +1589,30 @@ meets it. An `HttpError` (section 5.1) is not a `ChoError`, and has no code.
 
 **Thrown by the built-in router and by `serve`** (section 7):
 
-| Mistake                                        | Code                         | Message                                                                                                                                     |
-| ---------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| The runtime has no URL Pattern API             | `CHO_WEB_NO_URL_PATTERN`     | `ChoLinker needs the URL Pattern API (URLPattern), which this runtime does not have: give ChoWeb.create another linker, such as HonoLinker` |
-| A middleware of `ChoLinker` is not a function  | `CHO_WEB_INVALID_MIDDLEWARE` | `ChoLinker: middleware <n> must be a function, got <v>`                                                                                     |
-| `serve` is given something else than a handler | `CHO_WEB_INVALID_HANDLER`    | `serve() expects a request handler, such as app.handler`                                                                                    |
-| A `closeTimeout` that is not a time            | `CHO_WEB_INVALID_OPTION`     | `serve(): closeTimeout must be a whole number of milliseconds, got <v>`                                                                     |
-| The runtime has no server `serve` knows        | `CHO_WEB_NO_SERVER`          | `serve() has no server for this runtime (<runtime>): give app.handler to the runtime's own entry point`                                     |
+| Mistake                                                                                         | Code                         | Message                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| The runtime has no URL Pattern API                                                              | `CHO_WEB_NO_URL_PATTERN`     | `ChoLinker needs the URL Pattern API (URLPattern), which this runtime does not have: give ChoWeb.create another linker, such as HonoLinker` |
+| A middleware of `ChoLinker` is not a function                                                   | `CHO_WEB_INVALID_MIDDLEWARE` | `ChoLinker: middleware <n> must be a function, got <v>`                                                                                     |
+| `serve`, `bunOptions` or `nodeUpgrade` is given something else than an application or a handler | `CHO_WEB_INVALID_HANDLER`    | `serve() expects an application, or a request handler such as app.handler`                                                                  |
+| A `closeTimeout` that is not a time                                                             | `CHO_WEB_INVALID_OPTION`     | `serve(): closeTimeout must be a whole number of milliseconds, got <v>`                                                                     |
+| A `maxPayload` that is not a size                                                               | `CHO_WEB_INVALID_OPTION`     | `serve(): maxPayload must be a positive whole number of bytes, got <v>`                                                                     |
+| `accept` of an upgrade is called twice                                                          | `CHO_WEB_INVALID_SOCKET`     | `The upgrade of <Controller.method> was already accepted: accept() is called once for a connection`                                         |
+| The runtime has no server `serve` knows                                                         | `CHO_WEB_NO_SERVER`          | `serve() has no server for this runtime (<runtime>): give app.handler to the runtime's own entry point`                                     |
 
 **Failing a request** (given to the route's error handler, section 5):
 
-| Mistake                                               | Code                                 | Message                                                                                        |
-| ----------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| A middleware calls `next()` twice                     | `CHO_CORE_NEXT_CALLED_TWICE`         | `middleware <name>: next() called more than once`                                              |
-| A middleware returns nothing without calling `next()` | `CHO_CORE_MISSING_MIDDLEWARE_RESULT` | `middleware <name> returned no response: return a Response or call next()`                     |
-| A middleware returns something else                   | `CHO_CORE_INVALID_MIDDLEWARE_RESULT` | `middleware <name> must return a Response or nothing, got <typeof>`                            |
-| An `@Sse` handler returns something else              | `CHO_WEB_INVALID_SSE_RESULT`         | `@Sse() handler <Controller.method> must return an async iterable or a Response, got <typeof>` |
+| Mistake                                               | Code                                 | Message                                                                                                                                      |
+| ----------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| A middleware calls `next()` twice                     | `CHO_CORE_NEXT_CALLED_TWICE`         | `middleware <name>: next() called more than once`                                                                                            |
+| A middleware returns nothing without calling `next()` | `CHO_CORE_MISSING_MIDDLEWARE_RESULT` | `middleware <name> returned no response: return a Response or call next()`                                                                   |
+| A middleware returns something else                   | `CHO_CORE_INVALID_MIDDLEWARE_RESULT` | `middleware <name> must return a Response or nothing, got <typeof>`                                                                          |
+| An `@Sse` handler returns something else              | `CHO_WEB_INVALID_SSE_RESULT`         | `@Sse() handler <Controller.method> must return an async iterable or a Response, got <typeof>`                                               |
+| A `@Ws` handler returns what cannot be sent           | `CHO_WEB_INVALID_SOCKET_RESULT`      | `@Ws() handler <Controller.method> gave a value that cannot be sent on a socket: expected a string, bytes or a value JSON can hold, got <v>` |
+
+An event method of a socket that returns such a value, or gives one to
+`socket.send`, has the same error (`<Controller.method> gave a value …`,
+`send() gave a value …`). There is no request to fail: the socket is closed with
+`1011` (section 3.5).
 
 A middleware class is named `<Class>.handle`.
 

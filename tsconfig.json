@@ -6,6 +6,7 @@
       "@chojs/core/utils": ["./core/utils/mod.ts"],
       "@chojs/core/utils/test_utils": ["./core/utils/test_utils.ts"],
       "@chojs/web": ["./web/mod.ts"],
+      "@chojs/web/serve": ["./web/serve.ts"],
       "@chojs/message": ["./message/mod.ts"],
       "@chojs/message/linker": ["./message/linker.ts"],
       "@chojs/vendor-nats": ["./vendor/nats/mod.ts"]

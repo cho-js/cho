@@ -23,7 +23,29 @@ import type {
   Server as NodeServer,
   ServerResponse,
 } from "node:http";
+import type { Duplex } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
+import {
+  asks_upgrade,
+  GOING_AWAY,
+  upgrade_here,
+  upgrade_required,
+} from "./socket.ts";
+import type {
+  ChoWebSocketEvents,
+  ChoWebSocketIo,
+  ChoWebUpgrade,
+} from "./types.ts";
+import {
+  accept_key,
+  check_handshake,
+  CLOSE,
+  encode_close,
+  encode_frame,
+  encode_message,
+  FrameReader,
+  OPCODE,
+} from "./ws-protocol.ts";
 
 // The runtime a `ChoWebServer` reports.
 export type { EngineType };
@@ -31,8 +53,35 @@ export type { EngineType };
 /** A `fetch`-style request handler: what {@link serve} serves. */
 export type ServeHandler = (req: Request) => Response | Promise<Response>;
 
+/**
+ * An application, as {@link serve} serves it: its request handler, and what
+ * runs the route of a request that asks for a WebSocket. A `ChoWeb`
+ * application is one.
+ */
+export type ServeApp = {
+  /** The request handler: `app.handler`. */
+  readonly handler: ServeHandler;
+  /**
+   * Runs the route of a request that asks to be upgraded: `app.upgrade`.
+   * Without it, the server upgrades nothing.
+   */
+  readonly upgrade?:
+    | ((req: Request) => Promise<ChoWebUpgrade | Response>)
+    | undefined;
+};
+
+/** The options of the functions that upgrade a connection. */
+export type SocketOptions = {
+  /**
+   * The bytes a message of a WebSocket can hold. A larger one closes its
+   * socket with the code `1009`. Default: 1 MiB. It applies on Node.js and
+   * on Bun; Deno has no such limit to set.
+   */
+  maxPayload?: number;
+};
+
 /** The options of {@link serve}. */
-export type ServeOptions = {
+export type ServeOptions = SocketOptions & {
   /** The port to listen on. `0` picks a free port. Default: `3000`. */
   port?: number;
   /**
@@ -89,10 +138,46 @@ type DenoLike = {
   };
 };
 
+/** What the upgrade of a connection needs to know of a server of Bun. */
+type BunServer = {
+  upgrade(
+    req: Request,
+    options: { data: BunData; headers: Headers },
+  ): boolean;
+};
+
+/** What the upgrade of a connection needs to know of a socket of Bun. */
+type BunSocket = {
+  data: BunData;
+  send(data: string | Uint8Array): unknown;
+  close(code?: number, reason?: string): void;
+};
+
+/** What a socket of Bun carries: its upgrade, then where its events go. */
+type BunData = { upgrade: ChoWebUpgrade; events?: ChoWebSocketEvents };
+
+/**
+ * What {@link bunOptions} gives: the `fetch` and the `websocket` of
+ * `Bun.serve`.
+ */
+export type BunOptions = {
+  /** Answers a request, or upgrades its connection and answers nothing. */
+  fetch(req: Request, server: unknown): Promise<Response | undefined>;
+  /** The callbacks of every socket of the server. */
+  websocket: {
+    maxPayloadLength: number;
+    open(ws: unknown): void;
+    message(ws: unknown, message: string | Uint8Array): void;
+    close(ws: unknown, code: number, reason: string): void;
+  };
+};
+
 /** What `serve_on` needs to know of `Bun`. */
 type BunLike = {
   serve(
-    options: { port: number; hostname?: string; fetch: ServeHandler },
+    options:
+      & { port: number; hostname?: string }
+      & ({ fetch: ServeHandler } | BunOptions),
   ): {
     port: number;
     hostname: string;
@@ -103,6 +188,497 @@ type BunLike = {
 
 /** The default port of {@link serve}. */
 const DEFAULT_PORT = 3000;
+
+/** The default of the `maxPayload` option: 1 MiB. */
+const DEFAULT_MAX_PAYLOAD = 1024 * 1024;
+
+/** How often a socket of Node.js is pinged, in milliseconds. */
+const PING_INTERVAL = 30_000;
+
+/**
+ * How long a connection of Node.js has to end once its close frame is
+ * sent, in milliseconds, before it is cut.
+ */
+const CLOSE_GRACE = 5_000;
+
+/**
+ * The open sockets of a server, so that closing the server closes them.
+ */
+class Sockets {
+  readonly #open = new Set<{
+    io: ChoWebSocketIo;
+    events: ChoWebSocketEvents;
+    cut?: (() => void) | undefined;
+  }>();
+
+  /**
+   * An upgrade whose connection is remembered from the moment it is
+   * accepted until it is closed.
+   *
+   * @param upgrade The upgrade the route accepted.
+   * @param cut Cuts the connection at once, when the runtime needs it done
+   *   for each one.
+   * @returns The upgrade to give to what upgrades the connection.
+   */
+  track(upgrade: ChoWebUpgrade, cut?: () => void): ChoWebUpgrade {
+    return {
+      headers: upgrade.headers,
+      accept: (io) => {
+        const events = upgrade.accept(io);
+        const entry = { io, events, cut };
+        this.#open.add(entry);
+        return {
+          message: events.message,
+          closed: (code, reason) => {
+            this.#open.delete(entry);
+            events.closed(code, reason);
+          },
+        };
+      },
+    };
+  }
+
+  /** Close every open socket with `1001`: the server is closing. */
+  close(): void {
+    for (const entry of [...this.#open]) {
+      try {
+        entry.io.close(GOING_AWAY, "Going Away");
+      } catch {
+        // A connection that is already gone.
+      }
+      // Now, whatever the runtime reports later: `@WsClose` runs with 1001.
+      entry.events.closed(GOING_AWAY, "Going Away");
+    }
+  }
+
+  /** Cut what is still connected. */
+  cut(): void {
+    for (const entry of this.#open) {
+      entry.cut?.();
+    }
+    this.#open.clear();
+  }
+}
+
+/** An upgrade as it is, for a server that tracks nothing. */
+const untracked = (upgrade: ChoWebUpgrade): ChoWebUpgrade => upgrade;
+
+/** Check the `maxPayload` option, and give its value. */
+function max_payload_of(options: SocketOptions, where: string): number {
+  const { maxPayload = DEFAULT_MAX_PAYLOAD } = options;
+  if (!(Number.isInteger(maxPayload) && maxPayload > 0)) {
+    throw web_error(
+      "CHO_WEB_INVALID_OPTION",
+      `${where}: maxPayload must be a positive whole number of bytes, got ${
+        String(maxPayload)
+      }`,
+    );
+  }
+  return maxPayload;
+}
+
+/** Check what is served, and give it as an application. */
+function app_of(app: ServeHandler | ServeApp, where: string): ServeApp {
+  if (typeof app === "function") {
+    return { handler: app };
+  }
+  if (
+    typeof app !== "object" || app === null ||
+    typeof app.handler !== "function" ||
+    (app.upgrade !== undefined && typeof app.upgrade !== "function")
+  ) {
+    throw web_error(
+      "CHO_WEB_INVALID_HANDLER",
+      `${where} expects an application, or a request handler such as app.handler`,
+    );
+  }
+  return app;
+}
+
+/**
+ * The `fetch` and the `websocket` of a server of Bun that upgrades the
+ * connections of an application.
+ *
+ * @param app The application.
+ * @param max_payload The bytes a message can hold.
+ * @param track Remembers an upgrade, for a server that closes its sockets.
+ * @returns What to give to `Bun.serve`.
+ */
+function bun_options(
+  app: ServeApp,
+  max_payload: number,
+  track: (upgrade: ChoWebUpgrade) => ChoWebUpgrade,
+): BunOptions {
+  type Handler = (req: Request, server: unknown) => Promise<Response>;
+  return {
+    async fetch(req, server) {
+      if (!app.upgrade || !asks_upgrade(req)) {
+        // The server goes on to the handler, as `Bun.serve` gives it.
+        return await (app.handler as Handler)(req, server);
+      }
+      const upgrade = await app.upgrade(req);
+      if (upgrade instanceof Response) {
+        return upgrade;
+      }
+      const data: BunData = { upgrade: track(upgrade) };
+      const upgraded = (server as BunServer).upgrade(req, {
+        data,
+        headers: upgrade.headers,
+      });
+      // Bun answered `101` itself: there is no response to give.
+      return upgraded ? undefined : upgrade_required();
+    },
+    websocket: {
+      maxPayloadLength: max_payload,
+      open(ws) {
+        const socket = ws as BunSocket;
+        socket.data.events = socket.data.upgrade.accept({
+          send: (data) => void socket.send(data),
+          close: (code, reason) => socket.close(code, reason),
+          native: socket,
+        });
+      },
+      message(ws, message) {
+        (ws as BunSocket).data.events?.message(
+          // A copy: the events of a socket run later, one after another.
+          typeof message === "string" ? message : new Uint8Array(message),
+        );
+      },
+      close(ws, code, reason) {
+        (ws as BunSocket).data.events?.closed(code, reason);
+      },
+    },
+  };
+}
+
+/**
+ * What to give to a `Bun.serve` of your own, so that it upgrades the
+ * connections of an application: the routes marked with `@Ws`.
+ *
+ * {@link serve} does this itself. Bun declares the callbacks of its sockets
+ * once, for the whole server, so they are given when the server is made.
+ *
+ * @param app The application: its `handler`, and its `upgrade`.
+ * @param options The limit of a message.
+ * @returns The `fetch` and the `websocket` options of `Bun.serve`.
+ * @throws {ChoError} When `app` is not an application, or `maxPayload` not
+ *   a positive whole number.
+ *
+ * @example
+ * ```ts
+ * const app = await ChoWeb.create(AppModule);
+ * Bun.serve({ port: 3000, ...bunOptions(app) });
+ * ```
+ */
+export function bunOptions(
+  app: ServeApp,
+  options: SocketOptions = {},
+): BunOptions {
+  return bun_options(
+    app_of(app, "bunOptions()"),
+    max_payload_of(options, "bunOptions()"),
+    untracked,
+  );
+}
+
+/**
+ * The handler of a server of Deno that upgrades the connections of an
+ * application, and remembers its sockets.
+ *
+ * @param app The application.
+ * @param sockets The sockets of the server.
+ * @returns The handler to give to `Deno.serve`.
+ */
+function deno_handler(app: ServeApp, sockets: Sockets): ServeHandler {
+  const { upgrade } = app;
+  if (!upgrade) {
+    return app.handler;
+  }
+  return async (req) => {
+    if (!asks_upgrade(req)) {
+      return await app.handler(req);
+    }
+    const accepted = await upgrade(req);
+    return accepted instanceof Response
+      ? accepted
+      : upgrade_here(req, sockets.track(accepted)) ?? upgrade_required();
+  };
+}
+
+/** The `'upgrade'` listener of a `node:http` server. */
+export type NodeUpgradeListener = (
+  incoming: IncomingMessage,
+  socket: Duplex,
+  head: Uint8Array,
+) => void;
+
+/**
+ * Write a `Response` to a connection of Node.js that has no response object:
+ * the answer to a request that was not upgraded. The connection is closed.
+ *
+ * @param socket The connection.
+ * @param response The response.
+ */
+async function write_response(
+  socket: Duplex,
+  response: Response,
+): Promise<void> {
+  const { STATUS_CODES } = await import("node:http");
+  const body = new Uint8Array(await response.arrayBuffer());
+  const headers = new Headers(response.headers);
+  headers.set("connection", "close");
+  headers.set("content-length", String(body.byteLength));
+  headers.delete("transfer-encoding");
+  const text = response.statusText || STATUS_CODES[response.status] ||
+    "Unknown";
+  const lines = [`HTTP/1.1 ${response.status} ${text}`];
+  for (const [name, value] of headers) {
+    if (name !== "set-cookie") {
+      lines.push(`${name}: ${value}`);
+    }
+  }
+  for (const cookie of headers.getSetCookie()) {
+    lines.push(`set-cookie: ${cookie}`);
+  }
+  if (socket.destroyed || !socket.writable) {
+    return;
+  }
+  socket.write(lines.join("\r\n") + "\r\n\r\n");
+  socket.end(body);
+  // A client that never ends its side would hold the connection open.
+  const cut = setTimeout(() => socket.destroy(), CLOSE_GRACE);
+  (cut as { unref?: () => void }).unref?.();
+  socket.once("close", () => clearTimeout(cut));
+}
+
+/**
+ * Speak the WebSocket protocol on an upgraded connection of Node.js: read
+ * the frames of the client, and write those of the application.
+ *
+ * - A ping is answered; a close frame is answered, then the connection
+ *   ends; what the protocol does not allow closes it with the code of the
+ *   RFC.
+ * - The connection is pinged every 30 seconds. One that did not answer the
+ *   ping before is cut: its socket closes with `1006`.
+ *
+ * @param socket The connection.
+ * @param head The bytes that came with the request, after its headers.
+ * @param upgrade The upgrade the route accepted.
+ * @param max_payload The bytes a message can hold.
+ */
+function run_socket(
+  socket: Duplex,
+  head: Uint8Array,
+  upgrade: ChoWebUpgrade,
+  max_payload: number,
+): void {
+  const reader = new FrameReader(max_payload);
+  /** Whether the close frame of the server was written. */
+  let ended = false;
+  /** Whether the client answered the last ping. */
+  let alive = true;
+  const write = (frame: Uint8Array) => {
+    if (!socket.destroyed && socket.writable) {
+      socket.write(frame);
+    }
+  };
+  const pinger = setInterval(() => {
+    if (!alive) {
+      socket.destroy();
+      return;
+    }
+    alive = false;
+    write(encode_frame(OPCODE.ping));
+  }, PING_INTERVAL);
+  // A timer must not keep a process alive.
+  (pinger as { unref?: () => void }).unref?.();
+
+  /** Write the close frame, and end the connection. */
+  const finish = (code: number, reason: string) => {
+    if (ended) {
+      return;
+    }
+    ended = true;
+    clearInterval(pinger);
+    write(encode_close(code, reason));
+    socket.end();
+    // A client that never ends its side would hold the connection open.
+    const cut = setTimeout(() => socket.destroy(), CLOSE_GRACE);
+    (cut as { unref?: () => void }).unref?.();
+    socket.once("close", () => clearTimeout(cut));
+  };
+
+  const events = upgrade.accept({
+    send(data) {
+      if (!ended) {
+        write(encode_message(data));
+      }
+    },
+    close: finish,
+    native: socket,
+  });
+
+  const read = (chunk: Uint8Array) => {
+    // A plain view of the bytes: a `Buffer` has methods of its own.
+    const bytes = new Uint8Array(
+      chunk.buffer,
+      chunk.byteOffset,
+      chunk.byteLength,
+    );
+    for (const event of reader.push(bytes)) {
+      if (event.type === "message") {
+        if (!ended) {
+          events.message(event.data);
+        }
+      } else if (event.type === "ping") {
+        if (!ended) {
+          write(encode_frame(OPCODE.pong, event.data));
+        }
+      } else if (event.type === "pong") {
+        alive = true;
+      } else {
+        // A close frame is answered with what it said; an error of the
+        // protocol with its own code and reason.
+        finish(event.code, event.reason);
+        events.closed(event.code, event.reason);
+      }
+    }
+  };
+  socket.on("data", read);
+  // A connection of `node:http` stays half open when the client ends its
+  // side: one that ended with no close frame is cut, and closes with 1006.
+  socket.on("end", () => {
+    if (!ended) {
+      socket.destroy();
+    }
+  });
+  socket.on("close", () => {
+    clearInterval(pinger);
+    // For a connection that was cut: after a close frame, it is ignored.
+    events.closed(CLOSE.abnormal, "");
+  });
+  if (head.byteLength > 0) {
+    read(head);
+  }
+}
+
+/**
+ * Make the `'upgrade'` listener of a server of Node.js.
+ *
+ * @param app The application.
+ * @param max_payload The bytes a message can hold.
+ * @param track Remembers an upgrade and how to cut its connection, for a
+ *   server that closes its sockets.
+ * @returns The listener.
+ */
+function node_listener(
+  app: ServeApp,
+  max_payload: number,
+  track: (upgrade: ChoWebUpgrade, cut: () => void) => ChoWebUpgrade,
+): NodeUpgradeListener {
+  const upgrade = async (
+    incoming: IncomingMessage,
+    socket: Duplex,
+    head: Uint8Array,
+  ): Promise<void> => {
+    const request = new Request(request_url(incoming), {
+      method: incoming.method ?? "GET",
+      headers: request_headers(incoming),
+    });
+    if (asks_upgrade(request)) {
+      const refusal = check_handshake(request.method, request.headers);
+      if (refusal) {
+        return await write_response(
+          socket,
+          new Response(refusal.message, {
+            status: refusal.status,
+            headers: refusal.headers,
+          }),
+        );
+      }
+    }
+    // An upgrade to another protocol is a request like any other.
+    const accepted = app.upgrade
+      ? await app.upgrade(request)
+      : await app.handler(request);
+    if (accepted instanceof Response) {
+      return await write_response(socket, accepted);
+    }
+    const lines = [
+      "HTTP/1.1 101 Switching Protocols",
+      "Upgrade: websocket",
+      "Connection: Upgrade",
+      `Sec-WebSocket-Accept: ${await accept_key(
+        request.headers.get("sec-websocket-key") ?? "",
+      )}`,
+    ];
+    for (const [name, value] of accepted.headers) {
+      if (name !== "set-cookie") {
+        lines.push(`${name}: ${value}`);
+      }
+    }
+    for (const cookie of accepted.headers.getSetCookie()) {
+      lines.push(`set-cookie: ${cookie}`);
+    }
+    if (socket.destroyed || !socket.writable) {
+      return; // the client went away while the route ran
+    }
+    socket.write(lines.join("\r\n") + "\r\n\r\n");
+    run_socket(
+      socket,
+      head,
+      track(accepted, () => socket.destroy()),
+      max_payload,
+    );
+  };
+  return (incoming, socket, head) => {
+    // Nothing else listens to this connection: its errors (a client that
+    // went away) must not stop the process. `close` follows each of them.
+    socket.on("error", () => {});
+    upgrade(incoming, socket, head).catch((error) => {
+      console.error(error);
+      write_response(
+        socket,
+        new Response("Internal Server Error", { status: 500 }),
+      ).catch(() => socket.destroy());
+    });
+  };
+}
+
+/**
+ * The `'upgrade'` listener to give to a `node:http` server of your own, so
+ * that it upgrades the connections of an application: the routes marked
+ * with `@Ws`.
+ *
+ * {@link serve} does this itself. Node.js has no WebSocket server: the
+ * listener speaks the protocol (RFC 6455) on the connection, with no
+ * extension: messages are not compressed.
+ *
+ * @param app The application: its `handler`, and its `upgrade`.
+ * @param options The limit of a message.
+ * @returns The listener of the `'upgrade'` event.
+ * @throws {ChoError} When `app` is not an application, or `maxPayload` not
+ *   a positive whole number.
+ *
+ * @example
+ * ```ts
+ * import { createServer } from "node:http";
+ *
+ * const app = await ChoWeb.create(AppModule);
+ * const server = createServer(my_request_listener);
+ * server.on("upgrade", nodeUpgrade(app));
+ * ```
+ */
+export function nodeUpgrade(
+  app: ServeApp,
+  options: SocketOptions = {},
+): NodeUpgradeListener {
+  return node_listener(
+    app_of(app, "nodeUpgrade()"),
+    max_payload_of(options, "nodeUpgrade()"),
+    untracked,
+  );
+}
 
 /**
  * Serve a `fetch`-style request handler on the server of the current runtime.
@@ -156,32 +732,31 @@ const DEFAULT_PORT = 3000;
  * ```
  */
 export function serve(
-  handler: ServeHandler,
+  app: ServeHandler | ServeApp,
   options: ServeOptions = {},
 ): Promise<ChoWebServer> {
-  return serve_on(engine(), handler, options);
+  return serve_on(engine(), app, options);
 }
 
 /**
  * Serve a handler on the server of a given runtime (see {@link serve}).
  *
  * @param runtime The runtime whose server is used.
- * @param handler The request handler.
+ * @param app The application, or a request handler.
  * @param options The options of {@link serve}.
  * @returns The server, once it is listening.
  * @throws {ChoError} (as a rejection) When the runtime has no server here.
  */
 export async function serve_on(
   runtime: EngineType,
-  handler: ServeHandler,
+  app: ServeHandler | ServeApp,
   options: ServeOptions = {},
 ): Promise<ChoWebServer> {
-  if (typeof handler !== "function") {
-    throw web_error(
-      "CHO_WEB_INVALID_HANDLER",
-      "serve() expects a request handler, such as app.handler",
-    );
-  }
+  const served = app_of(app, "serve()");
+  const { handler } = served;
+  const max_payload = max_payload_of(options, "serve()");
+  /** The sockets the server upgraded: closing the server closes them. */
+  const sockets = new Sockets();
   const { closeTimeout } = options;
   if (
     closeTimeout !== undefined &&
@@ -201,10 +776,21 @@ export async function serve_on(
 
   let server: ChoWebServer;
   if (runtime === "deno") {
-    server = serve_deno(handler, port, options.hostname, closeTimeout);
+    server = serve_deno(
+      deno_handler(served, sockets),
+      port,
+      options.hostname,
+      closeTimeout,
+    );
   } else if (runtime === "bun") {
     const bun = (globalThis as unknown as { Bun: BunLike }).Bun;
-    const native = bun.serve({ port, ...hostname, fetch: handler });
+    const native = bun.serve({
+      port,
+      ...hostname,
+      ...(served.upgrade
+        ? bun_options(served, max_payload, (upgrade) => sockets.track(upgrade))
+        : { fetch: handler }),
+    });
     server = {
       runtime,
       port: native.port,
@@ -218,13 +804,37 @@ export async function serve_on(
       ),
     };
   } else if (runtime === "node") {
-    server = await serve_node(handler, port, options.hostname, closeTimeout);
+    server = await serve_node(
+      handler,
+      port,
+      options.hostname,
+      closeTimeout,
+      served.upgrade &&
+        node_listener(
+          served,
+          max_payload,
+          (upgrade, cut) => sockets.track(upgrade, cut),
+        ),
+      () => sockets.cut(),
+    );
   } else {
     throw web_error(
       "CHO_WEB_NO_SERVER",
       `serve() has no server for this runtime (${runtime}): ` +
         "give app.handler to the runtime's own entry point",
     );
+  }
+
+  if (served.upgrade) {
+    // An open socket would hold a closing server: its sockets go first.
+    const close = server.close;
+    server = {
+      ...server,
+      close: once(() => {
+        sockets.close();
+        return close();
+      }),
+    };
   }
 
   const { signal } = options;
@@ -374,6 +984,11 @@ function serve_deno(
  *   network interface.
  * @param close_timeout How long closing waits for the requests in flight, in
  *   milliseconds, before it cuts their connections. Default: for ever.
+ * @param on_upgrade The listener of the `'upgrade'` event: it upgrades the
+ *   connections of the application. Default: none, and a request that asks
+ *   for an upgrade is a request like any other.
+ * @param cut Cuts the connections that were upgraded, which the server no
+ *   longer counts as its own. Default: nothing.
  * @returns The server, once it is listening.
  */
 export async function serve_node(
@@ -381,6 +996,8 @@ export async function serve_node(
   port: number,
   hostname?: string,
   close_timeout?: number,
+  on_upgrade?: NodeUpgradeListener,
+  cut?: () => void,
 ): Promise<ChoWebServer> {
   // Imported here, so that nothing of Node.js is loaded on another runtime.
   const { createServer } = await import("node:http");
@@ -442,6 +1059,10 @@ export async function serve_node(
     );
   }
 
+  if (on_upgrade) {
+    native.on("upgrade", on_upgrade);
+  }
+
   await new Promise<void>((resolve, reject) => {
     native.once("error", reject);
     native.listen(port, hostname, () => {
@@ -467,7 +1088,10 @@ export async function serve_node(
             // open.
             native.closeIdleConnections();
           }),
-        () => native.closeAllConnections(),
+        () => {
+          native.closeAllConnections();
+          cut?.();
+        },
         close_timeout,
       )
     ),
