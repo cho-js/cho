@@ -6,7 +6,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { legacy, loose } from "@chojs/core/utils/test_utils";
+import { legacy, loose, standard_schema } from "@chojs/core/utils/test_utils";
 import { ChoMessageClient, localSender } from "./client.ts";
 import type { ChoMessageContext } from "./context.ts";
 import { contract } from "./contract.ts";
@@ -15,7 +15,7 @@ import { request_error } from "./errors.ts";
 import type { Delivery, Reply, RequestOptions, Sender } from "./linker.ts";
 import { ChoMessage } from "./message.ts";
 import { isReplyError, ReplyError } from "./reply-error.ts";
-import type { ChoMessageValidator } from "./types.ts";
+import type { ChoValidator } from "@chojs/core";
 import { validate } from "./validate.ts";
 
 const encoder = new TextEncoder();
@@ -23,7 +23,7 @@ const encoder = new TextEncoder();
 type Order = { id: number };
 type Price = { id: number; price: number };
 
-const WithId: ChoMessageValidator<Order> = {
+const WithId: ChoValidator<Order> = {
   parse(value) {
     const id = Number((value as { id?: unknown } | null)?.id);
     if (!Number.isInteger(id)) {
@@ -33,7 +33,7 @@ const WithId: ChoMessageValidator<Order> = {
   },
 };
 
-const IsPrice: ChoMessageValidator<Price> = {
+const IsPrice: ChoValidator<Price> = {
   parse(value) {
     const { id, price } = (value ?? {}) as Record<string, unknown>;
     if (typeof id !== "number" || typeof price !== "number") {
@@ -281,13 +281,53 @@ describe("ChoMessageClient.request", () => {
       client.request(GetPrice, { id: 7 }),
       (error: Error) => {
         assert.equal(loose(error).code, "CHO_MESSAGE_UNEXPECTED_REPLY");
-        assert.match(
+        assert.equal(
           error.message,
-          /the validator of its contract refused it$/,
+          'Unexpected reply to the request of "shop.orders.price": the validator of its contract refused it: not a price',
         );
         assert.equal((error.cause as Error).message, "not a price");
         return true;
       },
+    );
+  });
+
+  it("gives the reply through a Standard Schema, and rejects with its issues", async () => {
+    const Rounded = contract({
+      topic: "shop.orders.rounded",
+      reply: standard_schema<Price>((value) => {
+        const { id, price } = (value ?? {}) as Record<string, unknown>;
+        return typeof id === "number" && typeof price === "number"
+          ? { value: { id, price: Math.round(price) } }
+          : { issues: [{ message: "Expected a number", path: ["price"] }] };
+      }),
+    });
+    const good = new ChoMessageClient(
+      recording(reply_of('{"id":7,"price":41.6}')).sender,
+    );
+    assert.deepEqual(await good.request(Rounded), { id: 7, price: 42 });
+    const bad = new ChoMessageClient(recording(reply_of('{"id":7}')).sender);
+    await assert.rejects(bad.request(Rounded), (error: Error) => {
+      assert.equal(loose(error).code, "CHO_MESSAGE_UNEXPECTED_REPLY");
+      assert.equal(
+        error.message,
+        'Unexpected reply to the request of "shop.orders.rounded": the validator of its contract refused it: Expected a number (at price)',
+      );
+      assert.equal(error.cause, undefined);
+      return true;
+    });
+  });
+
+  it("rejects with what the Standard Schema of the reply throws", async () => {
+    const down = new Error("the database is down");
+    const Broken = contract({
+      topic: "broken",
+      reply: standard_schema(() => {
+        throw down;
+      }),
+    });
+    await assert.rejects(
+      new ChoMessageClient(recording(reply_of("1")).sender).request(Broken),
+      (error) => error === down,
     );
   });
 

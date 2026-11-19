@@ -83,6 +83,7 @@ export {
   type ChoMessageContractResult,
   type Contract,
   contract,
+  type ContractOptions,
 } from "./contract.ts";
 export {
   isReplyError,
@@ -113,5 +114,16 @@ export * from "./message.ts";
 export type { ChoMessageContext } from "./context.ts";
 // The errors of the framework, with their codes.
 export { type ChoCoreErrorCode, ChoError, isChoError } from "@chojs/core";
+// What a validator is: a Standard Schema, or an object with a `parse` method.
+export type {
+  ChoInput,
+  ChoIssue,
+  ChoOutput,
+  ChoParseValidator,
+  ChoValidator,
+  StandardJSONSchemaV1,
+  StandardSchemaV1,
+  StandardTypedV1,
+} from "@chojs/core";
 export type { ChoMessageErrorCode } from "./errors.ts";
 export type * from "./types.ts";

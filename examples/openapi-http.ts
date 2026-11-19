@@ -14,9 +14,9 @@
  *   | `/docs/scalar`      | Scalar     |
  *   | `/docs/redoc`       | Redoc      |
  *
- * The validators are written by hand, to need no library: `schema` gives an
- * object with a `parse` method, as `@chojs/web` wants, that also says its JSON
- * Schema the way a Zod schema does (Standard JSON Schema).
+ * The validators are written by hand, to need no library: `schema` gives a
+ * Standard Schema, as `@chojs/web` wants, that also says its JSON Schema
+ * (Standard JSON Schema). The schemas of Zod, Valibot and ArkType are both.
  *
  * Run it, and open http://localhost:8082/docs
  *
@@ -25,8 +25,8 @@
 import {
   Args,
   Body,
+  type ChoIssue,
   ChoWeb,
-  type ChoWebValidator,
   Controller,
   Doc,
   Get,
@@ -36,6 +36,8 @@ import {
   Param,
   Post,
   Query,
+  type StandardJSONSchemaV1,
+  type StandardSchemaV1,
   validate,
 } from "@chojs/web";
 import { serve } from "@chojs/web/serve";
@@ -48,27 +50,29 @@ type Page = { page: number; size: number };
 /**
  * A validator that says its own JSON Schema. A schema library does both from
  * one declaration: with Zod, `z.object({ name: z.string() })` is enough.
+ *
+ * `validate` gives the value, or the issues of a value that is not valid. It
+ * throws nothing: what a Standard Schema throws is an error, not a `400`.
  */
 function schema<T>(
   json: Record<string, unknown>,
-  parse: (value: unknown) => T,
-): ChoWebValidator<T> {
+  validate: (value: unknown) => StandardSchemaV1.Result<T>,
+): StandardSchemaV1<unknown, T> & StandardJSONSchemaV1<unknown, T> {
   return {
-    parse,
     "~standard": {
       version: 1,
       vendor: "example",
+      validate,
       jsonSchema: { input: () => json, output: () => json },
     },
-  } as ChoWebValidator<T>;
+  };
 }
 
-/** A string that is not empty, or an error. */
-function text(value: unknown, name: string): string {
-  if (typeof value !== "string" || value === "") {
-    throw new Error(`${name} is required`);
-  }
-  return value;
+/** The issue of a property that is not a string with something in it. */
+function required(value: unknown, name: string): ChoIssue[] {
+  return typeof value === "string" && value !== ""
+    ? []
+    : [{ message: "Required", path: [name] }];
 }
 
 const USER = {
@@ -81,11 +85,12 @@ const USER = {
   required: ["id", "name", "email"],
 };
 
-const UserSchema = schema<User>(USER, (value) => value as User);
+// These two only document a response: they are never run.
+const UserSchema = schema<User>(USER, (value) => ({ value: value as User }));
 
 const UsersSchema = schema<User[]>(
   { type: "array", items: USER },
-  (value) => value as User[],
+  (value) => ({ value: value as User[] }),
 );
 
 const NewUserSchema = schema<NewUser>({
@@ -97,7 +102,10 @@ const NewUserSchema = schema<NewUser>({
   required: ["name", "email"],
 }, (value) => {
   const { name, email } = (value ?? {}) as Record<string, unknown>;
-  return { name: text(name, "name"), email: text(email, "email") };
+  const issues = [...required(name, "name"), ...required(email, "email")];
+  return issues.length > 0
+    ? { issues }
+    : { value: { name: name as string, email: email as string } };
 });
 
 const PageSchema = schema<Page>({
@@ -108,7 +116,7 @@ const PageSchema = schema<Page>({
   },
 }, (value) => {
   const { page, size } = (value ?? {}) as Record<string, string | undefined>;
-  return { page: Number(page ?? 1), size: Number(size ?? 20) };
+  return { value: { page: Number(page ?? 1), size: Number(size ?? 20) } };
 });
 
 const users = new Map<string, User>([

@@ -6,7 +6,7 @@
 
 import { assert_known_options } from "@chojs/core/di";
 import { openapi_error } from "./errors.ts";
-import type { ChoWeb, ChoWebDocSecurity, ChoWebValidator } from "@chojs/web";
+import type { ChoValidator, ChoWeb, ChoWebDocSecurity } from "@chojs/web";
 import type { ControllerRef, FeatureRef, MethodRef } from "@chojs/web/graph";
 import { debuglog, describe } from "@chojs/core/utils";
 import { Schemas, type ToJsonSchema } from "./schema.ts";
@@ -307,7 +307,7 @@ function read_responses(
     const { description, schema, contentType } = declared ?? {};
     const of_body = schema &&
       schemas.of(
-        schema as ChoWebValidator,
+        schema as ChoValidator,
         "output",
         `${name}, response ${status}`,
       );

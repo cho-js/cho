@@ -186,13 +186,16 @@ me(user: User) {
 
 ### Validation
 
-Each of the five functions takes a validator as its last argument: any object
-with a `parse(value)` method that returns the value or throws. That is the shape
-of a [zod](https://zod.dev) schema, and `@chojs/web` does not depend on zod.
+Each of the five functions takes a validator as its last argument: a
+[Standard Schema](https://standardschema.dev/). The schemas of
+[Zod](https://zod.dev), [Valibot](https://valibot.dev),
+[ArkType](https://arktype.io) and many other libraries are, so they are given as
+they are, and `@chojs/web` depends on none of them. An object with a
+`parse(value)` method that returns the value, or throws, is a validator too.
 
 Validators are run by one middleware, `validate()`, on a handler, a controller
-or a feature module. What a validator returns is what the handler receives, so
-it can convert too:
+or a feature module. What a validator gives is what the handler receives, so it
+can convert too:
 
 ```ts
 import { z } from "zod";
@@ -217,10 +220,19 @@ option returns:
 
 ```ts
 validate({
-  onInvalid: ({ source, key, error }) =>
-    Response.json({ message: `bad ${source}` }, { status: 422 }),
+  onInvalid: ({ source, key, issues }) =>
+    Response.json({ message: `bad ${source}`, issues }, { status: 422 }),
 });
 ```
+
+- **One body for every library.** Each issue is a `message`, and a `path` when
+  it is about a part of the value. What else a library writes in an issue is not
+  sent.
+- **A schema that throws is not a `400`.** A Standard Schema says what is not
+  valid in its result. What it throws is an error like any other: it goes to the
+  error handler, and answers `500` by default.
+- **Asynchronous checks need no wrapper.** A validator that gives a promise is
+  awaited.
 
 Without the middleware, validators are not run: the handler receives the values
 as they are. Enable `CHO_DEBUGLOG=cho:web` to see which handlers have a

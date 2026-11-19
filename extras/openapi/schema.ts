@@ -2,14 +2,14 @@
  * The schemas of a document: turns the validators of an application into
  * JSON Schemas, and keeps the schemas the document refers to.
  *
- * A validator is any object with a `parse` method. Its schema comes from the
- * validator itself, when it implements Standard JSON Schema, or from the
- * `toJsonSchema` function of the application.
+ * A validator is a Standard Schema, or an object with a `parse` method. Its
+ * schema comes from the validator itself, when it implements Standard JSON
+ * Schema, or from the `toJsonSchema` function of the application.
  *
  * @module
  */
 
-import type { ChoWebValidator } from "@chojs/web";
+import type { ChoValidator, StandardJSONSchemaV1 } from "@chojs/web";
 import type { Debuglog } from "@chojs/core/utils";
 import type { JsonSchema } from "./types.ts";
 
@@ -35,14 +35,15 @@ export type SchemaIo = "input" | "output";
  * ```
  */
 export type ToJsonSchema = (
-  validator: ChoWebValidator,
+  validator: ChoValidator,
   io: SchemaIo,
 ) => JsonSchema | undefined;
 
-/** The converter of a validator that implements Standard JSON Schema. */
-type StandardConverter = Partial<
-  Record<SchemaIo, (options: { target: string }) => unknown>
->;
+/**
+ * The converter of a validator that implements Standard JSON Schema. What a
+ * validator has is not trusted: each method is checked before it is called.
+ */
+type StandardConverter = Partial<StandardJSONSchemaV1.Converter>;
 
 /** Whether a value is a plain object: what a JSON Schema is. */
 function is_object(value: unknown): value is Record<string, unknown> {
@@ -87,7 +88,7 @@ export class Schemas {
   readonly #log: Debuglog;
   /** The converted schemas: `null` for a validator that has none. */
   readonly #converted = new Map<
-    ChoWebValidator,
+    ChoValidator,
     Partial<Record<SchemaIo, JsonSchema | null>>
   >();
   /** Each component as it was given, to tell two schemas with one name. */
@@ -113,7 +114,7 @@ export class Schemas {
    *   none.
    */
   of(
-    validator: ChoWebValidator,
+    validator: ChoValidator,
     io: SchemaIo,
     where: string,
   ): JsonSchema | undefined {
@@ -144,7 +145,7 @@ export class Schemas {
 
   /** Ask the validator, then the application. */
   #convert(
-    validator: ChoWebValidator,
+    validator: ChoValidator,
     io: SchemaIo,
     where: string,
   ): JsonSchema | undefined {

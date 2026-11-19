@@ -714,7 +714,12 @@ The DI essentials:
   and each CHO module gives them again;
 - types: `ModuleOptions`, `ControllerOptions`, `ConfigureOptions`, `Dependency`,
   `Ctr`, `Target`, `Any`, and the graph types `MetadataGraph`,
-  `DependencyGraph`, `DependencyNode`, `ModuleScope`.
+  `DependencyGraph`, `DependencyNode`, `ModuleScope`;
+- the types of a validator (section 5): `ChoValidator`, `ChoParseValidator`,
+  `ChoIssue`, `ChoInput`, `ChoOutput`, and the interfaces of the specification,
+  `StandardSchemaV1`, `StandardJSONSchemaV1` and `StandardTypedV1`. These are
+  for applications too, and each CHO module that takes validators gives them
+  again.
 
 ### 3.2 `@chojs/core/di`
 
@@ -818,6 +823,9 @@ Runtime helpers that work on every runtime:
   it with its codes (section 4.4).
 - `is_class(value)`, `is_class_implement(value, method)`: whether a value is a
   class, and whether its prototype has a given method.
+- `is_validator(value)`, `run_validator(validator, value)`, `to_issues(issues)`
+  and `error_issues(error)`: what a CHO module does with a validator (section
+  5.4).
 
 ### 3.4 `@chojs/core/utils/test_utils`
 
@@ -833,6 +841,7 @@ decorator syntax itself):
   `console.error`;
 - `with_env()` runs a function with environment variables set;
 - `loose()` bypasses parameter types;
+- `standard_schema()` makes a Standard Schema by hand, with no library;
 - `check_codes()` compares the error codes of a package with the table of its
   document and with its tests (section 4.4).
 
@@ -947,3 +956,128 @@ creating an instance needs no lookup.
   every code is named by a test. The check reads files: it is skipped where that
   is not permitted (Deno without `--allow-read`). The test task of the
   repository gives the permission, so it runs on the three runtimes.
+
+## 5. Validators
+
+A **validator** says whether a value is what is expected, and gives the value
+the application works with. `@chojs/web` takes one for an argument of a handler
+(`Body(schema)`), `@chojs/message` for an argument and for the two values of a
+contract, and `@chojs/openapi` reads it to document a route. What a validator is
+is defined here, once, so that it is the same in every CHO module.
+
+`@chojs/core` runs no validation of its own: it has the types, and the functions
+the CHO modules run a validator with.
+
+### 5.1 The two shapes
+
+A validator is a [Standard Schema](https://standardschema.dev/), or an object
+with a `parse` method:
+
+```ts
+type ChoValidator<Output = unknown, Input = unknown> =
+  | StandardSchemaV1<Input, Output>
+  | { parse(value: unknown): Output | Promise<Output> };
+```
+
+- **A Standard Schema** is an object, or a function, with a `~standard` key. The
+  schemas of Zod, Valibot, ArkType and many other libraries are: the
+  [specification](https://standardschema.dev/schema) lists them. This is the
+  shape to use.
+- **An object with a `parse` method** that returns the value, or throws. It is
+  the older shape, and it stays accepted.
+
+`@chojs/core` depends on no schema library, and not on the package of the
+specification either: `StandardSchemaV1`, `StandardJSONSchemaV1` and
+`StandardTypedV1` are the interfaces of the specification, copied as it allows.
+The schema of any library that implements it fits them.
+
+A validator written by hand, in each shape:
+
+```ts
+const positive: ChoValidator<number> = {
+  "~standard": {
+    version: 1,
+    vendor: "app",
+    validate(value) {
+      const n = Number(value);
+      return n > 0
+        ? { value: n }
+        : { issues: [{ message: "expected a positive number" }] };
+    },
+  },
+};
+
+const positive: ChoValidator<number> = {
+  parse(value) {
+    const n = Number(value);
+    if (!(n > 0)) throw new Error("expected a positive number");
+    return n;
+  },
+};
+```
+
+### 5.2 How a validator is run
+
+| Shape             | Valid                   | Not valid            | When it throws                  |
+| ----------------- | ----------------------- | -------------------- | ------------------------------- |
+| A Standard Schema | a result with a `value` | a result with issues | an error of the validator       |
+| A `parse` method  | what it returns         | it throws            | that is how it says "not valid" |
+
+- **What a validator gives is what the application receives.** A validator can
+  convert a value, give it defaults, or remove what it does not know.
+- **Both shapes can give a promise.** It is awaited: a schema with an
+  asynchronous check needs no wrapper.
+- **A Standard Schema that throws has a bug, or a dependency that is down.** The
+  value is not reported as not valid: what was thrown is thrown on, unchanged,
+  and each CHO module treats it as any error of a handler.
+- **For an object with both shapes, the Standard Schema is used**, and `parse`
+  is not called. A Zod schema is such an object. `parse` is used when the
+  `~standard` key has no `validate` function.
+
+### 5.3 Issues
+
+What is not valid is a list of issues, of one shape for every validator:
+
+```ts
+type ChoIssue = {
+  readonly message: string;
+  readonly path?: readonly (string | number)[];
+};
+```
+
+- `path` leads to what is wrong: `["items", 0, "price"]`. It is not there when
+  the whole value is what is wrong.
+- **From a Standard Schema**, each issue of the result gives its `message` and
+  its `path`. A segment of a path given as `{ key }` becomes its key, and a
+  symbol becomes its description.
+- **From what a `parse` method threw**: its `issues` when it has a list of them,
+  as the error of a Zod schema does, read the same way; otherwise one issue,
+  with the message of the error.
+- **Nothing else of the library is kept.** A library adds fields of its own to
+  an issue (`code`, `expected`, and for some the value that was refused). They
+  are left out, so that what an application answers with is the same for every
+  library, and says nothing the library did not mean for a client.
+- There is always one issue at least.
+
+### 5.4 The types of a validator, and the functions
+
+`ChoOutput<V>` and `ChoInput<V>` give the two types of a validator. They differ
+when the validator converts:
+
+```ts
+const NewUser = z.object({ name: z.string(), age: z.number().default(18) });
+
+type User = ChoOutput<typeof NewUser>; // { name: string; age: number }
+type Sent = ChoInput<typeof NewUser>; // { name: string; age?: number }
+```
+
+A `parse` method does not say what it takes: its input is its output.
+
+For the CHO modules, in `@chojs/core/utils`:
+
+- `is_validator(value)`: whether a value has one of the two shapes;
+- `run_validator(validator, value)`: resolves with `{ value }`, or with
+  `{ issues }` (and `error`, when a `parse` method threw). It rejects with what
+  a Standard Schema throws;
+- `to_issues(issues)` and `error_issues(error)`: the issues of section 5.3, from
+  a list a library gave and from something that was thrown.

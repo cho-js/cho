@@ -6,7 +6,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { loose } from "@chojs/core/utils/test_utils";
+import { loose, standard_schema } from "@chojs/core/utils/test_utils";
 import {
   Body,
   evaluate_args,
@@ -18,10 +18,11 @@ import {
   Query,
 } from "./args.ts";
 import { create_context } from "./context.ts";
-import type { ChoWebArg, ChoWebValidator } from "./types.ts";
+import type { ChoValidator } from "@chojs/core";
+import type { ChoWebArg } from "./types.ts";
 
 /** A validator that turns a value into a number, and rejects what is not one. */
-const number: ChoWebValidator<number> = {
+const number: ChoValidator<number> = {
   parse(value) {
     const n = Number(value);
     if (Number.isNaN(n)) {
@@ -217,13 +218,14 @@ describe("the four call forms", () => {
   const functions = { Param, Query, Header, Body, Form };
 
   for (const [name, fn] of Object.entries(functions)) {
-    it(`${name}: rejects a key that is not a string and a validator without parse`, () => {
+    it(`${name}: rejects a key that is not a string and what is not a validator`, () => {
       const bad = (...args: unknown[]) => () => loose(fn)(...args);
-      for (const value of [1, true, null, {}, [], () => {}]) {
+      const values = [1, true, null, {}, [], () => {}, { "~standard": {} }];
+      for (const value of values) {
         assert.throws(bad(value), {
           code: "CHO_WEB_INVALID_ARGUMENT",
           message: new RegExp(
-            `^${name}\\(\\): expected a key \\(a string\\) or a validator \\(an object with a parse method\\), got `,
+            `^${name}\\(\\): expected a key \\(a string\\) or a validator \\(a Standard Schema, or an object with a parse method\\), got `,
           ),
         });
         assert.throws(bad("key", value), { code: "CHO_WEB_INVALID_ARGUMENT" });
@@ -235,7 +237,7 @@ describe("the four call forms", () => {
       });
     });
 
-    it(`${name}: takes any object with a parse method, a class instance included`, () => {
+    it(`${name}: takes a Standard Schema, and any object with a parse method`, () => {
       class Schema {
         parse(value: unknown) {
           return value;
@@ -244,6 +246,11 @@ describe("the four call forms", () => {
       const schema = new Schema();
       assert.equal(loose(fn)(schema).info.validator, schema);
       assert.equal(loose(fn)("key", schema).info.validator, schema);
+      // a Standard Schema: an object, or a function as a schema of ArkType
+      const standard = standard_schema((value) => ({ value }));
+      const callable = Object.assign(() => {}, standard);
+      assert.equal(loose(fn)(standard).info.validator, standard);
+      assert.equal(loose(fn)("key", callable).info.validator, callable);
       // undefined is no argument
       assert.deepEqual(loose(fn)(undefined).info, {
         source: name.toLowerCase(),
@@ -288,10 +295,10 @@ describe("evaluate_args", () => {
       id: "7",
     });
     mark_validated(ctx);
-    const whole: ChoWebValidator<string[]> = {
+    const whole: ChoValidator<string[]> = {
       parse: (value) => Object.keys(value as object),
     };
-    const later: ChoWebValidator<string> = {
+    const later: ChoValidator<string> = {
       parse: (value) => Promise.resolve(`<${value}>`),
     };
     assert.deepEqual(
@@ -325,11 +332,51 @@ describe("evaluate_args", () => {
           (error.invalid.error as Error).message,
           "not a number: abc",
         );
+        assert.deepEqual(error.invalid.issues, [{
+          message: "not a number: abc",
+        }]);
         assert.equal(error.cause, error.invalid.error);
         return true;
       },
     );
     assert.deepEqual(calls, []);
+  });
+
+  it("runs a Standard Schema, and reports its issues with no error", async () => {
+    const id = standard_schema<number>((value) =>
+      Number(value) > 0
+        ? { value: Number(value) }
+        : { issues: [{ message: "not an id", path: [{ key: "id" }] }] }
+    );
+    const ctx = context("/users/7?page=0", {}, { id: "7" });
+    mark_validated(ctx);
+    assert.deepEqual(await evaluate_args([Param("id", id)], ctx), [7]);
+    await assert.rejects(
+      () => evaluate_args([Query("page", id)], ctx),
+      (error: InvalidArgument) => {
+        assert.ok(error instanceof InvalidArgument);
+        assert.deepEqual(error.invalid, {
+          source: "query",
+          key: "page",
+          issues: [{ message: "not an id", path: ["id"] }],
+        });
+        assert.equal(error.cause, undefined);
+        return true;
+      },
+    );
+  });
+
+  it("passes on what a Standard Schema throws, unchanged", async () => {
+    const down = new Error("the database is down");
+    const broken = standard_schema(() => {
+      throw down;
+    });
+    const ctx = context("/?page=1");
+    mark_validated(ctx);
+    await assert.rejects(
+      () => evaluate_args([Query("page", broken)], ctx),
+      (error) => error === down,
+    );
   });
 
   it("reports a body that cannot be parsed, for a validated request only", async () => {
@@ -344,6 +391,9 @@ describe("evaluate_args", () => {
           ["body", false],
         );
         assert.equal((error.invalid.error as Error).name, "SyntaxError");
+        assert.deepEqual(error.invalid.issues, [{
+          message: (error.invalid.error as Error).message,
+        }]);
         return true;
       },
     );

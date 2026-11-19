@@ -10,7 +10,8 @@
  */
 
 import { assert_known_options } from "@chojs/core/di";
-import { describe } from "@chojs/core/utils";
+import { describe, run_validator } from "@chojs/core/utils";
+import { describe_issues } from "./args.ts";
 import { type Contract, is_contract } from "./contract.ts";
 import { message_error } from "./errors.ts";
 import type { Delivery, Reply, RequestOptions, Sender } from "./linker.ts";
@@ -48,12 +49,12 @@ export type ChoMessageRequestOptions = ChoMessageSendOptions & RequestOptions;
  * The value to send for a contract, and the options: the value can be left
  * out when the contract lets it be `undefined`.
  *
- * @typeParam Request What the message holds.
+ * @typeParam Sent What is sent: the `Sent` of the contract.
  * @typeParam Options The options of the call.
  */
-export type ChoMessageSent<Request, Options> = undefined extends Request
-  ? [value?: Request, options?: Options]
-  : [value: Request, options?: Options];
+export type ChoMessageSent<Sent, Options> = undefined extends Sent
+  ? [value?: Sent, options?: Options]
+  : [value: Sent, options?: Options];
 
 /**
  * Sends the messages of contracts.
@@ -139,7 +140,9 @@ export class ChoMessageClient {
   /**
    * Send a message that asks for no reply.
    *
-   * @typeParam Request What the message holds.
+   * @typeParam Request What the handler receives.
+   * @typeParam Sent What is sent: `Request`, unless the validator of the
+   *   request converts.
    * @param contract The contract of the message.
    * @param sent The value, and the key and the headers of the message.
    * @returns A promise that resolves when the message is given to the
@@ -148,10 +151,10 @@ export class ChoMessageClient {
    *   what is not a contract; `CHO_MESSAGE_INVALID_VALUE` for a value that
    *   has no JSON.
    */
-  async publish<Request>(
+  async publish<Request, Sent = Request>(
     // deno-lint-ignore no-explicit-any
-    contract: Contract<Request, any>,
-    ...sent: ChoMessageSent<Request, ChoMessageSendOptions>
+    contract: Contract<Request, any, Sent, any>,
+    ...sent: ChoMessageSent<Sent, ChoMessageSendOptions>
   ): Promise<void> {
     const [value, options] = sent;
     const topic = this.#topic("publish", contract);
@@ -161,8 +164,10 @@ export class ChoMessageClient {
   /**
    * Send a message that asks for a reply, and wait for it.
    *
-   * @typeParam Request What the message holds.
-   * @typeParam Reply What is replied.
+   * @typeParam Request What the handler receives.
+   * @typeParam Reply What is replied: what the validator of the reply gives.
+   * @typeParam Sent What is sent: `Request`, unless the validator of the
+   *   request converts.
    * @param contract The contract of the message.
    * @param sent The value, and the key, the headers and the time to wait.
    * @returns The reply, read as JSON and, when the contract has a `reply`
@@ -174,10 +179,13 @@ export class ChoMessageClient {
    *   nobody listens; `CHO_MESSAGE_REQUEST_TIMEOUT` when no answer came in
    *   time; `CHO_MESSAGE_UNEXPECTED_REPLY` when the reply is not JSON, or
    *   its validator refuses it.
+   * @throws (as a rejection) What the `validate` function of the Standard
+   *   Schema of the reply throws.
    */
-  async request<Request, Reply>(
-    contract: Contract<Request, Reply>,
-    ...sent: ChoMessageSent<Request, ChoMessageRequestOptions>
+  async request<Request, Reply, Sent = Request>(
+    // deno-lint-ignore no-explicit-any
+    contract: Contract<Request, Reply, Sent, any>,
+    ...sent: ChoMessageSent<Sent, ChoMessageRequestOptions>
   ): Promise<Reply> {
     const [value, options] = sent;
     const topic = this.#topic("request", contract);
@@ -281,15 +289,17 @@ async function read_reply<Reply>(
   if (!contract.reply) {
     return value as Reply;
   }
-  try {
-    return await contract.reply.parse(value);
-  } catch (cause) {
+  const result = await run_validator(contract.reply, value);
+  if (result.issues) {
     throw message_error(
       "CHO_MESSAGE_UNEXPECTED_REPLY",
-      `Unexpected reply to the request of "${topic}": the validator of its contract refused it`,
-      { cause },
+      `Unexpected reply to the request of "${topic}": the validator of its contract refused it: ${
+        describe_issues(result.issues)
+      }`,
+      "error" in result ? { cause: result.error } : undefined,
     );
   }
+  return result.value;
 }
 
 /** The reply a sender gives: named apart from the type parameter `Reply`. */

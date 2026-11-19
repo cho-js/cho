@@ -17,6 +17,7 @@ import {
   type AnyMethodDecorator,
   legacy,
   loose,
+  standard_schema,
   tc39,
   tc39_record,
 } from "@chojs/core/utils/test_utils";
@@ -39,8 +40,8 @@ import type {
   ChoMessageArg,
   ChoMessageInvalid,
   ChoMessageMiddlewareFn,
-  ChoMessageValidator,
 } from "./types.ts";
+import type { ChoValidator } from "@chojs/core";
 import { validate } from "./validate.ts";
 
 type Class = new () => object;
@@ -93,7 +94,7 @@ const text_of = (reply: Reply | undefined) =>
   reply === undefined ? undefined : new TextDecoder().decode(reply.value);
 
 /** A validator that gives an order with a numeric id, or throws. */
-const Order: ChoMessageValidator<{ id: number }> = {
+const Order: ChoValidator<{ id: number }> = {
   parse(value) {
     const id = Number((value as { id?: unknown } | null)?.id);
     if (!Number.isInteger(id)) {
@@ -105,7 +106,15 @@ const Order: ChoMessageValidator<{ id: number }> = {
   },
 };
 
-const number: ChoMessageValidator<number> = { parse: (value) => Number(value) };
+const number: ChoValidator<number> = { parse: (value) => Number(value) };
+
+/** The same order, as a Standard Schema: what Valibot or ArkType gives. */
+const StandardOrder = standard_schema<{ id: number }>((value) => {
+  const id = Number((value as { id?: unknown } | null)?.id);
+  return Number.isInteger(id) ? { value: { id } } : {
+    issues: [{ message: "expected an integer", path: [{ key: "id" }] }],
+  };
+});
 
 describe("@Args", () => {
   it("writes the list of arguments on the method (TC39)", () => {
@@ -339,7 +348,7 @@ describe("validation", () => {
 
   it("awaits a validator that is asynchronous", async () => {
     const seen: unknown[] = [];
-    const later: ChoMessageValidator<string> = {
+    const later: ChoValidator<string> = {
       parse: async (value) => {
         await Promise.resolve();
         return `checked ${value}`;
@@ -395,7 +404,7 @@ describe("validation", () => {
         assert.equal(isChoError(error, "CHO_MESSAGE_INVALID_MESSAGE"), true);
         assert.equal(
           error.message,
-          "Invalid message of orders: the value is not valid",
+          "Invalid message of orders: the value is not valid: expected an integer (at id)",
         );
         assert.equal((error.cause as Error).message, "id: expected an integer");
         return true;
@@ -405,7 +414,7 @@ describe("validation", () => {
   });
 
   it("names the property, the key or the header that is not valid", async () => {
-    const fails: ChoMessageValidator = {
+    const fails: ChoValidator = {
       parse() {
         throw new Error("no");
       },
@@ -422,10 +431,68 @@ describe("validation", () => {
         deliver(controller([arg], () => {}, [validate()]), {}),
         {
           code: "CHO_MESSAGE_INVALID_MESSAGE",
-          message: `Invalid message of orders: ${message}`,
+          message: `Invalid message of orders: ${message}: no`,
         },
       );
     }
+  });
+
+  it("validates with a Standard Schema: it converts, and fails with its issues", async () => {
+    const seen: unknown[] = [];
+    const Ctrl = controller(
+      [Value(StandardOrder)],
+      (order) => void seen.push(order),
+      [validate()],
+    );
+    await deliver(Ctrl, { value: '{"id":"7","extra":true}' });
+    assert.deepEqual(seen, [{ id: 7 }]);
+    await assert.rejects(
+      deliver(Ctrl, { value: '{"id":"x"}' }),
+      (error: Error) => {
+        assert.equal(isChoError(error, "CHO_MESSAGE_INVALID_MESSAGE"), true);
+        assert.equal(
+          error.message,
+          "Invalid message of orders: the value is not valid: expected an integer (at id)",
+        );
+        // nothing was thrown: there is no cause
+        assert.equal(error.cause, undefined);
+        return true;
+      },
+    );
+    assert.equal(seen.length, 1);
+  });
+
+  it("runs an object with both shapes as a Standard Schema", async () => {
+    let parses = 0;
+    const both = {
+      ...StandardOrder,
+      parse() {
+        parses++;
+        throw new Error("parse is not used");
+      },
+    };
+    const seen: unknown[] = [];
+    const Ctrl = controller([Value(both)], (order) => void seen.push(order), [
+      validate(),
+    ]);
+    await deliver(Ctrl, { value: '{"id":3}' });
+    assert.deepEqual([seen, parses], [[{ id: 3 }], 0]);
+  });
+
+  it("fails a message with what a Standard Schema throws: it is not an invalid message", async () => {
+    const down = new Error("the database is down");
+    const broken = standard_schema(() => {
+      throw down;
+    });
+    const invalid: unknown[] = [];
+    const Ctrl = controller([Value(broken)], () => {}, [
+      validate({ onInvalid: (one) => (invalid.push(one), true) }),
+    ]);
+    await assert.rejects(
+      deliver(Ctrl, { value: "{}" }),
+      (error) => error === down,
+    );
+    assert.deepEqual(invalid, []);
   });
 
   it("fails a validated message whose value is not JSON, with the same code", async () => {
@@ -486,8 +553,24 @@ describe("validate({ onInvalid })", () => {
     assert.equal(invalid.source, "value");
     assert.equal(invalid.key, "order");
     assert.equal((invalid.error as Error).message, "id: expected an integer");
+    assert.deepEqual(invalid.issues, [{
+      message: "expected an integer",
+      path: ["id"],
+    }]);
     assert.equal(ctx.key, "k");
     assert.equal(calls.length, 1);
+  });
+
+  it("receives the issues of a Standard Schema, and no error", async () => {
+    const calls: ChoMessageInvalid[] = [];
+    const Ctrl = controller([Value(StandardOrder)], () => "handled", [
+      validate({ onInvalid: (invalid) => (calls.push(invalid), true) }),
+    ]);
+    await deliver(Ctrl, { value: '{"id":"x"}' });
+    assert.deepEqual(calls, [{
+      source: "value",
+      issues: [{ message: "expected an integer", path: ["id"] }],
+    }]);
   });
 
   it("is not called for a message that is valid", async () => {

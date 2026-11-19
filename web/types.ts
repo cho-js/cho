@@ -5,6 +5,7 @@
  * @module
  */
 
+import type { ChoIssue, ChoValidator } from "@chojs/core";
 import type { Ctr } from "@chojs/core/di";
 import type { ChoWebContext } from "./context.ts";
 
@@ -90,30 +91,6 @@ export type ChoWebErrorHandler =
 export type ChoWebArgSource = "param" | "query" | "header" | "body" | "form";
 
 /**
- * A validator: any object with a `parse` method that returns the value, or
- * throws. It is the shape of a zod schema, so a zod schema is one.
- *
- * What `parse` returns is what the handler receives, so a validator can also
- * convert a value. It can return a promise.
- *
- * @typeParam T What the validator gives.
- *
- * @example
- * ```ts
- * const positive: ChoWebValidator<number> = {
- *   parse(value) {
- *     const n = Number(value);
- *     if (!(n > 0)) throw new Error("expected a positive number");
- *     return n;
- *   },
- * };
- * ```
- */
-export type ChoWebValidator<T = unknown> = {
-  parse(value: unknown): T | Promise<T>;
-};
-
-/**
  * What is known about an argument made by `Param`, `Query`, `Header`, `Body`
  * or `Form`: enough to describe it in an OpenAPI document.
  */
@@ -123,7 +100,7 @@ export type ChoWebArgInfo = {
   /** The key of the source, when the argument is one key of it. */
   readonly key?: string;
   /** The validator of the argument, when it has one: its schema. */
-  readonly validator?: ChoWebValidator;
+  readonly validator?: ChoValidator;
 };
 
 /**
@@ -277,8 +254,17 @@ export type ChoWebInvalid = {
   readonly source: ChoWebArgSource;
   /** Its key, when the argument is one key of the source. */
   readonly key?: string;
-  /** What the validator threw, or the error of a body that cannot be parsed. */
-  readonly error: unknown;
+  /**
+   * What is not valid: one issue at least. The issues of the validator, or
+   * one issue with the message of what was thrown.
+   */
+  readonly issues: readonly ChoIssue[];
+  /**
+   * What was thrown, when something was: by the `parse` method of a
+   * validator, or by a body that cannot be parsed. A Standard Schema throws
+   * nothing for a value that is not valid, so it is not there.
+   */
+  readonly error?: unknown;
 };
 
 /** The options of `validate()`. */
@@ -296,7 +282,7 @@ export type ChoWebDocResponse = {
   /** What the response means. */
   readonly description?: string;
   /** The schema of its body: a validator. */
-  readonly schema?: ChoWebValidator;
+  readonly schema?: ChoValidator;
   /** The media type of its body. Default: `application/json`. */
   readonly contentType?: string;
 };

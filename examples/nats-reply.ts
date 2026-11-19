@@ -26,7 +26,7 @@
 import {
   ChoMessage,
   ChoMessageClient,
-  type ChoMessageValidator,
+  type ChoValidator,
   contract,
   Controller,
   isChoError,
@@ -51,18 +51,26 @@ const servers = env("NATS_URL") ?? "localhost:4222";
 type Order = { id: number };
 type Price = { id: number; price: number };
 
-/** A validator: any object with `parse`, as a zod schema is. */
-const IsOrder: ChoMessageValidator<Order> = {
-  parse(value) {
-    const id = (value as { id?: unknown } | null)?.id;
-    if (typeof id !== "number") {
-      throw new Error("id: expected a number");
-    }
-    return { id };
+/**
+ * A validator is a Standard Schema, as the schemas of Zod, Valibot and
+ * ArkType are. This one is written by hand, to need no library: `validate`
+ * gives the value, or the issues of a value that is not valid.
+ */
+const IsOrder: ChoValidator<Order> = {
+  "~standard": {
+    version: 1,
+    vendor: "example",
+    validate(value) {
+      const id = (value as { id?: unknown } | null)?.id;
+      return typeof id === "number"
+        ? { value: { id } }
+        : { issues: [{ message: "Expected a number", path: ["id"] }] };
+    },
   },
 };
 
-const IsPrice: ChoMessageValidator<Price> = {
+/** An object with a `parse` method that returns, or throws, is one too. */
+const IsPrice: ChoValidator<Price> = {
   parse: (value) => value as Price,
 };
 

@@ -24,6 +24,7 @@ asynchronous, decorator-driven, and free of reflection.
 - [Concepts](#concepts)
 - [Lifecycle](#lifecycle)
 - [Configuring a module](#configuring-a-module)
+- [Validators](#validators)
 - [Testing with overrides](#testing-with-overrides)
 - [Writing a CHO module](#writing-a-cho-module)
 - [Errors](#errors)
@@ -186,6 +187,35 @@ provider({
 An application that forgot it does not start: creating the module fails, with
 that message as the cause.
 
+## Validators
+
+A validator checks a value, and gives the value the application works with.
+`@chojs/web` and `@chojs/message` take one for an argument of a handler, and
+`@chojs/core` says what one is: a
+[Standard Schema](https://standardschema.dev/), so the schemas of Zod, Valibot,
+ArkType and many other libraries are validators as they are. An object with a
+`parse` method that returns, or throws, is one too.
+
+```ts
+import { z } from "zod";
+import type { ChoInput, ChoOutput, ChoValidator } from "@chojs/core";
+
+const NewUser = z.object({ name: z.string(), age: z.number().default(18) });
+
+const validator: ChoValidator = NewUser; // nothing to wrap
+type User = ChoOutput<typeof NewUser>; // { name: string; age: number }
+type Sent = ChoInput<typeof NewUser>; // { name: string; age?: number }
+```
+
+- **No library is depended on.** The interfaces of the specification are copied
+  into the package, as the specification allows.
+- **One shape for what is not valid.** Whatever the library, an issue is a
+  `message` and a `path`.
+- **A schema that throws is not a value that is not valid.** A Standard Schema
+  reports issues in its result; what it throws is an error, like any other.
+
+The [specification](./specs.md#5-validators) has the rules.
+
 ## Testing with overrides
 
 Replace a provider anywhere in the module graph, without changing a module:
@@ -268,12 +298,12 @@ Every code is listed with its mistake in the
 
 ## Entry points
 
-| Entry point                    | Contents                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------ |
-| `@chojs/core`                  | The DI essentials: the decorators, `Injector`, `token`, `provider`             |
-| `@chojs/core/di`               | Everything above, plus the metadata and decorator helpers for CHO modules      |
-| `@chojs/core/utils`            | Runtime helpers: `env`, `set_env`, `engine`, `debuglog`, `compose`, `describe` |
-| `@chojs/core/utils/test_utils` | Test helpers: apply decorators as function calls, capture console output       |
+| Entry point                    | Contents                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `@chojs/core`                  | The DI essentials: the decorators, `Injector`, `token`, `provider`; `ChoValidator` and its types |
+| `@chojs/core/di`               | Everything above, plus the metadata and decorator helpers for CHO modules                        |
+| `@chojs/core/utils`            | Runtime helpers: `env`, `set_env`, `engine`, `debuglog`, `compose`, `describe`                   |
+| `@chojs/core/utils/test_utils` | Test helpers: apply decorators as function calls, capture console output                         |
 
 ## Runtime support
 

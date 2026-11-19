@@ -153,12 +153,15 @@ not there throws, when `openApi` is called.
 
 ## Schemas
 
-A validator of `@chojs/web` is any object with a `parse` method. Its JSON Schema
-comes from one of two places:
+A validator of `@chojs/web` is a [Standard Schema](https://standardschema.dev/),
+or an object with a `parse` method. Its JSON Schema comes from one of two
+places:
 
-1. **The validator itself**, when it implements
+1. **The validator itself**, when it also implements
    [Standard JSON Schema](https://standardschema.dev/json-schema). A
-   [Zod](https://zod.dev) schema does, from Zod 4.2: nothing to do.
+   [Zod](https://zod.dev) schema does, from Zod 4.2, and so does an
+   [ArkType](https://arktype.io) schema, from 2.1.28: nothing to do. The tests
+   of this package run both.
 
    ```ts
    const UpdateUser = z.object({ name: z.string(), email: z.email() });
@@ -166,9 +169,10 @@ comes from one of two places:
    @Args(Body(UpdateUser)) // the schema is in the document
    ```
 
-2. **The `toJsonSchema` option**, for a validator that does not. It receives the
-   validator, and `"input"` or `"output"`, and returns a JSON Schema, or
-   `undefined` when it does not know the validator.
+2. **The `toJsonSchema` option**, for a validator that does not, such as a
+   [Valibot](https://valibot.dev) schema as it is. It receives the validator,
+   and `"input"` or `"output"`, and returns a JSON Schema, or `undefined` when
+   it does not know the validator.
 
    ```ts
    openApi(app, {

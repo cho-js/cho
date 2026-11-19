@@ -8,9 +8,10 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { loose } from "@chojs/core/utils/test_utils";
+import { loose, standard_schema } from "@chojs/core/utils/test_utils";
 import {
   describe_invalid,
+  describe_issues,
   evaluate_args,
   Header,
   InvalidArgument,
@@ -19,14 +20,15 @@ import {
 } from "./args.ts";
 import { create_context } from "./context.ts";
 import type { Delivery } from "./linker.ts";
-import type { ChoMessageArg, ChoMessageValidator } from "./types.ts";
+import type { ChoValidator } from "@chojs/core";
+import type { ChoMessageArg } from "./types.ts";
 import { validate, validation_of } from "./validate.ts";
 
 /** The context of a message of the topic `orders`. */
 const ctx_of = (delivery: Delivery = {}) => create_context("orders", delivery);
 
 /** A validator that gives a positive number, or throws. */
-const positive: ChoMessageValidator<number> = {
+const positive: ChoValidator<number> = {
   parse(value) {
     const n = Number(value);
     if (!(n > 0)) {
@@ -109,7 +111,7 @@ describe("Key", () => {
     assert.throws(() => Key(loose("id")), {
       code: "CHO_MESSAGE_INVALID_ARGUMENT",
       message:
-        'Key(): expected a validator (an object with a parse method): a key has no keys of its own, got "id"',
+        'Key(): expected a validator (a Standard Schema, or an object with a parse method): a key has no keys of its own, got "id"',
     });
     assert.throws(() => loose(Key)(positive, positive), {
       code: "CHO_MESSAGE_INVALID_ARGUMENT",
@@ -149,11 +151,13 @@ describe("the four signatures", () => {
   it("refuse what is neither a key nor a validator", () => {
     for (const make of [Value, Header]) {
       const name = make.name;
-      for (const given of [42, null, {}, { parse: "no" }, []]) {
+      for (
+        const given of [42, null, {}, { parse: "no" }, [], { "~standard": {} }]
+      ) {
         assert.throws(() => loose(make)(given), {
           code: "CHO_MESSAGE_INVALID_ARGUMENT",
           message: new RegExp(
-            `^${name}\\(\\): expected a key \\(a string\\) or a validator \\(an object with a parse method\\), got `,
+            `^${name}\\(\\): expected a key \\(a string\\) or a validator \\(a Standard Schema, or an object with a parse method\\), got `,
           ),
         });
       }
@@ -177,6 +181,15 @@ describe("the four signatures", () => {
     });
     assert.equal(Value(schema).info?.validator, schema);
   });
+
+  it("accept a Standard Schema: an object, or a function", () => {
+    const schema = standard_schema((value) => ({ value }));
+    const callable = Object.assign(() => {}, schema);
+    assert.equal(Value(schema).info?.validator, schema);
+    assert.equal(Value("id", callable).info?.validator, callable);
+    assert.equal(Key(schema).info?.validator, schema);
+    assert.equal(Header("tenant", schema).info?.validator, schema);
+  });
 });
 
 describe("evaluate_args", () => {
@@ -195,7 +208,7 @@ describe("evaluate_args", () => {
   });
 
   it("runs the validators of a validated handler: they convert", async () => {
-    const later: ChoMessageValidator<string> = {
+    const later: ChoValidator<string> = {
       parse: async (value) => {
         await Promise.resolve();
         return `key ${value}`;
@@ -234,13 +247,52 @@ describe("evaluate_args", () => {
       evaluate_args([Value()], broken, true),
       (error: InvalidArgument) => {
         assert.ok(error instanceof InvalidArgument);
-        assert.deepEqual(Object.keys(error.invalid), ["source", "error"]);
+        assert.deepEqual(Object.keys(error.invalid), [
+          "source",
+          "issues",
+          "error",
+        ]);
         assert.ok(error.invalid.error instanceof SyntaxError);
+        assert.deepEqual(error.invalid.issues, [{
+          message: error.invalid.error.message,
+        }]);
         return true;
       },
     );
     // Not validated: the error of JSON, as it is.
     await assert.rejects(evaluate_args([Value()], broken, false), SyntaxError);
+  });
+
+  it("runs a Standard Schema, and rejects with its issues and no error", async () => {
+    const id = standard_schema<number>((value) =>
+      Number(value) > 0
+        ? { value: Number(value) }
+        : { issues: [{ message: "not an id", path: [{ key: "id" }] }] }
+    );
+    assert.deepEqual(await evaluate_args([Value("id", id)], ctx(), true), [7]);
+    await assert.rejects(
+      evaluate_args([Key(id)], ctx(), true),
+      (error: InvalidArgument) => {
+        assert.ok(error instanceof InvalidArgument);
+        assert.deepEqual(error.invalid, {
+          source: "key",
+          issues: [{ message: "not an id", path: ["id"] }],
+        });
+        assert.equal(error.cause, undefined);
+        return true;
+      },
+    );
+  });
+
+  it("passes on what a Standard Schema throws, unchanged", async () => {
+    const down = new Error("the database is down");
+    const broken = standard_schema(() => {
+      throw down;
+    });
+    await assert.rejects(
+      evaluate_args([Value(broken)], ctx(), true),
+      (error) => error === down,
+    );
   });
 
   it("leaves the error of an argument of the application as it is", async () => {
@@ -276,6 +328,31 @@ describe("describe_invalid", () => {
     assert.equal(
       describe_invalid({ source: "header", key: "tenant" }),
       'the header "tenant"',
+    );
+  });
+});
+
+describe("describe_issues", () => {
+  it("writes each issue with its path, on one line", () => {
+    assert.equal(describe_issues([{ message: "Required" }]), "Required");
+    assert.equal(
+      describe_issues([
+        { message: "Required", path: ["name"] },
+        { message: "Too small", path: ["items", 0, "price"] },
+      ]),
+      "Required (at name); Too small (at items.0.price)",
+    );
+  });
+
+  it("writes the first three, and counts the others", () => {
+    const issues = [1, 2, 3, 4, 5].map((n) => ({ message: `issue ${n}` }));
+    assert.equal(
+      describe_issues(issues),
+      "issue 1; issue 2; issue 3; and 2 more",
+    );
+    assert.equal(
+      describe_issues(issues.slice(0, 3)),
+      "issue 1; issue 2; issue 3",
     );
   });
 });

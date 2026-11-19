@@ -12,14 +12,19 @@
  */
 
 import { web_error } from "./errors.ts";
-import { describe } from "@chojs/core/utils";
+import type { ChoIssue, ChoValidator } from "@chojs/core";
+import {
+  describe,
+  error_issues,
+  is_validator,
+  run_validator,
+} from "@chojs/core/utils";
 import type { ChoWebContext } from "./context.ts";
 import type {
   ChoWebArg,
   ChoWebArgInfo,
   ChoWebArgSource,
   ChoWebInvalid,
-  ChoWebValidator,
 } from "./types.ts";
 
 /** An object of strings: all the keys of a source. */
@@ -56,16 +61,22 @@ export class InvalidArgument extends Error {
 
   /**
    * @param info The argument that is not valid.
-   * @param error What the validator threw, or the error of a body that
-   *   cannot be parsed.
+   * @param issues What is not valid.
+   * @param thrown What was thrown, when something was: by the `parse` method
+   *   of a validator, or by a body that cannot be parsed.
    */
-  constructor(info: ChoWebArgInfo, error: unknown) {
-    super(`Invalid ${info.source}`, { cause: error });
+  constructor(
+    info: ChoWebArgInfo,
+    issues: readonly ChoIssue[],
+    thrown?: { readonly error?: unknown },
+  ) {
+    super(`Invalid ${info.source}`, { cause: thrown?.error });
     this.name = "InvalidArgument";
     this.invalid = {
       source: info.source,
       ...(info.key === undefined ? {} : { key: info.key }),
-      error,
+      issues,
+      ...(thrown && "error" in thrown ? { error: thrown.error } : {}),
     };
   }
 }
@@ -74,15 +85,16 @@ export class InvalidArgument extends Error {
  * Evaluate the arguments of a handler, in order.
  *
  * For a request the validation middleware covers, an argument with a
- * validator goes through it, and what the validator returns replaces the
+ * validator goes through it, and what the validator gives replaces the
  * value. For any other request, validators are not run.
  *
  * @param args The arguments, as given to `@Args`.
  * @param ctx The context of the request.
  * @returns The values, in the order of the arguments.
  * @throws {InvalidArgument} (as a rejection) For a validated request, when a
- *   validator throws or the body cannot be parsed.
- * @throws What an argument throws, unchanged, in every other case.
+ *   validator says the value is not valid or the body cannot be parsed.
+ * @throws What an argument throws, unchanged, in every other case, and what
+ *   the `validate` function of a Standard Schema throws.
  */
 export async function evaluate_args(
   args: readonly ChoWebArg[],
@@ -96,14 +108,22 @@ export async function evaluate_args(
       values.push(await arg(ctx));
       continue;
     }
+    let value: unknown;
     try {
-      const value = await arg(ctx);
-      values.push(
-        info.validator ? await info.validator.parse(value) : value,
-      );
+      value = await arg(ctx);
     } catch (error) {
-      throw new InvalidArgument(info, error);
+      // A source that cannot be read, such as a body that is not JSON.
+      throw new InvalidArgument(info, error_issues(error), { error });
     }
+    if (!info.validator) {
+      values.push(value);
+      continue;
+    }
+    const result = await run_validator(info.validator, value);
+    if (result.issues) {
+      throw new InvalidArgument(info, result.issues, result);
+    }
+    values.push(result.value);
   }
   return values;
 }
@@ -172,23 +192,19 @@ function make_arg(
   first: unknown,
   second: unknown,
 ): ChoWebArg<unknown> {
-  const as_validator = (value: unknown): ChoWebValidator => {
-    if (
-      value !== null && (typeof value === "object" ||
-        typeof value === "function") &&
-      typeof (value as { parse?: unknown }).parse === "function"
-    ) {
-      return value as ChoWebValidator;
+  const as_validator = (value: unknown): ChoValidator => {
+    if (is_validator(value)) {
+      return value;
     }
     throw web_error(
       "CHO_WEB_INVALID_ARGUMENT",
-      `${name}(): expected a key (a string) or a validator (an object with a parse method), got ${
+      `${name}(): expected a key (a string) or a validator (a Standard Schema, or an object with a parse method), got ${
         describe(value)
       }`,
     );
   };
   let key: string | undefined;
-  let validator: ChoWebValidator | undefined;
+  let validator: ChoValidator | undefined;
   if (typeof first === "string") {
     key = first;
     validator = second === undefined ? undefined : as_validator(second);
@@ -221,8 +237,8 @@ function make_arg(
  *   is run when the validation middleware covers the request.
  *
  * @returns The argument, for `@Args`.
- * @throws {ChoError} When a key is not a string, or a validator has no
- *   `parse` method.
+ * @throws {ChoError} When a key is not a string, or what is given as a
+ *   validator is not one.
  *
  * @example
  * ```ts
@@ -238,10 +254,11 @@ export function Param(): ChoWebArg<Readonly<Record<string, string>>>;
  * All the path parameters, through a validator: see the first signature of `Param`.
  *
  * @typeParam T What the validator gives.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
-export function Param<T>(validator: ChoWebValidator<T>): ChoWebArg<T>;
+export function Param<T>(validator: ChoValidator<T>): ChoWebArg<T>;
 /**
  * One path parameter: see the first signature of `Param`.
  *
@@ -254,12 +271,13 @@ export function Param(key: string): ChoWebArg<string>;
  *
  * @typeParam T What the validator gives.
  * @param key The name of the parameter, as in the route (`"id"` for `:id`).
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
 export function Param<T>(
   key: string,
-  validator: ChoWebValidator<T>,
+  validator: ChoValidator<T>,
 ): ChoWebArg<T>;
 export function Param(first?: unknown, second?: unknown): ChoWebArg<unknown> {
   return make_arg(
@@ -282,8 +300,8 @@ export function Param(first?: unknown, second?: unknown): ChoWebArg<unknown> {
  *   It is run when the validation middleware covers the request.
  *
  * @returns The argument, for `@Args`.
- * @throws {ChoError} When a key is not a string, or a validator has no
- *   `parse` method.
+ * @throws {ChoError} When a key is not a string, or what is given as a
+ *   validator is not one.
  *
  * @example
  * ```ts
@@ -299,10 +317,11 @@ export function Query(): ChoWebArg<Readonly<Record<string, string>>>;
  * The whole query string, through a validator: see the first signature of `Query`.
  *
  * @typeParam T What the validator gives.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
-export function Query<T>(validator: ChoWebValidator<T>): ChoWebArg<T>;
+export function Query<T>(validator: ChoValidator<T>): ChoWebArg<T>;
 /**
  * One key of the query string: see the first signature of `Query`.
  *
@@ -315,12 +334,13 @@ export function Query(key: string): ChoWebArg<string | undefined>;
  *
  * @typeParam T What the validator gives.
  * @param key The key.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
 export function Query<T>(
   key: string,
-  validator: ChoWebValidator<T>,
+  validator: ChoValidator<T>,
 ): ChoWebArg<T>;
 export function Query(first?: unknown, second?: unknown): ChoWebArg<unknown> {
   return make_arg(
@@ -347,8 +367,8 @@ export function Query(first?: unknown, second?: unknown): ChoWebArg<unknown> {
  *   validator)`. It is run when the validation middleware covers the request.
  *
  * @returns The argument, for `@Args`.
- * @throws {ChoError} When a key is not a string, or a validator has no
- *   `parse` method.
+ * @throws {ChoError} When a key is not a string, or what is given as a
+ *   validator is not one.
  *
  * @example
  * ```ts
@@ -364,10 +384,11 @@ export function Header(): ChoWebArg<Readonly<Record<string, string>>>;
  * All the headers, through a validator: see the first signature of `Header`.
  *
  * @typeParam T What the validator gives.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
-export function Header<T>(validator: ChoWebValidator<T>): ChoWebArg<T>;
+export function Header<T>(validator: ChoValidator<T>): ChoWebArg<T>;
 /**
  * One header: see the first signature of `Header`.
  *
@@ -380,12 +401,13 @@ export function Header(key: string): ChoWebArg<string | undefined>;
  *
  * @typeParam T What the validator gives.
  * @param key The name of the header, in any case.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
 export function Header<T>(
   key: string,
-  validator: ChoWebValidator<T>,
+  validator: ChoValidator<T>,
 ): ChoWebArg<T>;
 export function Header(first?: unknown, second?: unknown): ChoWebArg<unknown> {
   return make_arg(
@@ -416,8 +438,8 @@ export function Header(first?: unknown, second?: unknown): ChoWebArg<unknown> {
  *
  * @typeParam T The type of the value.
  * @returns The argument, for `@Args`.
- * @throws {ChoError} When a key is not a string, or a validator has no
- *   `parse` method.
+ * @throws {ChoError} When a key is not a string, or what is given as a
+ *   validator is not one.
  *
  * @example
  * ```ts
@@ -433,10 +455,11 @@ export function Body<T = unknown>(): ChoWebArg<T>;
  * The body, parsed as JSON, through a validator: see the first signature of `Body`.
  *
  * @typeParam T What the validator gives.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
-export function Body<T>(validator: ChoWebValidator<T>): ChoWebArg<T>;
+export function Body<T>(validator: ChoValidator<T>): ChoWebArg<T>;
 /**
  * One property of the body: see the first signature of `Body`.
  *
@@ -450,12 +473,13 @@ export function Body<T = unknown>(key: string): ChoWebArg<T>;
  *
  * @typeParam T What the validator gives.
  * @param key The name of the property.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
 export function Body<T>(
   key: string,
-  validator: ChoWebValidator<T>,
+  validator: ChoValidator<T>,
 ): ChoWebArg<T>;
 export function Body(first?: unknown, second?: unknown): ChoWebArg<unknown> {
   return make_arg(
@@ -489,8 +513,8 @@ export function Body(first?: unknown, second?: unknown): ChoWebArg<unknown> {
  *   is run when the validation middleware covers the request.
  *
  * @returns The argument, for `@Args`.
- * @throws {ChoError} When a key is not a string, or a validator has no
- *   `parse` method.
+ * @throws {ChoError} When a key is not a string, or what is given as a
+ *   validator is not one.
  *
  * @example
  * ```ts
@@ -506,10 +530,11 @@ export function Form(): ChoWebArg<Readonly<Record<string, string>>>;
  * All the fields of the form, through a validator: see the first signature of `Form`.
  *
  * @typeParam T What the validator gives.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
-export function Form<T>(validator: ChoWebValidator<T>): ChoWebArg<T>;
+export function Form<T>(validator: ChoValidator<T>): ChoWebArg<T>;
 /**
  * One field of the form: see the first signature of `Form`.
  *
@@ -522,12 +547,13 @@ export function Form(key: string): ChoWebArg<string | undefined>;
  *
  * @typeParam T What the validator gives.
  * @param key The name of the field.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
 export function Form<T>(
   key: string,
-  validator: ChoWebValidator<T>,
+  validator: ChoValidator<T>,
 ): ChoWebArg<T>;
 export function Form(first?: unknown, second?: unknown): ChoWebArg<unknown> {
   return make_arg(

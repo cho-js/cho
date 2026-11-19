@@ -4,7 +4,8 @@
  * not valid.
  *
  * Decorators are applied as plain function calls, so the tests run on every
- * runtime. The validators are written by hand, in the shape of a zod schema.
+ * runtime. The validators are written by hand, in the two shapes a validator
+ * has: an object with a `parse` method, and a Standard Schema.
  */
 
 import { describe, it } from "node:test";
@@ -14,6 +15,7 @@ import {
   capture,
   legacy,
   loose,
+  standard_schema,
   with_env,
 } from "@chojs/core/utils/test_utils";
 import { Body, Form, Header, Param, Query } from "./args.ts";
@@ -27,7 +29,8 @@ import {
   Post,
 } from "./decorators.ts";
 import { TestLinker } from "./testing.ts";
-import type { ChoWebMiddlewareFn, ChoWebValidator } from "./types.ts";
+import type { ChoValidator } from "@chojs/core";
+import type { ChoWebMiddlewareFn } from "./types.ts";
 import { validate } from "./validate.ts";
 import { ChoWeb } from "./web.ts";
 
@@ -39,15 +42,15 @@ const args = (...list: unknown[]): AnyMethodDecorator =>
 
 /** An error with `issues`, as a zod error has. */
 class Issues extends Error {
-  readonly issues: { path: string[]; message: string }[];
-  constructor(...issues: { path: string[]; message: string }[]) {
+  readonly issues: { path: string[]; message: string; code?: string }[];
+  constructor(...issues: { path: string[]; message: string; code?: string }[]) {
     super("invalid");
     this.issues = issues;
   }
 }
 
 /** Converts to a number; anything that is not one is not valid. */
-const number: ChoWebValidator<number> = {
+const number: ChoValidator<number> = {
   parse(value) {
     const n = Number(value);
     if (value === undefined || Number.isNaN(n)) {
@@ -58,15 +61,32 @@ const number: ChoWebValidator<number> = {
 };
 
 /** An object with a `name` that is a string, as a zod object schema. */
-const user: ChoWebValidator<{ name: string }> = {
+const user: ChoValidator<{ name: string }> = {
   parse(value) {
     const name = (value as { name?: unknown } | null | undefined)?.name;
     if (typeof name !== "string") {
-      throw new Issues({ path: ["name"], message: "Required" });
+      throw new Issues({
+        path: ["name"],
+        message: "Required",
+        code: "invalid_type",
+      });
     }
     return { name };
   },
 };
+
+/** The same object, as a Standard Schema: what Valibot or ArkType gives. */
+const standard_user = standard_schema<{ name: string }>((value) => {
+  const name = (value as { name?: unknown } | null | undefined)?.name;
+  return typeof name === "string" ? { value: { name } } : {
+    issues: [{
+      message: "Required",
+      path: [{ key: "name" }],
+      // a field of the library, which is not part of an issue
+      kind: "schema",
+    } as { message: string }],
+  };
+});
 
 /** A controller with one handler, which answers with what it receives. */
 function echo(
@@ -160,6 +180,19 @@ describe("validate", () => {
     });
   }
 
+  it("gives each issue as a message and a path, and nothing else of the library", async () => {
+    for (const validator of [user, standard_user]) {
+      const app = await create([
+        echo(Post(""), [Body(validator)], Middlewares(validate())),
+      ]);
+      const [, answer] = await send(app, "/x", post('{"name":1}'));
+      assert.deepEqual(answer.issues, [{
+        path: ["name"],
+        message: "Required",
+      }]);
+    }
+  });
+
   it("gives the issues of the validator's error, and no key for a whole source", async () => {
     const app = await create([
       echo(Post(""), [Body(user)], Middlewares(validate())),
@@ -186,7 +219,7 @@ describe("validate", () => {
   });
 
   it("awaits an asynchronous validator", async () => {
-    const later: ChoWebValidator<string> = {
+    const later: ChoValidator<string> = {
       async parse(value) {
         await Promise.resolve();
         if (value !== "ok") {
@@ -316,6 +349,48 @@ describe("validate", () => {
     ]]);
   });
 
+  it("gives onInvalid the issues, and the error when something was thrown", async () => {
+    const seen: unknown[] = [];
+    const custom = validate({
+      onInvalid: (invalid) => {
+        seen.push(invalid);
+      },
+    });
+    const app = await create([
+      echo(
+        Post(":id"),
+        [Param("id", number), Body(standard_user)],
+        Middlewares(custom),
+      ),
+      echo(Post("raw/body"), [Body()], Middlewares(custom)),
+    ]);
+    // a parse method throws: its error is given
+    await send(app, "/x/abc", post('{"name":"Ada"}'));
+    // a Standard Schema throws nothing: there is no error
+    await send(app, "/x/7", post("{}"));
+    // a body that is not JSON
+    await send(app, "/x/raw/body", post("{oops"));
+    const [by_parse, by_standard, not_json] = seen as {
+      issues: { message: string }[];
+      error?: Error;
+    }[];
+    assert.deepEqual(
+      { ...by_parse, error: by_parse?.error?.message },
+      {
+        source: "param",
+        key: "id",
+        issues: [{ message: "expected a number, got abc" }],
+        error: "expected a number, got abc",
+      },
+    );
+    assert.deepEqual(by_standard, {
+      source: "body",
+      issues: [{ message: "Required", path: ["name"] }],
+    });
+    assert.equal(not_json?.error?.name, "SyntaxError");
+    assert.deepEqual(not_json?.issues, [{ message: not_json?.error?.message }]);
+  });
+
   it("makes a new middleware each time", () => {
     assert.notEqual(validate(), validate());
     assert.equal(typeof validate(), "function");
@@ -356,5 +431,128 @@ describe("validate, when it is missing", () => {
     const plain = echo(Get("plain/:id"), [Param("id")]);
     const logs = await logs_of([covered, plain]);
     assert.doesNotMatch(logs, /no validate\(\) middleware/);
+  });
+});
+
+describe("validate, with a Standard Schema", () => {
+  /** Converts to a number above zero. */
+  const positive = standard_schema<number>((value) =>
+    Number(value) > 0
+      ? { value: Number(value) }
+      : { issues: [{ message: "expected a positive number" }] }
+  );
+
+  it("gives the handler what the schema gives", async () => {
+    const app = await create([
+      echo(
+        Post(":id"),
+        [Param("id", positive), Body(standard_user)],
+        Middlewares(validate()),
+      ),
+    ]);
+    assert.deepEqual(
+      await send(app, "/x/7", post('{"name":"Ada","extra":1}')),
+      [200, [7, { name: "Ada" }]],
+    );
+  });
+
+  it("answers 400 with the issues of the schema", async () => {
+    const app = await create([
+      echo(
+        Post(":id"),
+        [Param("id", positive), Body(standard_user)],
+        Middlewares(validate()),
+      ),
+    ]);
+    assert.deepEqual(await send(app, "/x/0", post('{"name":"Ada"}')), [400, {
+      error: "Invalid request",
+      source: "param",
+      key: "id",
+      issues: [{ message: "expected a positive number" }],
+    }]);
+    assert.deepEqual(await send(app, "/x/7", post("{}")), [400, {
+      error: "Invalid request",
+      source: "body",
+      issues: [{ message: "Required", path: ["name"] }],
+    }]);
+  });
+
+  it("awaits a schema that gives a promise", async () => {
+    const later = standard_schema<string>(async (value) => {
+      await Promise.resolve();
+      return value === "ok"
+        ? { value: "checked" }
+        : { issues: [{ message: "not ok" }] };
+    });
+    const app = await create([
+      echo(Get(""), [Query("v", later)], Middlewares(validate())),
+    ]);
+    assert.deepEqual(await send(app, "/x?v=ok"), [200, ["checked"]]);
+    assert.deepEqual((await send(app, "/x?v=no"))[0], 400);
+  });
+
+  it("runs an object with both shapes as a Standard Schema", async () => {
+    let parses = 0;
+    const both = {
+      ...positive,
+      parse() {
+        parses++;
+        throw new Error("parse is not used");
+      },
+    };
+    const app = await create([
+      echo(Get(":id"), [Param("id", both)], Middlewares(validate())),
+    ]);
+    assert.deepEqual(await send(app, "/x/7"), [200, [7]]);
+    const [status, answer] = await send(app, "/x/0");
+    assert.deepEqual([status, answer.issues], [400, [{
+      message: "expected a positive number",
+    }]]);
+    assert.equal(parses, 0);
+  });
+
+  it("leaves what a schema throws to the error handlers: it is not a 400", async () => {
+    const down = new Error("the database is down");
+    const broken = standard_schema(() => {
+      throw down;
+    });
+    const invalid: unknown[] = [];
+    const caught: unknown[] = [];
+    class Ctrl {
+      run() {
+        return "never";
+      }
+    }
+    legacy(Get(""), Ctrl, "run");
+    legacy(args(Query("v", broken)), Ctrl, "run");
+    legacy(
+      Middlewares(validate({ onInvalid: (one) => void invalid.push(one) })),
+      Ctrl,
+      "run",
+    );
+    legacy(
+      Catch((error) => {
+        caught.push(error);
+        return Response.json({ caught: true }, { status: 503 });
+      }),
+      Ctrl,
+      "run",
+    );
+    Controller({ route: "x" })(Ctrl);
+    const app = await create([Ctrl]);
+    assert.deepEqual(await send(app, "/x?v=1"), [503, { caught: true }]);
+    assert.deepEqual(caught, [down]);
+    assert.deepEqual(invalid, []);
+
+    // with no error handler, it is the 500 of any error
+    const plain = await create([
+      echo(Get(""), [Query("v", broken)], Middlewares(validate())),
+    ]);
+    await capture(async () => {
+      const response = await plain.handler(
+        new Request("http://localhost/x?v=1"),
+      );
+      assert.equal(response.status, 500);
+    });
   });
 });

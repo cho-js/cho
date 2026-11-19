@@ -200,8 +200,11 @@ export function Subscribe(topic: string): ChoMethodDecorator;
  * - The handler has no `@Args` of its own: it reads anything else from the
  *   context.
  *
- * @typeParam Request What the message holds.
- * @typeParam Reply What is replied.
+ * @typeParam Request What the handler receives.
+ * @typeParam Reply What who asks receives.
+ * @typeParam Sent What who asks sends.
+ * @typeParam Returned What the handler returns: `Reply`, unless the
+ *   validator of the reply converts.
  * @param contract The contract, made by `contract()`.
  * @returns A method decorator.
  * @throws {ChoError} When the method already has `@Subscribe` or `@Args`, or
@@ -220,9 +223,9 @@ export function Subscribe(topic: string): ChoMethodDecorator;
  * }
  * ```
  */
-export function Subscribe<Request, Reply>(
-  contract: Contract<Request, Reply>,
-): ChoMessageContractDecorator<Request, Reply>;
+export function Subscribe<Request, Reply, Sent, Returned>(
+  contract: Contract<Request, Reply, Sent, Returned>,
+): ChoMessageContractDecorator<Request, Returned>;
 export function Subscribe(
   given: string | Contract<unknown, unknown>,
 ): ChoMethodDecorator {

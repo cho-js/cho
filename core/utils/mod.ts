@@ -15,6 +15,13 @@ export {
 } from "./compose.ts";
 export { describe } from "./describe.ts";
 export { make_error } from "../errors.ts";
+export {
+  error_issues,
+  is_validator,
+  run_validator,
+  to_issues,
+  type Validated,
+} from "../validator.ts";
 export { debuglog } from "./debuglog.ts";
 export { is_class, is_class_implement } from "./is.ts";
 export type { Debuglog } from "./debuglog.ts";

@@ -5,7 +5,7 @@
  * @module
  */
 
-import { Args, ChoWeb, type ChoWebValidator } from "@chojs/web";
+import { Args, type ChoValidator, ChoWeb } from "@chojs/web";
 import { type AnyMethodDecorator, loose } from "@chojs/core/utils/test_utils";
 import { TestLinker } from "../../web/testing.ts";
 import type { JsonSchema } from "./types.ts";
@@ -32,7 +32,7 @@ export function send(
 }
 
 /** A validator with no schema: an object with a `parse` method. */
-export function plain(): ChoWebValidator {
+export function plain(): ChoValidator {
   return { parse: (value) => value };
 }
 
@@ -47,7 +47,7 @@ export function standard(
   input: JsonSchema,
   output: JsonSchema = input,
   calls: string[] = [],
-): ChoWebValidator {
+): ChoValidator {
   const convert =
     (io: "input" | "output", schema: JsonSchema) =>
     (options: { target: string }) => {
@@ -65,4 +65,26 @@ export function standard(
       },
     },
   });
+}
+
+/**
+ * A Standard Schema with no `parse` method, as a schema of Valibot or
+ * ArkType: it validates, and it says its own JSON Schema.
+ *
+ * @param schema The schema of what it takes, and of what it gives.
+ * @param valid Whether a value is valid. Default: every value is.
+ */
+export function schema_only(
+  schema: JsonSchema,
+  valid: (value: unknown) => boolean = () => true,
+): ChoValidator {
+  return {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (value: unknown) =>
+        valid(value) ? { value } : { issues: [{ message: "not valid" }] },
+      jsonSchema: { input: () => schema, output: () => schema },
+    },
+  } as ChoValidator;
 }

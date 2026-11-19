@@ -10,6 +10,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { standard_schema } from "@chojs/core/utils/test_utils";
 import {
   Args,
   Catch,
@@ -19,7 +20,7 @@ import {
   type ChoMessageContext,
   type ChoMessageMiddlewareFn,
   ChoMessageReply,
-  type ChoMessageValidator,
+  type ChoValidator,
   contract,
   Controller,
   Header,
@@ -231,7 +232,7 @@ describe("decorator syntax", () => {
 type NewOrder = { id: number; items: string[] };
 
 /** A validator that gives a `NewOrder`, or throws. */
-const NewOrder: ChoMessageValidator<NewOrder> = {
+const NewOrder: ChoValidator<NewOrder> = {
   parse(value) {
     const { id, items } = (value ?? {}) as Record<string, unknown>;
     if (!Number.isInteger(Number(id)) || !Array.isArray(items)) {
@@ -378,7 +379,7 @@ describe("@Args, with decorator syntax", () => {
 type Price = { id: number; price: number };
 
 /** A validator that gives a `Price`, or throws. */
-const IsPrice: ChoMessageValidator<Price> = {
+const IsPrice: ChoValidator<Price> = {
   parse(value) {
     const { id, price } = (value ?? {}) as Record<string, unknown>;
     if (typeof id !== "number" || typeof price !== "number") {
@@ -527,6 +528,138 @@ describe("@Subscribe(contract), with decorator syntax", () => {
         items: [],
       });
       return [Wrong, _text, _none];
+    };
+    assert.equal(typeof _check, "function");
+  });
+});
+
+/** What who asks sends: the note can be left out. */
+type Draft = { id: number; note?: string };
+/** What the handler receives: the validator gave the note a default. */
+type Placed = { id: number; note: string };
+/** What the handler returns: a price in cents. */
+type Cents = { cents: number };
+/** What who asks receives: the validator converted it. */
+type Amount = { amount: number };
+
+/** Gives a draft its default note: its input and its output differ. */
+const PlacedOrder = standard_schema<Placed, Draft>((value) => {
+  const draft = value as Partial<Draft> | null;
+  return typeof draft?.id === "number"
+    ? { value: { note: "none", ...draft } as Placed }
+    : { issues: [{ message: "Expected a number", path: ["id"] }] };
+});
+
+/** Converts cents to an amount. */
+const AmountOf = standard_schema<Amount, Cents>((value) => ({
+  value: { amount: (value as Cents).cents / 100 },
+}));
+
+const PlaceOrder = contract({
+  topic: "shop.orders.place",
+  request: PlacedOrder,
+  reply: AmountOf,
+});
+
+describe("a contract whose validators convert", () => {
+  const placed: Placed[] = [];
+
+  @Middlewares(validate())
+  @Controller()
+  class Orders {
+    // receives what the request validator gives, returns what the reply
+    // validator takes
+    @Subscribe(PlaceOrder)
+    place(order: Placed): Cents {
+      placed.push(order);
+      return { cents: order.id * 150 };
+    }
+  }
+
+  @Module({ controllers: [Orders] })
+  class Shop {}
+
+  it("gives each side its own types, and its own values", async () => {
+    const app = await ChoMessage.create(Shop);
+    const client = new ChoMessageClient(localSender(app));
+    // sends what the request validator takes, receives what the reply
+    // validator gives
+    const amount: Amount = await client.request(PlaceOrder, { id: 3 });
+    assert.deepEqual(amount, { amount: 4.5 });
+    assert.deepEqual(placed, [{ id: 3, note: "none" }]);
+
+    await client.publish(PlaceOrder, { id: 4, note: "fragile" });
+    assert.deepEqual(placed[1], { id: 4, note: "fragile" });
+  });
+
+  it("checks each side against its own type, at compile time", () => {
+    // Type-only: never called, so the classes are never defined.
+    const _check = async (client: ChoMessageClient) => {
+      class Wrong {
+        // @ts-expect-error the handler returns cents, not an amount
+        @Subscribe(PlaceOrder)
+        a(_order: Placed): Amount {
+          return { amount: 1 };
+        }
+
+        // @ts-expect-error the handler receives a note that is always there
+        @Subscribe(PlaceOrder)
+        b(_order: { id: number; note: number }): Cents {
+          return { cents: 1 };
+        }
+
+        // The note is a string, so a handler can read it as one.
+        @Subscribe(PlaceOrder)
+        c(order: Placed): Cents {
+          return { cents: order.note.length };
+        }
+      }
+
+      // @ts-expect-error who asks receives an amount, not cents
+      const _cents: Cents = await client.request(PlaceOrder, { id: 1 });
+      // @ts-expect-error the id is needed
+      await client.request(PlaceOrder, { note: "no id" });
+      // @ts-expect-error a note is a string
+      await client.publish(PlaceOrder, { id: 1, note: 5 });
+      // The note can be left out, and given.
+      await client.publish(PlaceOrder, { id: 1 });
+      const _amount: Amount = await client.request(PlaceOrder, {
+        id: 1,
+        note: "gift",
+      });
+      return [Wrong, _cents, _amount];
+    };
+    assert.equal(typeof _check, "function");
+  });
+
+  it("types both sides by what a validator gives when it does not say what it takes", () => {
+    // A schema written by hand, a parse method and a schema that converts
+    // anything take `unknown`: what they give is what is sent and returned.
+    const Loose = contract({
+      topic: "shop.loose",
+      request: standard_schema<Placed>((value) => ({ value: value as Placed })),
+      reply: { parse: (value: unknown) => value as Amount },
+    });
+    const _check = async (client: ChoMessageClient) => {
+      class Handler {
+        @Subscribe(Loose)
+        a(order: Placed): Amount {
+          return { amount: order.id };
+        }
+
+        // @ts-expect-error the reply is an amount
+        @Subscribe(Loose)
+        b(_order: Placed) {
+          return "anything";
+        }
+      }
+      // @ts-expect-error the value is a placed order, not anything
+      await client.request(Loose, "anything");
+      const _amount: Amount = await client.request(Loose, {
+        id: 1,
+        note: "",
+      });
+      return [Handler, _amount];
     };
     assert.equal(typeof _check, "function");
   });

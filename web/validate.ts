@@ -33,18 +33,15 @@ export function is_validation(middleware: ChoWebMiddlewareFn): boolean {
 
 /**
  * The default answer to a request that is not valid: `400`, with what failed
- * as JSON. `issues` are those of the error when it has them, as a zod error
- * does, and otherwise one issue with the error's message.
+ * as JSON. Each issue has a `message`, and a `path` when it is about a part
+ * of the value: the same body for every validator.
  */
-function bad_request({ source, key, error }: ChoWebInvalid): Response {
-  const issues = (error as { issues?: unknown } | null)?.issues;
+function bad_request({ source, key, issues }: ChoWebInvalid): Response {
   return Response.json({
     error: "Invalid request",
     source,
     ...(key === undefined ? {} : { key }),
-    issues: Array.isArray(issues)
-      ? issues
-      : [{ message: error instanceof Error ? error.message : String(error) }],
+    issues,
   }, { status: 400 });
 }
 
@@ -52,7 +49,7 @@ function bad_request({ source, key, error }: ChoWebInvalid): Response {
  * Make the validation middleware.
  *
  * For the handlers it covers, every argument that has a validator goes
- * through it before the handler is called, and what the validator returns is
+ * through it before the handler is called, and what the validator gives is
  * what the handler receives. When an argument is not valid, or the body
  * cannot be parsed, the handler is not called and the middleware answers:
  * `400` with a JSON body of `error`, `source`, `key` and `issues`, or what
@@ -80,8 +77,8 @@ function bad_request({ source, key, error }: ChoWebInvalid): Response {
  * @example Another answer
  * ```ts
  * validate({
- *   onInvalid: ({ source, key }) =>
- *     Response.json({ message: `bad ${source}`, key }, { status: 422 }),
+ *   onInvalid: ({ source, key, issues }) =>
+ *     Response.json({ message: `bad ${source}`, key, issues }, { status: 422 }),
  * });
  * ```
  */

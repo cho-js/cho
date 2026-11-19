@@ -11,7 +11,13 @@
  * @module
  */
 
-import { describe } from "@chojs/core/utils";
+import type { ChoIssue, ChoValidator } from "@chojs/core";
+import {
+  describe,
+  error_issues,
+  is_validator,
+  run_validator,
+} from "@chojs/core/utils";
 import type { ChoMessageContext } from "./context.ts";
 import { message_error } from "./errors.ts";
 import type {
@@ -19,7 +25,6 @@ import type {
   ChoMessageArgInfo,
   ChoMessageArgSource,
   ChoMessageInvalid,
-  ChoMessageValidator,
 } from "./types.ts";
 
 /** The value of a message, parsed as JSON: it is parsed once. */
@@ -36,18 +41,43 @@ export class InvalidArgument extends Error {
 
   /**
    * @param info The argument that is not valid.
-   * @param error What the validator threw, or the error of a value that
-   *   cannot be parsed.
+   * @param issues What is not valid.
+   * @param thrown What was thrown, when something was: by the `parse` method
+   *   of a validator, or by a value that cannot be parsed.
    */
-  constructor(info: ChoMessageArgInfo, error: unknown) {
-    super(`Invalid ${info.source}`, { cause: error });
+  constructor(
+    info: ChoMessageArgInfo,
+    issues: readonly ChoIssue[],
+    thrown?: { readonly error?: unknown },
+  ) {
+    super(`Invalid ${info.source}`, { cause: thrown?.error });
     this.name = "InvalidArgument";
     this.invalid = {
       source: info.source,
       ...(info.key === undefined ? {} : { key: info.key }),
-      error,
+      issues,
+      ...(thrown && "error" in thrown ? { error: thrown.error } : {}),
     };
   }
+}
+
+/** The issues that are written in the message of an error, at most. */
+const SHOWN_ISSUES = 3;
+
+/**
+ * The issues of a value that is not valid, in words, for the message of an
+ * error: `Required (at name); Too small (at items.0.price)`. The first ones
+ * are written, and the others are counted.
+ *
+ * @param issues The issues.
+ * @returns The words, on one line.
+ */
+export function describe_issues(issues: readonly ChoIssue[]): string {
+  const shown = issues.slice(0, SHOWN_ISSUES).map(({ message, path }) =>
+    path === undefined ? message : `${message} (at ${path.join(".")})`
+  );
+  const more = issues.length - shown.length;
+  return shown.join("; ") + (more > 0 ? `; and ${more} more` : "");
 }
 
 /**
@@ -78,7 +108,7 @@ export function describe_invalid(
  * Evaluate the arguments of a handler, in order.
  *
  * For a handler the validation middleware covers, an argument with a
- * validator goes through it, and what the validator returns replaces the
+ * validator goes through it, and what the validator gives replaces the
  * value. For any other handler, validators are not run.
  *
  * @param args The arguments, as given to `@Args`.
@@ -86,8 +116,9 @@ export function describe_invalid(
  * @param validated Whether the validation middleware covers the handler.
  * @returns The values, in the order of the arguments.
  * @throws {InvalidArgument} (as a rejection) For a validated handler, when a
- *   validator throws or the value cannot be parsed.
- * @throws What an argument throws, unchanged, in every other case.
+ *   validator says the value is not valid or the value cannot be parsed.
+ * @throws What an argument throws, unchanged, in every other case, and what
+ *   the `validate` function of a Standard Schema throws.
  */
 export async function evaluate_args(
   args: readonly ChoMessageArg[],
@@ -101,14 +132,22 @@ export async function evaluate_args(
       values.push(await arg(ctx));
       continue;
     }
+    let value: unknown;
     try {
-      const value = await arg(ctx);
-      values.push(
-        info.validator ? await info.validator.parse(value) : value,
-      );
+      value = await arg(ctx);
     } catch (error) {
-      throw new InvalidArgument(info, error);
+      // A source that cannot be read, such as a value that is not JSON.
+      throw new InvalidArgument(info, error_issues(error), { error });
     }
+    if (!info.validator) {
+      values.push(value);
+      continue;
+    }
+    const result = await run_validator(info.validator, value);
+    if (result.issues) {
+      throw new InvalidArgument(info, result.issues, result);
+    }
+    values.push(result.value);
   }
   return values;
 }
@@ -134,13 +173,9 @@ function as_validator(
   name: string,
   value: unknown,
   expected: string,
-): ChoMessageValidator {
-  if (
-    value !== null && (typeof value === "object" ||
-      typeof value === "function") &&
-    typeof (value as { parse?: unknown }).parse === "function"
-  ) {
-    return value as ChoMessageValidator;
+): ChoValidator {
+  if (is_validator(value)) {
+    return value;
   }
   throw message_error(
     "CHO_MESSAGE_INVALID_ARGUMENT",
@@ -168,9 +203,9 @@ function make_arg(
   second: unknown,
 ): ChoMessageArg<unknown> {
   const expected =
-    "a key (a string) or a validator (an object with a parse method)";
+    "a key (a string) or a validator (a Standard Schema, or an object with a parse method)";
   let key: string | undefined;
-  let validator: ChoMessageValidator | undefined;
+  let validator: ChoValidator | undefined;
   if (typeof first === "string") {
     key = first;
     validator = second === undefined
@@ -210,8 +245,8 @@ function make_arg(
  *
  * @typeParam T The type of the value.
  * @returns The argument, for `@Args`.
- * @throws {ChoError} When a key is not a string, or a validator has no
- *   `parse` method.
+ * @throws {ChoError} When a key is not a string, or what is given as a
+ *   validator is not one.
  *
  * @example
  * ```ts
@@ -227,10 +262,11 @@ export function Value<T = unknown>(): ChoMessageArg<T>;
  * The value, parsed as JSON, through a validator: see the first signature of `Value`.
  *
  * @typeParam T What the validator gives.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
-export function Value<T>(validator: ChoMessageValidator<T>): ChoMessageArg<T>;
+export function Value<T>(validator: ChoValidator<T>): ChoMessageArg<T>;
 /**
  * One property of the value: see the first signature of `Value`.
  *
@@ -244,12 +280,13 @@ export function Value<T = unknown>(key: string): ChoMessageArg<T>;
  *
  * @typeParam T What the validator gives.
  * @param key The name of the property.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
 export function Value<T>(
   key: string,
-  validator: ChoMessageValidator<T>,
+  validator: ChoValidator<T>,
 ): ChoMessageArg<T>;
 export function Value(
   first?: unknown,
@@ -297,10 +334,11 @@ export function Key(): ChoMessageArg<string | undefined>;
  * The key, through a validator: see the first signature of `Key`.
  *
  * @typeParam T What the validator gives.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
-export function Key<T>(validator: ChoMessageValidator<T>): ChoMessageArg<T>;
+export function Key<T>(validator: ChoValidator<T>): ChoMessageArg<T>;
 export function Key(...given: unknown[]): ChoMessageArg<unknown> {
   if (given.length > 1) {
     throw message_error(
@@ -313,7 +351,7 @@ export function Key(...given: unknown[]): ChoMessageArg<unknown> {
   const validator = given[0] === undefined ? undefined : as_validator(
     "Key",
     given[0],
-    "a validator (an object with a parse method): a key has no keys of its own",
+    "a validator (a Standard Schema, or an object with a parse method): a key has no keys of its own",
   );
   const info: ChoMessageArgInfo = Object.freeze({
     source: "key",
@@ -333,8 +371,8 @@ export function Key(...given: unknown[]): ChoMessageArg<unknown> {
  *   validator)`. It is run when the validation middleware covers the handler.
  *
  * @returns The argument, for `@Args`.
- * @throws {ChoError} When a key is not a string, or a validator has no
- *   `parse` method.
+ * @throws {ChoError} When a key is not a string, or what is given as a
+ *   validator is not one.
  *
  * @example
  * ```ts
@@ -350,10 +388,11 @@ export function Header(): ChoMessageArg<Readonly<Record<string, string>>>;
  * All the headers, through a validator: see the first signature of `Header`.
  *
  * @typeParam T What the validator gives.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
-export function Header<T>(validator: ChoMessageValidator<T>): ChoMessageArg<T>;
+export function Header<T>(validator: ChoValidator<T>): ChoMessageArg<T>;
 /**
  * One header: see the first signature of `Header`.
  *
@@ -366,12 +405,13 @@ export function Header(key: string): ChoMessageArg<string | undefined>;
  *
  * @typeParam T What the validator gives.
  * @param key The name of the header, as the broker gives it.
- * @param validator The validator: an object with a `parse` method.
+ * @param validator The validator: a Standard Schema, or an object with a
+ *   `parse` method.
  * @returns The argument, for `@Args`.
  */
 export function Header<T>(
   key: string,
-  validator: ChoMessageValidator<T>,
+  validator: ChoValidator<T>,
 ): ChoMessageArg<T>;
 export function Header(
   first?: unknown,

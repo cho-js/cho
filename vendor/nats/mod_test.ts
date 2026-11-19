@@ -24,7 +24,7 @@ import {
   validate,
   Value,
 } from "@chojs/message";
-import { legacy, loose } from "@chojs/core/utils/test_utils";
+import { legacy, loose, standard_schema } from "@chojs/core/utils/test_utils";
 import type { Route } from "@chojs/message/linker";
 import {
   ERROR_HEADERS,
@@ -507,6 +507,56 @@ describe("a ChoMessage application on NatsLinker", () => {
       headers: {
         [ERROR_HEADERS.description]: "Bad Request",
         [ERROR_HEADERS.code]: "400",
+      },
+    }]);
+    assert.deepEqual(good.answers, [{ value: '{"id":7}', headers: {} }]);
+  });
+
+  it("tells 400 for the issues of a Standard Schema, and 500 for what it throws", async () => {
+    class Orders {
+      created(id: number) {
+        return { id };
+      }
+    }
+    // Not valid for a number that is not above zero; broken for no number.
+    const positive = standard_schema<number>((value) => {
+      if (value === undefined) {
+        throw new Error("the database is down");
+      }
+      return Number(value) > 0
+        ? { value: Number(value) }
+        : { issues: [{ message: "expected a positive number" }] };
+    });
+    legacy(loose(Args(Value("id", positive))), Orders, "created");
+    legacy(Subscribe("orders.created"), Orders, "created");
+    loose(Middlewares(validate()))(Orders);
+    loose(Controller())(Orders);
+    class App {}
+    loose(Module({ controllers: [Orders] }))(App);
+    const app = await ChoMessage.create(App, {
+      linker: new NatsLinker(options()),
+    });
+    await app.start();
+    const invalid = request("orders.created", '{"id":-1}');
+    const broken = request("orders.created", "{}");
+    const good = request("orders.created", '{"id":"7"}');
+    for (const { message } of [invalid, broken, good]) {
+      app.linked.instance.feed("orders.created", message);
+    }
+    await app.close();
+    assert.deepEqual(invalid.answers, [{
+      value: "",
+      headers: {
+        [ERROR_HEADERS.description]: "Bad Request",
+        [ERROR_HEADERS.code]: "400",
+      },
+    }]);
+    // an error of the validator, as an error of any handler
+    assert.deepEqual(broken.answers, [{
+      value: "",
+      headers: {
+        [ERROR_HEADERS.description]: "Internal Error",
+        [ERROR_HEADERS.code]: "500",
       },
     }]);
     assert.deepEqual(good.answers, [{ value: '{"id":7}', headers: {} }]);

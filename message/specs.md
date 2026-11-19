@@ -357,9 +357,9 @@ message:
 | `Value("name")`            | one key of the source                   |
 | `Value("name", validator)` | one key of the source, with a validator |
 
-A string is a key, and an object with a `parse` method is a validator (section
-3.5); anything else throws when the function is called. A validator is the last
-argument.
+A string is a key, and a Standard Schema or an object with a `parse` method is a
+validator (section 3.5); anything else throws when the function is called. A
+validator is the last argument.
 
 - **`Value()`** is `undefined` for a message with no value, and `Value("name")`
   is `undefined` when the value has no such property, or is not an object. The
@@ -408,14 +408,29 @@ With a validator, the type is what the validator gives.
 
 ### 3.5 Validation
 
-**Validators.** A validator is any object with a `parse(value)` method that
-returns the value, or throws: the shape of a [zod](https://zod.dev) schema, so a
-zod schema is a validator, and so is any other object of that shape.
-`@chojs/message` does not depend on zod.
+**Validators.** A validator is a [Standard Schema](https://standardschema.dev/):
+an object with a `~standard` key. The schemas of [Zod](https://zod.dev),
+[Valibot](https://valibot.dev), [ArkType](https://arktype.io) and many other
+libraries are, so they are validators as they are, and `@chojs/message` depends
+on none of them. An object with a `parse(value)` method that returns the value,
+or throws, is a validator too.
 
 ```ts
-type ChoMessageValidator<T> = { parse(value: unknown): T | Promise<T> };
+type ChoValidator<Output = unknown, Input = unknown> =
+  | StandardSchemaV1<Input, Output>
+  | { parse(value: unknown): Output | Promise<Output> };
 ```
+
+The type, and the rules of the two shapes, are those of `@chojs/core`
+(`core/specs.md`, section 5); `@chojs/message` exports the types again. What
+matters to a message:
+
+| Shape             | Not valid                                         | When it throws                  |
+| ----------------- | ------------------------------------------------- | ------------------------------- |
+| A Standard Schema | its result has `issues`: the message is not valid | an error, as from a handler     |
+| A `parse` method  | it throws: the message is not valid               | that is how it says "not valid" |
+
+For an object with both shapes, as a Zod schema is, the Standard Schema is used.
 
 A validator given to an argument does two things: it describes the argument
 (section 6.6), and it validates it **when the validation middleware is on the
@@ -441,22 +456,25 @@ class OrdersController {
 
 With the middleware on the route:
 
-- Every argument that has a validator goes through its `parse` before the
-  handler is called. What `parse` returns is what the handler receives, so a
-  validator can also convert: `Header("attempt", z.coerce.number())` gives a
-  number.
-- `parse` can return a promise. For a zod schema with asynchronous checks, give
-  `{ parse: (value) => schema.parseAsync(value) }`.
+- Every argument that has a validator goes through it before the handler is
+  called. What the validator gives is what the handler receives, so a validator
+  can also convert: `Header("attempt", z.coerce.number())` gives a number.
+- A validator can give a promise: it is awaited. A schema with asynchronous
+  checks needs no wrapper.
 - Wherever the middleware is declared, validation happens at the same moment:
   after every middleware of the route, just before the handler.
 - **When an argument is not valid, the handler is not called, and the message
   fails**, with a `ChoError` of the code `CHO_MESSAGE_INVALID_MESSAGE`. Its
-  message says what is not valid (`the value`,
-  `the property "id" of the
-  value`, `the key`, `the header "attempt"`), and
-  its `cause` is the error the validator threw. A value that is not JSON, for a
-  `Value` argument, is the same error, with the error of `JSON.parse` as its
-  `cause`.
+  message says what is not valid (`the value`, `the property "id" of the value`,
+  `the key`, `the header "attempt"`) and the issues, the first three of them:
+  `Invalid message of orders: the value is not valid: Required (at id)`. Its
+  `cause` is what a `parse` method threw; a Standard Schema throws nothing, and
+  the error has no `cause`. A value that is not JSON, for a `Value` argument, is
+  the same error, with the error of `JSON.parse` as its `cause`.
+- **What the `validate` function of a Standard Schema throws is not a message
+  that is not valid.** It is an error of the handler like any other, with no
+  code of its own: `onInvalid` is not called, and an adapter treats the message
+  as any message that failed, so it can be tried again.
 - That error is an error of the handler: it goes to the nearest error handler
   (section 5), then to the adapter.
 - **An adapter does not try such a message again** (section 7): it will not be
@@ -473,17 +491,26 @@ it returns settles the message, by the rule of an error handler (section 5):
 
 ```ts
 validate({
-  onInvalid: ({ source, key, error }, ctx) => {
-    logger.warn(ctx.topic, source, key, error);
+  onInvalid: ({ source, key, issues }, ctx) => {
+    logger.warn(ctx.topic, source, key, issues);
     return true; // skipped, and not delivered again
   },
 });
 ```
 
-`source` is `value`, `key` or `header`; `key` is there when the argument has
-one; `error` is what the validator threw. What `onInvalid` throws is an error of
-the handler. When several `validate()` cover a handler, the nearest one decides:
-the handler's, then the controller's, then the feature's.
+What failed is a `ChoMessageInvalid`:
+
+| Property | Holds                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------- |
+| `source` | `value`, `key` or `header`                                                                  |
+| `key`    | the key of the argument, when it has one                                                    |
+| `issues` | what is not valid: one issue at least, each a `message`, and a `path` for a part of a value |
+| `error`  | what was thrown, when something was: by a `parse` method, or by a value that is not JSON    |
+
+The issues are the same for every library: the other fields a library writes in
+an issue are left out (`core/specs.md`, section 5.3). What `onInvalid` throws is
+an error of the handler. When several `validate()` cover a handler, the nearest
+one decides: the handler's, then the controller's, then the feature's.
 
 **The middleware only marks its place.** A chain of `@chojs/message` has no
 result, so a middleware cannot turn a failed message into a handled one (section
@@ -546,6 +573,49 @@ const { price } = await client.request(GetPrice, { id: 7 });
   nothing checks it. Without a `reply`, and with no type for it, the reply is
   `undefined`: nothing.
 - The topic follows the rules of section 2.3, and is not empty.
+
+**A validator that converts gives a value two types**: what goes into it, and
+what comes out of it. A message is validated by who handles it, and a reply by
+who asked, so each side of a contract has its own:
+
+|           | Who asks                              | Who handles                           |
+| --------- | ------------------------------------- | ------------------------------------- |
+| `request` | sends what the validator **takes**    | receives what the validator **gives** |
+| `reply`   | receives what the validator **gives** | returns what the validator **takes**  |
+
+```ts
+export const PlaceOrder = contract({
+  topic: "shop.orders.place",
+  // the note has a default: who asks can leave it out
+  request: z.object({ id: z.number(), note: z.string().default("none") }),
+  // cents are sent, and who asks receives an amount
+  reply: z.object({ cents: z.number() })
+    .transform(({ cents }) => ({ amount: cents / 100 })),
+});
+
+// the service that answers: the note is always there, and it returns cents
+@Subscribe(PlaceOrder)
+place(order: { id: number; note: string }) {
+  return { cents: order.id * 150 };
+}
+
+// the service that asks: no note, and an amount comes back
+const { amount } = await client.request(PlaceOrder, { id: 3 });
+```
+
+- The four types are those of the type
+  `Contract<Request, Reply, Sent,
+  Returned>`: the handler receives `Request`
+  and returns `Returned`; who asks sends `Sent` and receives `Reply`. For a
+  validator that does not convert, and for types given by hand, `Sent` is
+  `Request` and `Returned` is `Reply`.
+- **A validator that takes `unknown` does not say what is sent.** A `parse`
+  method, a schema written by hand, and a schema that converts anything
+  (`z.coerce.number()`) are such validators. What they give is used for both
+  sides, so that a client is still held to a type.
+- The handler receives what the validator gives **when `validate()` is on its
+  route**. Without it the validator is not run, and the handler receives what
+  was sent (section 3.5).
 
 **`@Subscribe(contract)`** is `@Subscribe(topic)` and `@Args(Value(request))` in
 one. The handler is called with the value of the message, then the context:
@@ -1048,8 +1118,12 @@ resolves with it. `options` has the `key` and the `headers` of the message, and
   It is not validated before it is sent: the types of the contract are what the
   sender is held to, and the handler validates what it receives.
 - **The reply is read as JSON**, then goes through the `reply` validator of the
-  contract, when it has one: what the validator returns is what `request`
-  resolves with. An empty reply is `undefined`.
+  contract, when it has one: what the validator gives is what `request` resolves
+  with. An empty reply is `undefined`. A reply that is not valid rejects with
+  `CHO_MESSAGE_UNEXPECTED_REPLY`, whose message has the issues; what the
+  `validate` function of a Standard Schema throws rejects the request as it is.
+- **What is sent is typed by what the `request` validator takes**, and the reply
+  by what the `reply` validator gives (section 3.6).
 - **A request rejects** with:
 
   | What happened                                      | The error                                 |
@@ -1271,13 +1345,13 @@ in place of `route`.
 
 ## 8. Public API
 
-| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/message`        | `ChoMessage`, `ChoMessageOptions`, `ChoMessageFromOptions`, `ChoMessageReply`, `ChoMessageReplyOptions`, `contract`, `Contract`, `ChoMessageClient`, `ChoMessageClientOptions`, `ChoMessageSendOptions`, `ChoMessageRequestOptions`, `ChoMessageSent`, `localSender`, `LocalApplication`, `ReplyError`, `isReplyError`, `ReplyErrorOptions`, `Subscribe`, `Args`, `Value`, `Key`, `Header`, `validate`, `Middlewares`, `Catch`, `ChoError`, `isChoError` (the core's), `ChoMessageErrorCode`, `ChoCoreErrorCode`, the types `Reply`, `ChoMessageContext`, `ChoMessageHandler`, `ChoMessageNext`, `ChoMessageMiddlewareFn`, `ChoMessageMiddleware`, `ChoMessageErrorHandlerFn`, `ChoMessageErrorHandler`, `ChoMessageArg`, `ChoMessageArgInfo`, `ChoMessageArgSource`, `ChoMessageValidator`, `ChoMessageInvalid`, `ChoMessageValidateOptions`, `Module`, `Controller` (the core's, with the `topic` option), `MessageModuleOptions`, `MessageControllerOptions`, `TopicOption`, the types of the two other entry points, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/message/linker` | `Linker`, `Linked`, `Route`, `Delivery`, `Reply`, `Sender`, `RequestOptions`, `ReplyError`, `isReplyError`, `request_error`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `@chojs/message/graph`  | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `@chojs/vendor-kafka`   | `KafkaLinker`, `KafkaLinked`, and their types (`vendor/kafka/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `@chojs/vendor-nats`    | `NatsLinker`, `NatsLinked`, and their types (`vendor/nats/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@chojs/message`        | `ChoMessage`, `ChoMessageOptions`, `ChoMessageFromOptions`, `ChoMessageReply`, `ChoMessageReplyOptions`, `contract`, `Contract`, `ChoMessageClient`, `ChoMessageClientOptions`, `ChoMessageSendOptions`, `ChoMessageRequestOptions`, `ChoMessageSent`, `localSender`, `LocalApplication`, `ReplyError`, `isReplyError`, `ReplyErrorOptions`, `Subscribe`, `Args`, `Value`, `Key`, `Header`, `validate`, `Middlewares`, `Catch`, `ChoError`, `isChoError` (the core's), `ChoMessageErrorCode`, `ChoCoreErrorCode`, the types `Reply`, `ChoMessageContext`, `ChoMessageHandler`, `ChoMessageNext`, `ChoMessageMiddlewareFn`, `ChoMessageMiddleware`, `ChoMessageErrorHandlerFn`, `ChoMessageErrorHandler`, `ChoMessageArg`, `ChoMessageArgInfo`, `ChoMessageArgSource`, `ChoMessageInvalid`, `ContractOptions`, `ChoValidator`, `ChoParseValidator`, `ChoIssue`, `ChoInput`, `ChoOutput`, `StandardSchemaV1`, `StandardJSONSchemaV1`, `StandardTypedV1` (the core's), `ChoMessageValidateOptions`, `Module`, `Controller` (the core's, with the `topic` option), `MessageModuleOptions`, `MessageControllerOptions`, `TopicOption`, the types of the two other entry points, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/message/linker` | `Linker`, `Linked`, `Route`, `Delivery`, `Reply`, `Sender`, `RequestOptions`, `ReplyError`, `isReplyError`, `request_error`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `@chojs/message/graph`  | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `@chojs/vendor-kafka`   | `KafkaLinker`, `KafkaLinked`, and their types (`vendor/kafka/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `@chojs/vendor-nats`    | `NatsLinker`, `NatsLinked`, and their types (`vendor/nats/specs.md`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for
 `@chojs/message`.
@@ -1313,23 +1387,23 @@ application meets it.
 
 **Thrown by the decorators**, when the class is defined:
 
-| Mistake                                                                                                        | Code                              | Message                                                                                                                                                  |
-| -------------------------------------------------------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A handler's topic is invalid                                                                                   | `CHO_MESSAGE_INVALID_TOPIC`       | `Invalid topic "<topic>" of @Subscribe() on method <name>: <reason>`                                                                                     |
-| A second `@Subscribe` on a method                                                                              | `CHO_MESSAGE_DUPLICATE_DECORATOR` | `Cannot add @Subscribe() to method <name>: it already handles "<topic>". A method can have one @Subscribe().`                                            |
-| An unknown option of `@Module` / `@Controller`                                                                 | `CHO_CORE_UNKNOWN_OPTION`         | `@Controller(): unknown option "route". Known options: dependencies, topic`                                                                              |
-| A static, private or symbol-named handler                                                                      | `CHO_MESSAGE_INVALID_TARGET`      | `@Subscribe() cannot decorate static method <name>: a handler must not be static`                                                                        |
-| An argument of `@Args` that is not a function                                                                  | `CHO_MESSAGE_INVALID_ARGUMENT`    | `@Args() on method <name>: argument 2 must be made with Value, Key or Header, or be a function, got <v>`                                                 |
-| A second `@Args` on a method                                                                                   | `CHO_MESSAGE_DUPLICATE_DECORATOR` | `Cannot add @Args() to method <name>: it already has one.`                                                                                               |
-| `@Args` on a static, private or symbol-named method                                                            | `CHO_CORE_INVALID_TARGET`         | `@Args() cannot decorate static method <name>: only public, non-static methods with a string name are supported`                                         |
-| `Value`, `Key` or `Header` is given what it does not take                                                      | `CHO_MESSAGE_INVALID_ARGUMENT`    | `Value(): expected a key (a string) or a validator (an object with a parse method), got <v>` (or `… a validator is the last argument, got <v> after it`) |
-| `validate()` is given options that are not an object, or an `onInvalid` that is not a function                 | `CHO_MESSAGE_INVALID_ARGUMENT`    | `validate(): "onInvalid" is a function, got <v>`                                                                                                         |
-| An unknown option of `validate()`                                                                              | `CHO_CORE_UNKNOWN_OPTION`         | `validate(): unknown option "invalid". Known options: onInvalid`                                                                                         |
-| `contract()` is given options that are not an object, or a validator with no `parse`                           | `CHO_MESSAGE_INVALID_CONTRACT`    | `contract(): "reply" is a validator (an object with a parse method), got <v>`                                                                            |
-| The topic of a contract is missing, empty or not valid                                                         | `CHO_MESSAGE_INVALID_TOPIC`       | `Invalid topic of contract(): it is empty. A contract has the whole topic of its message`                                                                |
-| `@Subscribe(contract)` on a method that has `@Args`, or `@Args` on such a handler                              | `CHO_MESSAGE_DUPLICATE_DECORATOR` | `Cannot add @Args() to method <name>: it is the handler of a contract, and receives its request, then the context.`                                      |
-| A `ReplyError` is made with a code, a description or options that are not ones                                 | `CHO_MESSAGE_INVALID_REPLY_ERROR` | `ReplyError: the code must be a whole number, 1 or more, got <v>`                                                                                        |
-| `ChoMessageClient` is given what is not a sender, or a wrong option; `localSender`, what is not an application | `CHO_MESSAGE_INVALID_CLIENT`      | `new ChoMessageClient(): expected a sender, such as the sender of a linker, got <v>`                                                                     |
+| Mistake                                                                                                        | Code                              | Message                                                                                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A handler's topic is invalid                                                                                   | `CHO_MESSAGE_INVALID_TOPIC`       | `Invalid topic "<topic>" of @Subscribe() on method <name>: <reason>`                                                                                                           |
+| A second `@Subscribe` on a method                                                                              | `CHO_MESSAGE_DUPLICATE_DECORATOR` | `Cannot add @Subscribe() to method <name>: it already handles "<topic>". A method can have one @Subscribe().`                                                                  |
+| An unknown option of `@Module` / `@Controller`                                                                 | `CHO_CORE_UNKNOWN_OPTION`         | `@Controller(): unknown option "route". Known options: dependencies, topic`                                                                                                    |
+| A static, private or symbol-named handler                                                                      | `CHO_MESSAGE_INVALID_TARGET`      | `@Subscribe() cannot decorate static method <name>: a handler must not be static`                                                                                              |
+| An argument of `@Args` that is not a function                                                                  | `CHO_MESSAGE_INVALID_ARGUMENT`    | `@Args() on method <name>: argument 2 must be made with Value, Key or Header, or be a function, got <v>`                                                                       |
+| A second `@Args` on a method                                                                                   | `CHO_MESSAGE_DUPLICATE_DECORATOR` | `Cannot add @Args() to method <name>: it already has one.`                                                                                                                     |
+| `@Args` on a static, private or symbol-named method                                                            | `CHO_CORE_INVALID_TARGET`         | `@Args() cannot decorate static method <name>: only public, non-static methods with a string name are supported`                                                               |
+| `Value`, `Key` or `Header` is given what it does not take                                                      | `CHO_MESSAGE_INVALID_ARGUMENT`    | `Value(): expected a key (a string) or a validator (a Standard Schema, or an object with a parse method), got <v>` (or `… a validator is the last argument, got <v> after it`) |
+| `validate()` is given options that are not an object, or an `onInvalid` that is not a function                 | `CHO_MESSAGE_INVALID_ARGUMENT`    | `validate(): "onInvalid" is a function, got <v>`                                                                                                                               |
+| An unknown option of `validate()`                                                                              | `CHO_CORE_UNKNOWN_OPTION`         | `validate(): unknown option "invalid". Known options: onInvalid`                                                                                                               |
+| `contract()` is given options that are not an object, or what is not a validator                               | `CHO_MESSAGE_INVALID_CONTRACT`    | `contract(): "reply" is a validator (a Standard Schema, or an object with a parse method), got <v>`                                                                            |
+| The topic of a contract is missing, empty or not valid                                                         | `CHO_MESSAGE_INVALID_TOPIC`       | `Invalid topic of contract(): it is empty. A contract has the whole topic of its message`                                                                                      |
+| `@Subscribe(contract)` on a method that has `@Args`, or `@Args` on such a handler                              | `CHO_MESSAGE_DUPLICATE_DECORATOR` | `Cannot add @Args() to method <name>: it is the handler of a contract, and receives its request, then the context.`                                                            |
+| A `ReplyError` is made with a code, a description or options that are not ones                                 | `CHO_MESSAGE_INVALID_REPLY_ERROR` | `ReplyError: the code must be a whole number, 1 or more, got <v>`                                                                                                              |
+| `ChoMessageClient` is given what is not a sender, or a wrong option; `localSender`, what is not an application | `CHO_MESSAGE_INVALID_CLIENT`      | `new ChoMessageClient(): expected a sender, such as the sender of a linker, got <v>`                                                                                           |
 
 **Rejected by `ChoMessage.create` and `ChoMessage.from`**: any module graph
 error of the core (`core/specs.md`, section 2.8), and:
@@ -1370,18 +1444,18 @@ error of the core (`core/specs.md`, section 2.8), and:
 | A middleware calls `next()` twice                                         | `CHO_CORE_NEXT_CALLED_TWICE`  | `middleware <name>: next() called more than once`                                                                                                                                                                                  |
 | What a handler returned cannot be a reply                                 | `CHO_MESSAGE_INVALID_REPLY`   | `Invalid reply of <Controller.method>: <v> cannot be serialized as JSON`, with the error of `JSON.stringify` as `cause` (or `… expected bytes, a string or a value JSON can hold, got <v>`)                                        |
 | A `ChoMessageReply` is made with what it cannot hold                      | `CHO_MESSAGE_INVALID_REPLY`   | `new ChoMessageReply(): the header "status" is a string, got 404` (or `… "headers" is an object of strings, got <v>`, `… a header has no name`, `… expected options, such as …`, `… the value of a reply cannot be another reply`) |
-| An argument of a validated handler is not valid, or its value is not JSON | `CHO_MESSAGE_INVALID_MESSAGE` | `Invalid message of <topic>: the property "id" of the value is not valid`, with the error of the validator as `cause`                                                                                                              |
+| An argument of a validated handler is not valid, or its value is not JSON | `CHO_MESSAGE_INVALID_MESSAGE` | `Invalid message of <topic>: the property "id" of the value is not valid: <issues>`, with what a `parse` method threw as `cause`                                                                                                   |
 
 **Rejecting a `publish` or a `request` of `ChoMessageClient`** (section 6.7):
 
-| Mistake                                            | Code                           | Message                                                                                                             |
-| -------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| What is given is not a contract                    | `CHO_MESSAGE_INVALID_CONTRACT` | `ChoMessageClient.request(): expected a contract, made by contract(), got <v>`                                      |
-| The value has no JSON                              | `CHO_MESSAGE_INVALID_VALUE`    | `Invalid value of a message to "<topic>": <v> cannot be serialized as JSON`                                         |
-| A request on a sender whose broker has no replies  | `CHO_MESSAGE_NO_REPLIES`       | `ChoMessageClient.request(): the sender cannot ask "<topic>": its broker has no replies. …`                         |
-| Nobody listens to the topic of a request           | `CHO_MESSAGE_NO_RESPONDERS`    | `No answer to the request of "<topic>": nobody listens to it`                                                       |
-| No answer came in time                             | `CHO_MESSAGE_REQUEST_TIMEOUT`  | `No answer to the request of "<topic>": the time to wait is over`                                                   |
-| The reply is not JSON, or its validator refused it | `CHO_MESSAGE_UNEXPECTED_REPLY` | `Unexpected reply to the request of "<topic>": the validator of its contract refused it`, with its error as `cause` |
+| Mistake                                            | Code                           | Message                                                                                                                                         |
+| -------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| What is given is not a contract                    | `CHO_MESSAGE_INVALID_CONTRACT` | `ChoMessageClient.request(): expected a contract, made by contract(), got <v>`                                                                  |
+| The value has no JSON                              | `CHO_MESSAGE_INVALID_VALUE`    | `Invalid value of a message to "<topic>": <v> cannot be serialized as JSON`                                                                     |
+| A request on a sender whose broker has no replies  | `CHO_MESSAGE_NO_REPLIES`       | `ChoMessageClient.request(): the sender cannot ask "<topic>": its broker has no replies. …`                                                     |
+| Nobody listens to the topic of a request           | `CHO_MESSAGE_NO_RESPONDERS`    | `No answer to the request of "<topic>": nobody listens to it`                                                                                   |
+| No answer came in time                             | `CHO_MESSAGE_REQUEST_TIMEOUT`  | `No answer to the request of "<topic>": the time to wait is over`                                                                               |
+| The reply is not JSON, or its validator refused it | `CHO_MESSAGE_UNEXPECTED_REPLY` | `Unexpected reply to the request of "<topic>": the validator of its contract refused it: <issues>`, with what a `parse` method threw as `cause` |
 
 **What has no code**: what a handler or a middleware throws is the application's
 error: it is given to the error handler as it is, and a message that fails

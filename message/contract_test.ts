@@ -14,6 +14,7 @@ import {
   type AnyMethodDecorator,
   legacy,
   loose,
+  standard_schema,
 } from "@chojs/core/utils/test_utils";
 import { Value } from "./args.ts";
 import type { ChoMessageContext } from "./context.ts";
@@ -30,7 +31,7 @@ import type { Delivery, Reply } from "./linker.ts";
 import { ChoMessage } from "./message.ts";
 import { ReplyError } from "./reply-error.ts";
 import { ChoMessageReply } from "./reply.ts";
-import type { ChoMessageValidator } from "./types.ts";
+import type { ChoValidator } from "@chojs/core";
 import { validate } from "./validate.ts";
 
 type Class = new () => object;
@@ -43,7 +44,7 @@ const text_of = (reply: Reply | undefined) =>
   reply === undefined ? undefined : new TextDecoder().decode(reply.value);
 
 /** A validator that gives `{ id: number }`, or throws. */
-const WithId: ChoMessageValidator<{ id: number }> = {
+const WithId: ChoValidator<{ id: number }> = {
   parse(value) {
     const id = Number((value as { id?: unknown } | null)?.id);
     if (!Number.isInteger(id)) {
@@ -53,7 +54,7 @@ const WithId: ChoMessageValidator<{ id: number }> = {
   },
 };
 
-const Price: ChoMessageValidator<{ id: number; price: number }> = {
+const Price: ChoValidator<{ id: number; price: number }> = {
   parse: (value) => value as { id: number; price: number },
 };
 
@@ -154,18 +155,33 @@ describe("contract", () => {
     });
   });
 
-  it("refuses a validator with no parse method", () => {
+  it("refuses what is not a validator", () => {
     for (const name of ["request", "reply"]) {
-      assert.throws(
-        () => contract(loose({ topic: "a", [name]: { safeParse() {} } })),
-        {
-          code: "CHO_MESSAGE_INVALID_CONTRACT",
-          message: new RegExp(
-            `^contract\\(\\): "${name}" is a validator \\(an object with a parse method\\), got`,
-          ),
-        },
-      );
+      for (const given of [{ safeParse() {} }, { "~standard": {} }, "id"]) {
+        assert.throws(
+          () => contract(loose({ topic: "a", [name]: given })),
+          {
+            code: "CHO_MESSAGE_INVALID_CONTRACT",
+            message: new RegExp(
+              `^contract\\(\\): "${name}" is a validator \\(a Standard Schema, or an object with a parse method\\), got`,
+            ),
+          },
+        );
+      }
     }
+  });
+
+  it("takes Standard Schemas, and keeps them", () => {
+    const request = standard_schema<{ id: number }>((value) => ({
+      value: value as { id: number },
+    }));
+    const reply = Object.assign(
+      () => {},
+      standard_schema((value) => ({ value })),
+    );
+    const made = contract({ topic: "a", request, reply });
+    assert.equal(made.request, request);
+    assert.equal(made.reply, reply);
   });
 });
 
@@ -277,7 +293,8 @@ describe("@Subscribe(contract): the handler", () => {
       deliver(App, "shop.orders.price", { value: '{"id":"x"}' }),
       {
         code: "CHO_MESSAGE_INVALID_MESSAGE",
-        message: "Invalid message of shop.orders.price: the value is not valid",
+        message:
+          "Invalid message of shop.orders.price: the value is not valid: id: expected an integer",
       },
     );
   });

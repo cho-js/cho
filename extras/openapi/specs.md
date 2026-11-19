@@ -1,8 +1,9 @@
 # @chojs/openapi
 
-> **Status: implemented.** `../../tmp/tasks.md` lists what was done and what is left.
-> Section 10 lists every decision this document makes, with the alternative that
-> was not chosen, and section 12 what it changed in the other packages.
+> **Status: implemented.** `../../tmp/tasks.md` lists what was done and what is
+> left. Section 10 lists every decision this document makes, with the
+> alternative that was not chosen, and section 12 what it changed in the other
+> packages.
 
 The documentation of an HTTP application, from what the application already
 declares. `@chojs/openapi` reads the graph of a `@chojs/web` application, makes
@@ -209,13 +210,19 @@ graph does not hold it.
 
 ### 2.5 The schemas
 
-A validator is any object with a `parse` method: `@chojs/web` does not know its
-schema. `@chojs/openapi` finds it, in this order:
+A validator is a [Standard Schema](https://standardschema.dev/), or an object
+with a `parse` method (`core/specs.md`, section 5): `@chojs/web` does not know
+its schema. `@chojs/openapi` finds it, in this order:
 
 1. **The validator gives it.** A validator that implements
    [Standard JSON Schema](https://standardschema.dev/json-schema)
    (`validator["~standard"].jsonSchema`) is asked, with the target
-   `draft-2020-12`. Zod 4.2 and later does.
+   `draft-2020-12`. Zod 4.2 and later does, and ArkType 2.1.28 and later: the
+   tests run a schema of each. The two interfaces share the `~standard` key, so
+   one object validates a request and documents it. A validator that has only
+   one of the two is fine: a schema of Valibot validates and gives no JSON
+   Schema by itself, and an object with a `parse` method can have a `~standard`
+   key that only documents.
 2. **The application gives it.** `toJsonSchema(validator, io)` of the options is
    called with the validator and `"input"` or `"output"`. It returns a JSON
    Schema, or `undefined`.

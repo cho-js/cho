@@ -30,13 +30,10 @@ import {
   Post,
   Put,
 } from "./decorators.ts";
+import type { ChoValidator } from "@chojs/core";
 import { ARGS, DOC, doc_of, handler_args } from "./keys.ts";
 import { TestLinker } from "./testing.ts";
-import type {
-  ChoWebArg,
-  ChoWebMiddlewareFn,
-  ChoWebValidator,
-} from "./types.ts";
+import type { ChoWebArg, ChoWebMiddlewareFn } from "./types.ts";
 import { validate } from "./validate.ts";
 import { ChoWeb } from "./web.ts";
 
@@ -67,7 +64,7 @@ function feature(controllers: Class[], options: Record<string, unknown> = {}) {
   return Feature;
 }
 
-const number: ChoWebValidator<number> = { parse: (value) => Number(value) };
+const number: ChoValidator<number> = { parse: (value) => Number(value) };
 
 describe("@Args", () => {
   it("writes the list of arguments on the method (TC39)", () => {

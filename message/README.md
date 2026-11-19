@@ -59,8 +59,9 @@ a route.
 - **A reply is what a handler returns.** An adapter whose broker has replies
   sends it to who asked; the handler is the same either way.
 - **Typed, validated arguments.** A handler declares what it receives with
-  `@Args`, a validator of the shape of a zod schema checks it, and a message
-  that is not valid is never tried again.
+  `@Args`, a schema of Zod, Valibot, ArkType or any other
+  [Standard Schema](https://standardschema.dev/) checks it, and a message that
+  is not valid is never tried again.
 - **One contract for the two sides.** The topic, the request and the reply of a
   message are declared once: the handler and who sends take their types from it,
   and a request has a typed reply.
@@ -316,9 +317,12 @@ class OrdersController {
 
 ### Validation
 
-A validator is any object with a `parse(value)` method that returns the value,
-or throws: a [zod](https://zod.dev) schema is one. Give it to an argument, last,
-and put `validate()` on the route:
+A validator is a [Standard Schema](https://standardschema.dev/): the schemas of
+[Zod](https://zod.dev), [Valibot](https://valibot.dev),
+[ArkType](https://arktype.io) and many other libraries are, and `@chojs/message`
+depends on none of them. An object with a `parse(value)` method that returns the
+value, or throws, is one too. Give it to an argument, last, and put `validate()`
+on the route:
 
 ```ts
 import { z } from "zod";
@@ -337,8 +341,8 @@ class OrdersController {
 }
 ```
 
-- **What `parse` returns is what the handler receives**, so a validator can
-  convert too. It can return a promise.
+- **What the validator gives is what the handler receives**, so a validator can
+  convert too. A validator that gives a promise is awaited.
 - **The type of the parameter comes from the validator.**
 - **`validate()` covers the handlers under it**: on a handler, on a controller
   or on a feature module. Without it on the route, validators are not run, and
@@ -346,17 +350,22 @@ class OrdersController {
 
 **A message that is not valid fails**, and its handler is not called. The error
 is a `ChoError` with the code `CHO_MESSAGE_INVALID_MESSAGE`: its message says
-what is not valid, and its `cause` is what the validator threw. A value that is
-not JSON is the same error. It goes to the [error handler](#error-handling),
-then to the adapter, which **does not try it again**: Kafka sends it to the
-dead-letter topic at once, and NATS answers a request with `400`.
+what is not valid, with the issues of the validator. A value that is not JSON is
+the same error. It goes to the [error handler](#error-handling), then to the
+adapter, which **does not try it again**: Kafka sends it to the dead-letter
+topic at once, and NATS answers a request with `400`.
+
+**A schema that throws is not a message that is not valid.** A Standard Schema
+says what is not valid in its result. What it throws (a database that is down,
+in an asynchronous check) is an error like any other, and the adapter can try
+the message again.
 
 `onInvalid` decides otherwise, as an error handler does:
 
 ```ts
 validate({
-  onInvalid: ({ source, key, error }, ctx) => {
-    logger.warn(ctx.topic, source, key, error);
+  onInvalid: ({ source, key, issues }, ctx) => {
+    logger.warn(ctx.topic, source, key, issues);
     return true; // handled: skipped, and not delivered again
   },
 });
@@ -367,6 +376,9 @@ validate({
 | Nothing, or `false` | Fails, with `CHO_MESSAGE_INVALID_MESSAGE` |
 | `true`              | Is handled, with no reply                 |
 | Any other value     | Is handled, and the value is its reply    |
+
+`issues` is the same for every library: each issue is a `message`, and a `path`
+when it is about a part of the value.
 
 ### Contracts
 
@@ -413,6 +425,11 @@ class OrdersController {
   that expects another request, or returns another reply, does not compile.
 - **The request is validated** by its validator when [`validate()`](#validation)
   is on the route.
+- **A validator that converts gives each side its own type.** Who asks sends
+  what the `request` validator takes and receives what the `reply` validator
+  gives; the handler receives what `request` gives and returns what `reply`
+  takes. With `note: z.string().default("none")` in the request, who asks can
+  leave the note out, and the handler always has it.
 - **The topic of a contract is the whole topic**, without the prefix of the
   application. The topics of the module and of the controller are not added to
   it: they must be the start of it, or the application is not created.

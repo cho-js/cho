@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { debuglog } from "@chojs/core/utils";
 import { capture, loose, with_env } from "@chojs/core/utils/test_utils";
 import { Schemas, type ToJsonSchema } from "./schema.ts";
-import { plain, standard } from "./testing.ts";
+import { plain, schema_only, standard } from "./testing.ts";
 
 /** The schemas of a document, with a logger that is off. */
 function schemas(to_json_schema?: ToJsonSchema) {
@@ -24,6 +24,13 @@ describe("Schemas.of, where a schema comes from", () => {
     assert.deepEqual(all.of(validator, "input", "x"), { type: "string" });
     assert.deepEqual(all.of(validator, "output", "x"), { type: "number" });
     assert.deepEqual(calls, ["input draft-2020-12", "output draft-2020-12"]);
+  });
+
+  it("asks a Standard Schema that has no parse method", () => {
+    const validator = schema_only({ type: "string" });
+    const all = schemas();
+    assert.deepEqual(all.of(validator, "input", "x"), { type: "string" });
+    assert.deepEqual(all.of(validator, "output", "x"), { type: "string" });
   });
 
   it("asks the application for a validator that gives none", () => {

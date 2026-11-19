@@ -12,6 +12,7 @@
  *   `(prototype, name, descriptor)`;
  * - {@link tc39} calls it the TC39 way: `(method, context)`.
  *
+ * {@link standard_schema} makes a Standard Schema by hand, with no library.
  * {@link with_env} sets environment variables for the duration of a test.
  * {@link check_codes} checks the error codes of a package against its
  * documentation and its tests.
@@ -21,6 +22,7 @@
 
 import { read_method_metadata } from "../di/metadata.ts";
 import type { Ctr } from "../di/types.ts";
+import type { StandardSchemaV1 } from "../validator.ts";
 
 /** Bypass the parameter types, to pass the values JS callers can. */
 // deno-lint-ignore no-explicit-any
@@ -280,4 +282,33 @@ export async function check_codes(
     }
   }
   return problems;
+}
+
+/**
+ * A Standard Schema written by hand: what a schema of Valibot or ArkType is
+ * to CHO, with no library.
+ *
+ * @typeParam Output What the schema gives.
+ * @typeParam Input What the schema takes.
+ * @param validate The `validate` function: gives `{ value }`, or
+ *   `{ issues }`.
+ * @returns The schema: an object with a `~standard` key, and no `parse`.
+ *
+ * @example
+ * ```ts
+ * const positive = standard_schema((value) =>
+ *   Number(value) > 0
+ *     ? { value: Number(value) }
+ *     : { issues: [{ message: "expected a positive number" }] }
+ * );
+ * ```
+ */
+export function standard_schema<Output, Input = unknown>(
+  validate: (
+    value: unknown,
+  ) =>
+    | StandardSchemaV1.Result<Output>
+    | Promise<StandardSchemaV1.Result<Output>>,
+): StandardSchemaV1<Input, Output> {
+  return { "~standard": { version: 1, vendor: "test", validate } };
 }

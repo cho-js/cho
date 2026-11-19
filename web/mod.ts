@@ -104,6 +104,17 @@ export {
 // of the framework, with their codes.
 export { HttpError, type HttpErrorOptions, isHttpError } from "./http-error.ts";
 export { type ChoCoreErrorCode, ChoError, isChoError } from "@chojs/core";
+// What a validator is: a Standard Schema, or an object with a `parse` method.
+export type {
+  ChoInput,
+  ChoIssue,
+  ChoOutput,
+  ChoParseValidator,
+  ChoValidator,
+  StandardJSONSchemaV1,
+  StandardSchemaV1,
+  StandardTypedV1,
+} from "@chojs/core";
 export type { ChoWebErrorCode } from "./errors.ts";
 export type { ChoWebContext } from "./context.ts";
 export type * from "./types.ts";

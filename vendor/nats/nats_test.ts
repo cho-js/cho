@@ -26,7 +26,7 @@ import {
   ChoMessageClient,
   type ChoMessageContext,
   ChoMessageReply,
-  type ChoMessageValidator,
+  type ChoValidator,
   contract,
   Controller,
   isReplyError,
@@ -330,7 +330,7 @@ suite("NatsLinker, with a server", { timeout: 60_000 }, () => {
   it("answers a request that is not valid with 400, and calls no handler", async () => {
     const prefix = unique("invalid");
     const subject = `${prefix}.orders.created`;
-    const Order: ChoMessageValidator<{ id: number }> = {
+    const Order: ChoValidator<{ id: number }> = {
       parse(value) {
         const id = (value as { id?: unknown } | null)?.id;
         if (typeof id !== "number") {
@@ -377,7 +377,7 @@ suite("NatsLinker, with a server", { timeout: 60_000 }, () => {
   it("answers a client that asks with a contract, with a typed reply", async () => {
     const prefix = unique("contract");
     type Order = { id: number };
-    const IsOrder: ChoMessageValidator<Order> = {
+    const IsOrder: ChoValidator<Order> = {
       parse(value) {
         const id = (value as { id?: unknown } | null)?.id;
         if (typeof id !== "number") {
@@ -924,7 +924,7 @@ stream_suite("NatsLinker, with JetStream", { timeout: 60_000 }, () => {
     await make_streams({ [stream]: [subject] });
     const seen: unknown[] = [];
     let refused = 0;
-    const IsOrder: ChoMessageValidator<{ id: number }> = {
+    const IsOrder: ChoValidator<{ id: number }> = {
       parse(value) {
         const id = (value as { id?: unknown } | null)?.id;
         if (typeof id !== "number") {

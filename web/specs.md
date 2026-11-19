@@ -227,9 +227,9 @@ Every one of them has the same four signatures:
 | `Body("name")`            | one key of the source                   |
 | `Body("name", validator)` | one key of the source, with a validator |
 
-A string is a key, and an object with a `parse` method is a validator (section
-3.2); anything else throws when the function is called. A validator is the last
-argument.
+A string is a key, and a Standard Schema or an object with a `parse` method is a
+validator (section 3.2); anything else throws when the function is called. A
+validator is the last argument.
 
 - **`Query()` and `Form()`** give the first value of a key that is repeated, as
   `Query("key")` does. For every value of a repeated query key, use
@@ -296,14 +296,29 @@ and nothing checks it. With a validator, the type is what the validator gives.
 
 ### 3.2 Validation
 
-**Validators.** A validator is any object with a `parse(value)` method that
-returns the value, or throws: the shape of a [zod](https://zod.dev) schema, so a
-zod schema is a validator, and so is any other object of that shape.
-`@chojs/web` does not depend on zod.
+**Validators.** A validator is a [Standard Schema](https://standardschema.dev/):
+an object with a `~standard` key. The schemas of [Zod](https://zod.dev),
+[Valibot](https://valibot.dev), [ArkType](https://arktype.io) and many other
+libraries are, so they are validators as they are, and `@chojs/web` depends on
+none of them. An object with a `parse(value)` method that returns the value, or
+throws, is a validator too.
 
 ```ts
-type ChoWebValidator<T> = { parse(value: unknown): T | Promise<T> };
+type ChoValidator<Output = unknown, Input = unknown> =
+  | StandardSchemaV1<Input, Output>
+  | { parse(value: unknown): Output | Promise<Output> };
 ```
+
+The type, and the rules of the two shapes, are those of `@chojs/core`
+(`core/specs.md`, section 5); `@chojs/web` exports the types again. What matters
+to a request:
+
+| Shape             | Not valid                        | When it throws                  |
+| ----------------- | -------------------------------- | ------------------------------- |
+| A Standard Schema | its result has `issues`: a `400` | an error, as from a handler     |
+| A `parse` method  | it throws: a `400`               | that is how it says "not valid" |
+
+For an object with both shapes, as a Zod schema is, the Standard Schema is used.
 
 A validator given to an argument does two things: it describes the argument
 (section 3.3), and it validates it **when the validation middleware is on the
@@ -330,13 +345,16 @@ class UsersController {
 
 With the middleware on the route:
 
-- Every argument that has a validator goes through its `parse` before the
-  handler is called. What `parse` returns is what the handler receives, so a
-  validator can also convert: `Param("id", z.coerce.number())` gives a number.
-- `parse` can return a promise. For a zod schema with asynchronous checks, give
-  `{ parse: (value) => schema.parseAsync(value) }`.
+- Every argument that has a validator goes through it before the handler is
+  called. What the validator gives is what the handler receives, so a validator
+  can also convert: `Param("id", z.coerce.number())` gives a number.
+- A validator can give a promise: it is awaited. A schema with asynchronous
+  checks needs no wrapper.
 - When an argument is not valid, the handler is not called, and the middleware
   answers. The same goes for a body that cannot be parsed.
+- What the `validate` function of a Standard Schema throws is not a request that
+  is not valid. It is an error like any other, given to the nearest error
+  handler (section 5): `500` by default, and `onInvalid` is not called.
 - Wherever the middleware is declared, validation happens at the same moment:
   after every middleware of the route, just before the handler.
 
@@ -352,20 +370,44 @@ The answer to an invalid request is `400`, with a JSON body:
 ```
 
 `source` is `param`, `query`, `header`, `body` or `form`; `key` is there when
-the argument has one; `issues` are the `issues` of the error the validator threw
-when it has them, as a zod error does, and otherwise one issue with the error's
-message. To answer differently, give the middleware an `onInvalid` function. It
-receives what failed and the context, and what it returns is the response,
-converted like the result of a handler. When it returns nothing (it only logs,
-say), the default answer is sent. It can also throw an `HttpError` (section
-5.1), which answers as it does anywhere:
+the argument has one.
+
+`issues` has one issue at least. Each is a `message`, and a `path` when it is
+about a part of the value: the body is the same for every library. The other
+fields a library writes in an issue (`code`, `expected`, the value that was
+refused) are not sent.
+
+| What failed                             | `issues`                                           |
+| --------------------------------------- | -------------------------------------------------- |
+| A Standard Schema                       | the issues of its result                           |
+| A `parse` method, with a list of issues | the `issues` of the error it threw, as Zod's has   |
+| A `parse` method, with any other error  | one issue, with the message of the error           |
+| A body that cannot be parsed            | one issue, with the message of the error of `JSON` |
+
+To answer differently, give the middleware an `onInvalid` function. It receives
+what failed and the context, and what it returns is the response, converted like
+the result of a handler. When it returns nothing (it only logs, say), the
+default answer is sent. It can also throw an `HttpError` (section 5.1), which
+answers as it does anywhere:
 
 ```ts
 validate({
-  onInvalid: ({ source, key, error }, ctx) =>
-    Response.json({ message: `bad ${source}` }, { status: 422 }),
+  onInvalid: ({ source, key, issues }, ctx) =>
+    Response.json({ message: `bad ${source}`, issues }, { status: 422 }),
 });
 ```
+
+What failed is a `ChoWebInvalid`:
+
+| Property | Holds                                                                                        |
+| -------- | -------------------------------------------------------------------------------------------- |
+| `source` | where the argument reads from                                                                |
+| `key`    | its key, when it has one                                                                     |
+| `issues` | what is not valid, as in the body above                                                      |
+| `error`  | what was thrown, when something was: by a `parse` method, or by a body that cannot be parsed |
+
+A Standard Schema throws nothing for a value that is not valid, so `error` is
+not there for one.
 
 **Without the middleware** on the route, there is no validation:
 
@@ -418,9 +460,10 @@ A function of your own has none, and is not part of the document.
 | `Body("name", v)`  | a property `name` of an `application/json` request body          |
 | `Form(v)`          | the `requestBody`, `application/x-www-form-urlencoded`           |
 
-A validator is kept as it was given. `@chojs/web` does not know how to turn one
-into a JSON Schema: the generator will take that function from the application
-(for zod, `z.toJSONSchema`).
+A validator is kept as it was given. `@chojs/web` does not turn one into a JSON
+Schema: `@chojs/openapi` asks the validator itself, when it implements
+[Standard JSON Schema](https://standardschema.dev/json-schema), and otherwise
+takes that function from the application.
 
 **Declared for documentation only:** what the code cannot tell is given with
 `@Doc`, on a handler, a controller or a feature module. It changes nothing in
@@ -1246,15 +1289,15 @@ compatibility date `2025-09-01` and, for the package itself, with no
 
 ## 8. Public API
 
-| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoWebMountOptions`, `ChoWebMountMethod`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Sse`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, `HttpError`, `isHttpError`, `HttpErrorOptions`, `ChoError`, `isChoError` (the core's), `ChoWebErrorCode`, `ChoCoreErrorCode`, the types `ChoWebSseEvent`, `ChoWebSseOptions`, `ChoWebSseMethod`, `ChoWebSseResult`, `ChoWebSseDecorator`, `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidator`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebDocSecurity`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
-| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoWebMountOptions`, `ChoWebMountMethod`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Sse`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, `HttpError`, `isHttpError`, `HttpErrorOptions`, `ChoError`, `isChoError` (the core's), `ChoWebErrorCode`, `ChoCoreErrorCode`, the types `ChoWebSseEvent`, `ChoWebSseOptions`, `ChoWebSseMethod`, `ChoWebSseResult`, `ChoWebSseDecorator`, `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoValidator`, `ChoParseValidator`, `ChoIssue`, `ChoInput`, `ChoOutput`, `StandardSchemaV1`, `StandardJSONSchemaV1`, `StandardTypedV1` (the core's), `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebDocSecurity`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `InjectionToken`, `Provider` and the option types |
+| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `@chojs/web/serve`      | `serve`, `ServeHandler`, `ServeOptions`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 `@Middlewares` and `@Catch` are the core's decorators, typed for `@chojs/web`.
 
@@ -1294,7 +1337,7 @@ meets it. An `HttpError` (section 5.1) is not a `ChoError`, and has no code.
 | A static, private or symbol-named handler      | `CHO_WEB_INVALID_TARGET`      | `@Get() cannot decorate static method <name>: a handler must not be static` (and `private …`, `… a string name`)                |
 | A second `@Args` on a method                   | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Args() to method <name>: it already has one.`                                                                      |
 | An argument of `@Args` is not a function       | `CHO_WEB_INVALID_ARGUMENT`    | `@Args() on method <name>: argument <n> must be made with Param, Query, Header, Body or Form, or be a function, got <v>`        |
-| A key or a validator of the wrong type         | `CHO_WEB_INVALID_ARGUMENT`    | `Body(): expected a key (a string) or a validator (an object with a parse method), got <v>`                                     |
+| A key or a validator of the wrong type         | `CHO_WEB_INVALID_ARGUMENT`    | `Body(): expected a key (a string) or a validator (a Standard Schema, or an object with a parse method), got <v>`               |
 | Something after a validator                    | `CHO_WEB_INVALID_ARGUMENT`    | `Body(): a validator is the last argument, got <v> after it`                                                                    |
 | A second `@Doc` on a class or a method         | `CHO_WEB_DUPLICATE_DECORATOR` | `Cannot add @Doc() to class <Name>: it already has one.` (and `… to method <name> …`)                                           |
 | A handler option of `@Doc` on a class          | `CHO_WEB_INVALID_OPTION`      | `@Doc(): option "summary" is for a handler, not for a class (class <Name>)` (and `"responses"`, `"operationId"`)                |

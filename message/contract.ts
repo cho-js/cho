@@ -11,12 +11,12 @@
  */
 
 import { assert_known_options } from "@chojs/core/di";
-import { describe } from "@chojs/core/utils";
+import type { ChoValidator } from "@chojs/core";
+import { describe, is_validator } from "@chojs/core/utils";
 import type { ChoMessageContext } from "./context.ts";
 import { message_error } from "./errors.ts";
 import type { ChoMessageReply } from "./reply.ts";
 import { normalize_topic } from "./topic.ts";
-import type { ChoMessageValidator } from "./types.ts";
 
 /**
  * What marks a contract made by {@link contract}: a symbol every copy of the
@@ -27,26 +27,86 @@ const BRAND = Symbol.for("cho.message.contract");
 /**
  * A contract: the topic of a message, what it holds, and what is replied.
  *
- * @typeParam Request What the message holds: what its handler receives.
- * @typeParam Reply What is replied. `undefined`: nothing.
+ * A validator can convert, so each of the two values has two types: what
+ * goes into its validator and what comes out of it. A message is validated
+ * by who handles it, and a reply by who asked:
+ *
+ * |           | who asks             | who handles           |
+ * | --------- | -------------------- | --------------------- |
+ * | `request` | sends `Sent`         | receives `Request`    |
+ * | `reply`   | receives `Reply`     | returns `Returned`    |
+ *
+ * With no validator, or one that does not convert, `Sent` is `Request` and
+ * `Returned` is `Reply`.
+ *
+ * @typeParam Request What the handler receives: what the `request` validator
+ *   gives.
+ * @typeParam Reply What who asks receives: what the `reply` validator gives.
+ *   `undefined`: nothing.
+ * @typeParam Sent What who asks sends: what the `request` validator takes.
+ * @typeParam Returned What the handler returns: what the `reply` validator
+ *   takes.
  */
-export type Contract<Request = unknown, Reply = undefined> = {
+export type Contract<
+  Request = unknown,
+  Reply = undefined,
+  Sent = Request,
+  Returned = Reply,
+> = {
   /**
    * The whole topic of the message, without the prefix of an application:
    * `"shop.orders.price"`.
    */
   readonly topic: string;
   /** The validator of the value of the message, when it has one. */
-  readonly request?: ChoMessageValidator<Request> | undefined;
+  readonly request?: ChoValidator<Request> | undefined;
   /** The validator of the reply, when it has one. */
-  readonly reply?: ChoMessageValidator<Reply> | undefined;
+  readonly reply?: ChoValidator<Reply> | undefined;
 };
+
+/**
+ * The options of {@link contract}: the topic, and the validators.
+ *
+ * @typeParam Request What the `request` validator gives.
+ * @typeParam Reply What the `reply` validator gives.
+ * @typeParam Sent What the `request` validator takes.
+ * @typeParam Returned What the `reply` validator takes.
+ */
+export type ContractOptions<
+  Request = unknown,
+  Reply = undefined,
+  Sent = Request,
+  Returned = Reply,
+> = {
+  /**
+   * The whole topic of the message, without the prefix of an application:
+   * `"shop.orders.price"`.
+   */
+  readonly topic: string;
+  /**
+   * The validator of the value of the message: a Standard Schema, or an
+   * object with a `parse` method.
+   */
+  readonly request?: ChoValidator<Request, Sent> | undefined;
+  /** The validator of the reply, of the same two shapes. */
+  readonly reply?: ChoValidator<Reply, Returned> | undefined;
+};
+
+/**
+ * What goes into a validator, when the validator says it. A validator that
+ * takes `unknown` (a `parse` method, a schema written by hand, a schema that
+ * converts anything) does not say it: what it gives is used.
+ *
+ * @typeParam Input What the validator takes.
+ * @typeParam Output What the validator gives.
+ */
+type Taken<Input, Output> = unknown extends Input ? Output : Input;
 
 /**
  * What a handler of a contract returns: the reply, or a `ChoMessageReply`
  * for a reply with headers. A contract with no reply lets it return nothing.
  *
- * @typeParam Reply The reply of the contract.
+ * @typeParam Reply What the handler returns: the `Returned` of the contract.
  */
 export type ChoMessageContractResult<Reply> =
   | Reply
@@ -61,8 +121,9 @@ export type ChoMessageContractResult<Reply> =
  * It has both decorator call shapes: standard (TC39) `(method, context)`, and
  * legacy / Bun `(prototype, name, descriptor)`.
  *
- * @typeParam Request What the message holds.
- * @typeParam Reply What is replied.
+ * @typeParam Request What the handler receives: the `Request` of the
+ *   contract.
+ * @typeParam Reply What the handler returns: the `Returned` of the contract.
  */
 export type ChoMessageContractDecorator<Request, Reply> = {
   <
@@ -94,31 +155,29 @@ export type ChoMessageContractDecorator<Request, Reply> = {
   ): void;
 };
 
-/** Whether a value is a validator: an object with a `parse` method. */
-function is_validator(value: unknown): value is ChoMessageValidator {
-  return value !== null &&
-    (typeof value === "object" || typeof value === "function") &&
-    typeof (value as { parse?: unknown }).parse === "function";
-}
-
 /**
  * Make a contract.
  *
  * - `topic` is the whole topic of the message, without the prefix of an
  *   application.
- * - `request` and `reply` are validators: objects with a `parse` method, as
- *   a zod schema is. Both are optional. The types of the contract come from
- *   them; without one, a type can be given by hand, `contract<Order>(…)`,
- *   and nothing checks it.
+ * - `request` and `reply` are validators: Standard Schemas, as the schemas
+ *   of Zod, Valibot and ArkType are, or objects with a `parse` method. Both
+ *   are optional. The types of the contract come from them; without one, a
+ *   type can be given by hand, `contract<Order>(…)`, and nothing checks it.
+ * - A validator that converts gives a contract two types for a value: who
+ *   asks sends what `request` takes and receives what `reply` gives; the
+ *   handler receives what `request` gives and returns what `reply` takes.
  * - A contract speaks JSON: the value of the message and the reply are sent
  *   as JSON, both ways.
  *
- * @typeParam Request What the message holds.
- * @typeParam Reply What is replied. Default: nothing.
+ * @typeParam Request What the handler receives.
+ * @typeParam Reply What who asks receives. Default: nothing.
+ * @typeParam Sent What who asks sends. Default: `Request`.
+ * @typeParam Returned What the handler returns. Default: `Reply`.
  * @param options The topic, and the validators.
  * @returns The contract, frozen.
  * @throws {ChoError} `CHO_MESSAGE_INVALID_CONTRACT` when the options are not
- *   an object, or when a validator has no `parse` method;
+ *   an object, or when what is given as a validator is not one;
  *   `CHO_MESSAGE_INVALID_TOPIC` when the topic is not valid, or is empty;
  *   `CHO_CORE_UNKNOWN_OPTION` for an option that does not exist.
  *
@@ -140,9 +199,14 @@ function is_validator(value: unknown): value is ChoMessageValidator {
  * const { price } = await client.request(GetPrice, { id: 7 });
  * ```
  */
-export function contract<Request = unknown, Reply = undefined>(
-  options: Contract<Request, Reply>,
-): Contract<Request, Reply> {
+export function contract<
+  Request = unknown,
+  Reply = undefined,
+  Sent = Request,
+  Returned = Reply,
+>(
+  options: ContractOptions<Request, Reply, Sent, Returned>,
+): Contract<Request, Reply, Taken<Sent, Request>, Taken<Returned, Reply>> {
   if (typeof options !== "object" || options === null) {
     throw message_error(
       "CHO_MESSAGE_INVALID_CONTRACT",
@@ -164,7 +228,7 @@ export function contract<Request = unknown, Reply = undefined>(
     if (validator !== undefined && !is_validator(validator)) {
       throw message_error(
         "CHO_MESSAGE_INVALID_CONTRACT",
-        `contract(): "${name}" is a validator (an object with a parse method), got ${
+        `contract(): "${name}" is a validator (a Standard Schema, or an object with a parse method), got ${
           describe(validator)
         }`,
       );

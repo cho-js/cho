@@ -34,8 +34,8 @@ export type {
   ChoMessageHandler,
   ChoMessageMiddlewareFn,
   ChoMessageNext,
-  ChoMessageValidator,
 } from "./types.ts";
+export type { ChoIssue, ChoValidator } from "@chojs/core";
 
 /**
  * An error handler as stored in the graph: the function given to `@Catch`,

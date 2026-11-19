@@ -14,12 +14,12 @@ import {
   Args,
   Body,
   Catch,
+  type ChoValidator,
   ChoWeb,
   type ChoWebArg,
   type ChoWebContext,
   type ChoWebMiddlewareFn,
   type ChoWebSseEvent,
-  type ChoWebValidator,
   Controller,
   Doc,
   Form,
@@ -353,7 +353,7 @@ describe("decorator syntax, handler arguments", () => {
   type NewUser = { name: string; age?: number };
 
   /** A validator in the shape of a zod schema, written by hand. */
-  const NewUser: ChoWebValidator<NewUser> = {
+  const NewUser: ChoValidator<NewUser> = {
     parse(value) {
       const { name, age } = (value ?? {}) as Record<string, unknown>;
       if (typeof name !== "string") {
@@ -364,7 +364,7 @@ describe("decorator syntax, handler arguments", () => {
       return { name, ...(typeof age === "number" ? { age } : {}) };
     },
   };
-  const Id: ChoWebValidator<number> = {
+  const Id: ChoValidator<number> = {
     parse(value) {
       const id = Number(value);
       if (!Number.isInteger(id)) {

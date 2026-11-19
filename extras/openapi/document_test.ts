@@ -30,7 +30,15 @@ import {
 } from "@chojs/web";
 import { legacy, loose } from "@chojs/core/utils/test_utils";
 import { openApiDocument } from "./document.ts";
-import { args, type Class, create, plain, standard } from "./testing.ts";
+import {
+  args,
+  type Class,
+  create,
+  plain,
+  schema_only,
+  send,
+  standard,
+} from "./testing.ts";
 import type { OpenApiDocument, OpenApiOperation } from "./types.ts";
 
 const INFO = { title: "Shop", version: "1.0.0" };
@@ -659,6 +667,34 @@ describe("openApiDocument, the request body", () => {
       required: true,
       content: { "application/json": { schema: user } },
     });
+  });
+
+  it("documents, and validates, with one Standard Schema that has no parse method", async () => {
+    const named = schema_only(
+      user,
+      (value) => typeof (value as { name?: unknown } | null)?.name === "string",
+    );
+    class Users {
+      add(body: unknown) {
+        return body;
+      }
+    }
+    legacy(Post("x"), Users, "add");
+    legacy(args(Body(named)), Users, "add");
+    legacy(Middlewares(validate()), Users, "add");
+    Controller({})(Users);
+    const app = await create(module_of([Users]));
+
+    const document = openApiDocument(app, { info: INFO });
+    assert.deepEqual(document.paths["/x"]!.post!.requestBody, {
+      required: true,
+      content: { "application/json": { schema: user } },
+    });
+    const post = (body: string) => send(app, "/x", { method: "POST", body });
+    assert.equal((await post('{"name":"Ada"}')).status, 200);
+    const refused = await post('{"name":1}');
+    assert.equal(refused.status, 400);
+    assert.deepEqual((await refused.json()).issues, [{ message: "not valid" }]);
   });
 
   it("documents a body with no validator, without a schema", async () => {

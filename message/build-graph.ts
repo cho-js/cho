@@ -17,7 +17,12 @@ import {
   resolve_handle,
 } from "@chojs/core/di";
 import { describe } from "@chojs/core/utils";
-import { describe_invalid, evaluate_args, InvalidArgument } from "./args.ts";
+import {
+  describe_invalid,
+  describe_issues,
+  evaluate_args,
+  InvalidArgument,
+} from "./args.ts";
 import type { ChoMessageContext } from "./context.ts";
 import {
   AppRef,
@@ -53,7 +58,9 @@ import { validation_of } from "./validate.ts";
  *   context. For a validated handler, an argument that is not valid is given
  *   to `onInvalid`: `true` handles the message with no reply, a value is its
  *   reply, and nothing (or `false`) fails it with
- *   `CHO_MESSAGE_INVALID_MESSAGE`.
+ *   `CHO_MESSAGE_INVALID_MESSAGE`, whose message says the issues. What the
+ *   `validate` function of a Standard Schema throws is thrown on: it is an
+ *   error of the validator, not a message that is not valid.
  */
 function create_handler(
   method: (...args: unknown[]) => unknown,
@@ -80,8 +87,8 @@ function create_handler(
           "CHO_MESSAGE_INVALID_MESSAGE",
           `Invalid message of ${ctx.topic}: ${
             describe_invalid(invalid)
-          } is not valid`,
-          { cause: invalid.error },
+          } is not valid: ${describe_issues(invalid.issues)}`,
+          "error" in invalid ? { cause: invalid.error } : undefined,
         );
       }
       // `true` handles it with no reply. Anything else is the reply.
