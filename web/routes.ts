@@ -18,6 +18,7 @@ import type { AppRef, ErrorHandlerRef } from "./graph.ts";
 import { isHttpError } from "./http-error.ts";
 import type { Route } from "./linker.ts";
 import { to_response } from "./response.ts";
+import { accept_upgrade, asks_upgrade, upgrade_required } from "./socket.ts";
 import { is_async_iterable, sse_response } from "./sse.ts";
 
 /**
@@ -77,6 +78,9 @@ export function assert_no_duplicate_routes(routes: readonly Route[]): void {
  * @param run The chain of the route.
  * @param on_error The error handler of the route, if any.
  * @param log The `cho:web` debug logger.
+ * @param socket `true` for a route that upgrades its request to a WebSocket:
+ *   a request that does not ask for the upgrade is answered `426`, and runs
+ *   nothing of the chain.
  * @returns The route.
  */
 export function make_route(
@@ -86,6 +90,7 @@ export function make_route(
   run: Endpoint,
   on_error: ErrorHandlerRef,
   log: Debuglog,
+  socket?: true,
 ): Route {
   // A HEAD response has no body, whatever produced it.
   const finish = method === "HEAD"
@@ -96,7 +101,11 @@ export function make_route(
     method,
     path,
     name,
+    ...(socket ? { socket } : {}),
     async handle(req, params, native, state) {
+      if (socket && !asks_upgrade(req)) {
+        return upgrade_required();
+      }
       const ctx = create_context(req, params, native, state);
       // An error no error handler answered: an HttpError answers for
       // itself, and anything else is the adapter's to answer.
@@ -152,6 +161,9 @@ export function make_route(
  *   `to_response`, or, for an `@Sse` handler, becomes the body of an event
  *   stream (`sse_response`). An error that cuts such a stream is not given to
  *   an error handler: the response has started, so there is nothing to answer;
+ * - a `@Ws` handler accepts the upgrade of its request, unless it returns a
+ *   `Response`: the route answers `426`, and who holds the connection takes
+ *   the upgrade (`socket.ts`);
  * - an error thrown anywhere in the chain goes to the nearest error handler
  *   (the handler's, the controller's, the feature's, then the application's),
  *   whose result is
@@ -182,7 +194,7 @@ export function compile_routes(
         }.${method.name}`;
         const on_error = method.errorHandler ?? controller.errorHandler ??
           feature.errorHandler ?? graph.errorHandler;
-        const { sse } = method;
+        const { sse, socket } = method;
         /** The response of an `@Sse` handler: its own, or its events. */
         const to_events = (value: unknown, ctx: ChoWebContext): Response => {
           if (value instanceof Response) {
@@ -213,7 +225,16 @@ export function compile_routes(
             ...controller.middlewares,
             ...method.middlewares,
           ],
-          sse === undefined
+          socket !== undefined
+            // A `Response` refuses the upgrade; anything else accepts it,
+            // and is the first message of the socket.
+            ? async (ctx) => {
+              const value = await method.handler(ctx);
+              return value instanceof Response
+                ? value
+                : accept_upgrade(ctx, socket, value, name, log);
+            }
+            : sse === undefined
             ? async (ctx) => to_response(await method.handler(ctx))
             : async (ctx) => to_events(await method.handler(ctx), ctx),
         );
@@ -227,7 +248,15 @@ export function compile_routes(
         }
 
         routes.push(
-          make_route(method.method, path, name, run, on_error, log),
+          make_route(
+            method.method,
+            path,
+            name,
+            run,
+            on_error,
+            log,
+            socket ? true : undefined,
+          ),
         );
       }
     }

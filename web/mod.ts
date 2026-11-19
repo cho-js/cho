@@ -87,6 +87,8 @@ export type {
   FeatureRef,
   MethodRef,
   NodeRef,
+  SocketMethodRef,
+  SocketRef,
 } from "./graph.ts";
 export * from "./decorators.ts";
 // The arguments of a handler (`@Args`), and the validation middleware.

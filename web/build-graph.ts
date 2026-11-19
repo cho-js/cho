@@ -23,9 +23,18 @@ import {
   type ErrorHandlerRef,
   FeatureRef,
   MethodRef,
+  type SocketRef,
 } from "./graph.ts";
 import { evaluate_args } from "./args.ts";
-import { doc_of, handler_args, http_route, type HttpRoute } from "./keys.ts";
+import {
+  doc_of,
+  handler_args,
+  http_route,
+  type HttpRoute,
+  SOCKET_DECORATORS,
+  socket_event,
+  type SocketEvent,
+} from "./keys.ts";
 import { normalize_route } from "./path.ts";
 import type {
   ChoWebArg,
@@ -68,6 +77,76 @@ function http_methods(
     }
   }
   return methods;
+}
+
+/** The methods of a controller that handle the events of its socket. */
+type SocketMethods = Partial<Record<SocketEvent, MethodMetadata>>;
+
+/**
+ * The methods of a controller that handle the events of its socket, checked:
+ * a controller has one socket.
+ *
+ * @param meta The controller's metadata.
+ * @param methods The route handlers of the controller.
+ * @returns The method of each event, for a controller with a `@Ws` method;
+ *   `undefined` for a controller with no socket.
+ * @throws {ChoError} `CHO_WEB_INVALID_SOCKET` when the controller has two
+ *   methods for one of the four decorators, an event method with no `@Ws`
+ *   method, or an event method with `@Middlewares`, `@Catch`, `@Args` or
+ *   `@Doc`.
+ */
+function socket_methods(
+  meta: ControllerMetadata,
+  methods: readonly [MethodMetadata, HttpRoute][],
+): SocketMethods | undefined {
+  const controller = describe(meta.provider.provide);
+  const two = (decorator: string, first: string, second: string) =>
+    web_error(
+      "CHO_WEB_INVALID_SOCKET",
+      `Controller ${controller} has two ${decorator} methods, ${first} and ${second}: a controller has one socket, and one method for each of its events. Put the second socket in a controller of its own`,
+    );
+  const upgrades = methods.filter(([, http]) => http.socket);
+  if (upgrades.length > 1) {
+    throw two("@Ws()", upgrades[0]![0].name, upgrades[1]![0].name);
+  }
+  const events: SocketMethods = {};
+  for (const m of meta.methods) {
+    const event = socket_event(m.meta);
+    if (!event) {
+      continue;
+    }
+    const decorator = SOCKET_DECORATORS[event];
+    const previous = events[event];
+    if (previous) {
+      throw two(decorator, previous.name, m.name);
+    }
+    const extra = m.middlewares.length > 0
+      ? "@Middlewares()"
+      : m.errorHandler !== undefined
+      ? "@Catch()"
+      : handler_args(m.meta)
+      ? "@Args()"
+      : doc_of(m.meta)
+      ? "@Doc()"
+      : undefined;
+    if (extra) {
+      throw web_error(
+        "CHO_WEB_INVALID_SOCKET",
+        `${decorator} method ${controller}.${m.name} cannot have ${extra}: an event of a socket has no request. Put ${extra} on the @Ws() method of the controller, which handles the request that is upgraded`,
+      );
+    }
+    events[event] = m;
+  }
+  const declared = Object.keys(events) as SocketEvent[];
+  if (upgrades.length === 0 && declared.length > 0) {
+    throw web_error(
+      "CHO_WEB_INVALID_SOCKET",
+      `Controller ${controller} has ${
+        declared.map((event) => SOCKET_DECORATORS[event]).join(", ")
+      } and no @Ws() method: the events of a socket need the method that upgrades the request`,
+    );
+  }
+  return upgrades.length === 0 ? undefined : events;
 }
 
 /**
@@ -227,12 +306,15 @@ export async function build_http_graph(
     // Routes first: nothing is created for an invalid route.
     const controllers = meta.controllers.flatMap((ctrl) => {
       const methods = http_methods(ctrl);
+      // Before the controller is left out: an event with no @Ws is a mistake.
+      const socket = socket_methods(ctrl, methods);
       if (methods.length === 0) {
         return [];
       }
       const name = describe(ctrl.provider.provide);
       return [{
         ctrl,
+        socket,
         route: get_route(ctrl, `controller ${name}`),
         methods: methods.map(([m, http]) => ({
           m,
@@ -258,8 +340,17 @@ export async function build_http_graph(
       doc_of(meta.options),
     );
 
-    for (const { ctrl, route, methods } of controllers) {
+    for (const { ctrl, route, methods, socket } of controllers) {
       const instance = await injector.resolve(ctrl.provider.provide, mdl.ctr);
+      /** The socket of the controller: its event methods, bound to it. */
+      const socket_ref: SocketRef | undefined = socket && Object.freeze(
+        Object.fromEntries(
+          Object.entries(socket).map(([event, m]) => [event, {
+            name: m.name,
+            handler: instance[m.name].bind(instance),
+          }]),
+        ),
+      );
       const controller = new ControllerRef(
         route,
         await create_middlewares(ctrl.middlewares),
@@ -292,6 +383,7 @@ export async function build_http_graph(
               ...middlewares,
             ].some(is_validation),
             http.sse,
+            http.socket ? socket_ref : undefined,
           ),
         );
       }

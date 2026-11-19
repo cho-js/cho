@@ -11,6 +11,7 @@ import {
   ChoLinker,
   ChoWeb,
   type ChoWebContext,
+  type ChoWebSocket,
   Controller,
   Get,
   HttpError,
@@ -22,6 +23,10 @@ import {
   Query,
   Sse,
   validate,
+  Ws,
+  WsClose,
+  WsMessage,
+  WsOpen,
 } from "@chojs/web";
 import {
   bearerAuth,
@@ -89,6 +94,40 @@ class Orders {
   }
 }
 
+/** What the sockets of the Worker did, for the checks. */
+const socket_log: string[] = [];
+
+@Controller({ route: "chat" })
+class Chat {
+  @Ws(":room")
+  @Args(Param("room"))
+  join(room: string) {
+    if (room === "closed") throw new HttpError(404, "no such room");
+    return { joined: room };
+  }
+
+  @WsOpen()
+  open(socket: ChoWebSocket) {
+    socket_log.push(`open ${socket.ctx.params.room}`);
+    return "welcome";
+  }
+
+  @WsMessage()
+  async message(data: string | Uint8Array, socket: ChoWebSocket) {
+    await Promise.resolve();
+    if (data === "bye") {
+      socket.close(4000, "said bye");
+      return;
+    }
+    return typeof data === "string" ? `echo ${data}` : data;
+  }
+
+  @WsClose()
+  close(code: number, reason: string) {
+    socket_log.push(`close ${code} ${reason}`);
+  }
+}
+
 @Middlewares(
   requestId(),
   secureHeaders(),
@@ -97,7 +136,7 @@ class Orders {
   compress(),
   etag(),
 )
-@Module({ route: "api", providers: [Store], controllers: [Orders] })
+@Module({ route: "api", providers: [Store], controllers: [Orders, Chat] })
 class App {}
 
 // Created at the top level of the module: the global scope of a Worker.
@@ -173,6 +212,41 @@ export default {
       check("OpenAPI document", !!json && "/api/orders/{id}" in json.paths, String(doc.status));
       const page = await call("/docs");
       check("OpenAPI page", page.status === 200 && (await page.text()).includes("swagger"), String(page.status));
+
+      // A WebSocket: on a Worker the handler of the application upgrades.
+      const plain = await call("/api/chat/lobby");
+      check("@Ws without Upgrade is 426", plain.status === 426, String(plain.status));
+      const refused = await call("/api/chat/closed", { headers: { upgrade: "websocket" } });
+      check("@Ws refused by its handler is 404", refused.status === 404, String(refused.status));
+      const upgraded = await call("/api/chat/lobby", { headers: { upgrade: "websocket" } });
+      const client = (upgraded as Response & { webSocket?: WebSocket & { accept(): void } }).webSocket;
+      check("@Ws answers 101 with a socket", upgraded.status === 101 && !!client, String(upgraded.status));
+      check("the headers of the middlewares are on the 101", upgraded.headers.has("x-request-id") && !upgraded.headers.has("content-type"));
+      if (client) {
+        const received: unknown[] = [];
+        const closed = new Promise<{ code: number; reason: string }>((resolve) => {
+          client.addEventListener("close", (event) => resolve({ code: event.code, reason: event.reason }));
+        });
+        const got = (count: number) => new Promise<void>((resolve) => {
+          const look = () => received.length >= count ? resolve() : setTimeout(look, 1);
+          look();
+        });
+        client.addEventListener("message", (event) => {
+          received.push(typeof event.data === "string" ? event.data : [...new Uint8Array(event.data as ArrayBuffer)]);
+        });
+        client.accept();
+        await got(2);
+        check("the first message, then what @WsOpen returns", JSON.stringify(received) === '["{\\"joined\\":\\"lobby\\"}","welcome"]', JSON.stringify(received));
+        client.send("hello");
+        client.send(new Uint8Array([1, 2, 3]));
+        await got(4);
+        check("@WsMessage replies, text and binary", JSON.stringify(received.slice(2)) === '["echo hello",[1,2,3]]', JSON.stringify(received.slice(2)));
+        client.send("bye");
+        const end = await closed;
+        check("the application closes the socket", end.code === 4000 && end.reason === "said bye", JSON.stringify(end));
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        check("@WsOpen and @WsClose ran", JSON.stringify(socket_log) === '["open lobby","close 4000 said bye"]', JSON.stringify(socket_log));
+      }
 
       const none = await call("/nothing");
       check("unknown route is 404", none.status === 404);

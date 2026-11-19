@@ -329,3 +329,166 @@ export type ChoWebDoc = {
    */
   readonly security?: readonly ChoWebDocSecurity[];
 };
+
+/**
+ * A WebSocket of the application: what the methods marked with `@WsOpen`,
+ * `@WsMessage` and `@WsClose` receive, last.
+ *
+ * It is one object for one connection, for its whole life, so it can be kept
+ * in a `Set` or a `Map` to send to the sockets of a room.
+ *
+ * @example
+ * ```ts
+ * @WsMessage()
+ * message(data: string | Uint8Array, socket: ChoWebSocket) {
+ *   for (const other of this.rooms.of(socket.ctx.params.room)) {
+ *     if (other !== socket) other.send(data);
+ *   }
+ * }
+ * ```
+ */
+export type ChoWebSocket = {
+  /**
+   * The context of the request that was upgraded: its `params`, its `url`,
+   * the headers of its `req`, and its `state`, where a middleware put what
+   * it found (the user, say). A controller is one instance for every
+   * connection, so what belongs to one connection is kept here, in
+   * `ctx.state`, and not on the controller.
+   */
+  readonly ctx: ChoWebContext;
+  /** Whether the socket is open: `false` once either side closed it. */
+  readonly open: boolean;
+  /**
+   * Send a message, as a returned value is sent: a string as a text
+   * message, bytes as a binary message, anything else as JSON, and nothing
+   * for `undefined`. On a socket that is not open it does nothing.
+   *
+   * @param data What to send.
+   * @throws {ChoError} `CHO_WEB_INVALID_SOCKET_RESULT` for a value that has
+   *   no JSON.
+   */
+  send(data: unknown): void;
+  /**
+   * Close the socket. The method marked with `@WsClose` runs with this code
+   * and this reason. On a socket that is not open it does nothing.
+   *
+   * @param code The close code. Default: `1000`.
+   * @param reason The reason, a short text. Default: none.
+   */
+  close(code?: number, reason?: string): void;
+  /**
+   * The socket of the runtime: a `WebSocket` on Deno and on Cloudflare
+   * Workers, a `ServerWebSocket` on Bun, and the connection of `node:http`
+   * on Node.js.
+   */
+  readonly native: unknown;
+};
+
+/**
+ * What an upgraded connection can do, given by the code that upgraded it to
+ * {@link ChoWebUpgrade.accept}: a runtime, or an adapter.
+ */
+export type ChoWebSocketIo = {
+  /** Send a text message (a string) or a binary one (bytes). */
+  send(data: string | Uint8Array): void;
+  /** Close the connection, with a close code and a reason. */
+  close(code: number, reason: string): void;
+  /** The socket of the runtime: `ChoWebSocket.native`. */
+  readonly native: unknown;
+};
+
+/**
+ * Where the code that upgraded a connection gives what the connection
+ * receives: what {@link ChoWebUpgrade.accept} returns.
+ */
+export type ChoWebSocketEvents = {
+  /** A message arrived: text as a string, binary as bytes. */
+  message(data: string | Uint8Array): void;
+  /**
+   * The connection is closed. Call it once, whoever closed it, with `1006`
+   * for a connection that was cut.
+   */
+  closed(code: number, reason: string): void;
+};
+
+/**
+ * An upgrade a route accepted: what `ChoWeb.upgrade` resolves with. It is for
+ * the code that holds the connection: `serve`, or an adapter with a server
+ * of its own.
+ *
+ * @example
+ * ```ts
+ * const upgrade = await app.upgrade(request);
+ * if (upgrade instanceof Response) return upgrade; // refused
+ * const socket = my_runtime.upgrade(request, upgrade.headers);
+ * const events = upgrade.accept({
+ *   send: (data) => socket.send(data),
+ *   close: (code, reason) => socket.close(code, reason),
+ *   native: socket,
+ * });
+ * socket.on("message", (data) => events.message(data));
+ * socket.on("close", (code, reason) => events.closed(code, reason));
+ * ```
+ */
+export type ChoWebUpgrade = {
+  /**
+   * The headers the middlewares of the route added to the answer, to send
+   * with the `101` where the runtime takes headers.
+   */
+  readonly headers: Headers;
+  /**
+   * Start the socket, once the connection is upgraded: the first message is
+   * sent, and the method marked with `@WsOpen` runs. Call it once.
+   *
+   * @param io What the connection can do.
+   * @returns Where to give what the connection receives.
+   */
+  accept(io: ChoWebSocketIo): ChoWebSocketEvents;
+};
+
+/**
+ * The decorator `@WsOpen` returns. It only accepts a method that takes the
+ * socket, or nothing.
+ *
+ * It has both decorator call shapes: standard (TC39) `(method, context)`, and
+ * legacy / Bun `(prototype, name, descriptor)`.
+ */
+export type ChoWebWsOpenDecorator = ChoWebWsEventDecorator<
+  [socket: ChoWebSocket]
+>;
+
+/**
+ * The decorator `@WsMessage` returns. It only accepts a method that takes
+ * the message, a string or bytes, and then the socket.
+ */
+export type ChoWebWsMessageDecorator = ChoWebWsEventDecorator<
+  [data: string | Uint8Array, socket: ChoWebSocket]
+>;
+
+/**
+ * The decorator `@WsClose` returns. It only accepts a method that takes the
+ * close code, the reason, and then the socket.
+ */
+export type ChoWebWsCloseDecorator = ChoWebWsEventDecorator<
+  [code: number, reason: string, socket: ChoWebSocket]
+>;
+
+/**
+ * A decorator of a method that handles an event of a socket: the method is
+ * called with `Args`, and can take fewer of them.
+ *
+ * @typeParam Args What the method is called with.
+ */
+export type ChoWebWsEventDecorator<Args extends unknown[]> = {
+  // deno-lint-ignore no-explicit-any
+  <M extends (this: any, ...args: Args) => unknown>(
+    method: M,
+    context: ClassMethodDecoratorContext,
+  ): void;
+  // deno-lint-ignore no-explicit-any
+  <M extends (this: any, ...args: Args) => unknown>(
+    target: object,
+    name: string | symbol,
+    descriptor: TypedPropertyDescriptor<M>,
+  ): void;
+};

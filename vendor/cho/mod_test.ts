@@ -12,12 +12,15 @@ import {
   ChoLinker,
   ChoWeb,
   type ChoWebContext,
+  type ChoWebSocket,
   Controller,
   Get,
   Middlewares,
   Module,
   Post,
   Sse,
+  Ws,
+  WsMessage,
 } from "@chojs/web";
 import { legacy, loose } from "@chojs/core/utils/test_utils";
 import * as vendor from "./mod.ts";
@@ -132,6 +135,91 @@ routed("the middlewares, together on the built-in router", () => {
       "201",
       "204",
     ]);
+  });
+
+  it("lets a route upgrade to a WebSocket through every one of them", async () => {
+    const seen: unknown[] = [];
+    class Chat {
+      join(ctx: ChoWebContext) {
+        return { id: ctx.state.get(vendor.REQUEST_ID) };
+      }
+      message(data: string, socket: ChoWebSocket) {
+        seen.push([data, socket.ctx.state.get(vendor.REQUEST_ID)]);
+        return `echo ${data}`;
+      }
+    }
+    legacy(Ws("live"), Chat, "join");
+    legacy(loose(WsMessage()), Chat, "message");
+    legacy(
+      Middlewares(
+        vendor.basicAuth({ username: "ada", password: "s3cret" }),
+        vendor.etag(),
+      ),
+      Chat,
+      "join",
+    );
+    Controller({ route: "chat" })(Chat);
+    class App {}
+    Module({ controllers: [Chat] })(App);
+    const app = await ChoWeb.create(App, {
+      linker: new ChoLinker({
+        middlewares: [
+          vendor.logger({ log: (line) => lines.push(line) }),
+          vendor.requestId(),
+          vendor.cors({ origin: "https://example.com" }),
+          vendor.secureHeaders(),
+          vendor.compress({ threshold: 0 }),
+          vendor.etag(),
+          vendor.bodyLimit({ maxSize: 20 }),
+          vendor.timeout({ ms: 1000 }),
+        ],
+      }),
+    });
+    const asking = (headers: Record<string, string> = {}) =>
+      new Request("http://localhost/chat/live", {
+        headers: {
+          upgrade: "websocket",
+          origin: "https://example.com",
+          "accept-encoding": "gzip",
+          "x-request-id": "abc-7",
+          ...headers,
+        },
+      });
+
+    // refused before the upgrade, as any request
+    const refused = await app.upgrade(asking());
+    assert.ok(refused instanceof Response);
+    assert.equal(refused.status, 401);
+
+    const upgrade = await app.upgrade(
+      asking({ authorization: `Basic ${btoa("ada:s3cret")}` }),
+    );
+    assert.ok(!(upgrade instanceof Response));
+    // the headers of the middlewares go with the 101, without those that
+    // describe a body: it has none
+    assert.deepEqual(
+      [
+        "x-request-id",
+        "access-control-allow-origin",
+        "x-content-type-options",
+        "content-encoding",
+        "content-type",
+        "content-length",
+        "etag",
+      ].map((name) => upgrade.headers.get(name)),
+      ["abc-7", "https://example.com", "nosniff", null, null, null, null],
+    );
+    const sent: unknown[] = [];
+    const events = upgrade.accept({
+      send: (data) => void sent.push(data),
+      close() {},
+      native: undefined,
+    });
+    events.message("hi");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(sent, ['{"id":"abc-7"}', "echo hi"]);
+    assert.deepEqual(seen, [["hi", "abc-7"]]);
+    await app.close();
   });
 
   it("passes a stream of server-sent events through every one of them", async () => {

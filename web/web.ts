@@ -25,7 +25,17 @@ import { ChoLinker, type ChoRouter } from "./router.ts";
 import { normalize_route } from "./path.ts";
 import { to_response } from "./response.ts";
 import { compile_routes, make_route, route_key } from "./routes.ts";
-import type { ChoWebErrorHandler, ChoWebMiddlewareFn } from "./types.ts";
+import {
+  close_connections,
+  type Connection,
+  take_upgrade,
+  upgrade_here,
+} from "./socket.ts";
+import type {
+  ChoWebErrorHandler,
+  ChoWebMiddlewareFn,
+  ChoWebUpgrade,
+} from "./types.ts";
 
 /** The HTTP methods a mounted route can answer. */
 const MOUNT_METHODS = [
@@ -180,12 +190,20 @@ export class ChoWeb<T = unknown> {
   readonly #routes: Route[];
   /** The routes {@link mount} added. */
   readonly #mounted = new Set<Route>();
+  /** The open sockets of the application: {@link close} closes them. */
+  readonly #sockets = new Set<Connection>();
   /**
    * The request handler of the application: a `fetch`-style function that
    * takes a `Request` and resolves to a `Response`. It is the handler of the
    * linked runtime (`linked.handler`), with whatever other arguments the
    * server gives it, until the application is closed: after {@link close}, it
    * answers `503 Service Unavailable` without running any route.
+   *
+   * For a route that upgrades its request to a WebSocket (`@Ws`), it does
+   * the upgrade on the runtimes where a `Response` carries it: Deno and
+   * Cloudflare Workers. On Bun and on Node.js the connection is upgraded by
+   * who holds it: `serve` of `@chojs/web/serve`, which calls
+   * {@link upgrade}. There, this handler answers `426 Upgrade Required`.
    *
    * @example Deno
    * ```ts
@@ -198,6 +216,33 @@ export class ChoWeb<T = unknown> {
    * ```
    */
   readonly handler: (req: Request) => Promise<Response>;
+  /**
+   * Run the route of a request that asks to be upgraded to a WebSocket, and
+   * resolve with what the route decided. It is for the code that holds the
+   * connection: `serve` of `@chojs/web/serve` on Bun and on Node.js, or an
+   * adapter with a server of its own.
+   *
+   * - **An upgrade**, when the route accepted: upgrade the connection, then
+   *   give what it can do to `accept`.
+   * - **A `Response`** in every other case, to answer the request with: what
+   *   refused the connection (a middleware, an `HttpError`, a `Response` of
+   *   the handler), `404` when no route matches, `426` for a request that
+   *   does not ask for an upgrade, and `503` once the application is closed.
+   *
+   * @param req The request. The route must receive this same object: a
+   *   middleware that replaces the request refuses the upgrade.
+   * @returns The upgrade, or the response.
+   *
+   * @example
+   * ```ts
+   * const upgrade = await app.upgrade(request);
+   * if (upgrade instanceof Response) {
+   *   return upgrade;
+   * }
+   * const events = upgrade.accept({ send, close, native });
+   * ```
+   */
+  readonly upgrade: (req: Request) => Promise<ChoWebUpgrade | Response>;
 
   /**
    * Create the web application of a root module.
@@ -314,12 +359,23 @@ export class ChoWeb<T = unknown> {
     // handler's `length`, and gives no request to a function that declares
     // no parameter.
     type Fetch = (req: Request, ...rest: unknown[]) => Promise<Response>;
-    this.handler = (req: Request, ...rest: unknown[]) =>
+    const answer = (req: Request, rest: unknown[]) =>
       this.#closed
         ? Promise.resolve(
           new Response("Service Unavailable", { status: 503 }),
         )
         : (linked.handler as Fetch).call(linked, req, ...rest);
+    this.handler = async (req: Request, ...rest: unknown[]) => {
+      const response = await answer(req, rest);
+      // A route that accepted an upgrade answered 426: the upgrade is done
+      // here where the runtime lets a `Response` carry it.
+      const upgrade = take_upgrade(req, response, this.#sockets);
+      return (upgrade && upgrade_here(req, upgrade)) ?? response;
+    };
+    this.upgrade = async (req: Request, ...rest: unknown[]) => {
+      const response = await answer(req, rest);
+      return take_upgrade(req, response, this.#sockets) ?? response;
+    };
   }
 
   /**
@@ -439,6 +495,10 @@ export class ChoWeb<T = unknown> {
    * module that has a `[Symbol.asyncDispose]()` or `[Symbol.dispose]()`
    * method is disposed, in reverse creation order (see `Injector.dispose`).
    *
+   * The open sockets of the application are closed first, with the code
+   * `1001` (Going Away): the method marked with `@WsClose` of each runs, and
+   * is waited for, before anything is disposed.
+   *
    * Call it when the server has stopped: `@chojs/web` does not run the
    * server, so it cannot know. Requests still in flight keep the instances
    * they hold, disposed or not; a request that arrives afterwards is answered
@@ -459,9 +519,11 @@ export class ChoWeb<T = unknown> {
    * });
    * ```
    */
-  close(): Promise<void> {
+  async close(): Promise<void> {
     this.#closed = true;
-    return this.injector.dispose();
+    // The sockets first: their `@WsClose` methods use what is disposed next.
+    await close_connections(this.#sockets);
+    await this.injector.dispose();
   }
 
   /** Close the application at the end of an `await using` block. */

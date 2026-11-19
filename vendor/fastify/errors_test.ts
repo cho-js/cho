@@ -9,6 +9,7 @@ const CODES: Record<ChoFastifyErrorCode, true> = {
   CHO_FASTIFY_ALREADY_LINKED: true,
   CHO_FASTIFY_HOOK_FAILED: true,
   CHO_FASTIFY_MOUNT_TOO_LATE: true,
+  CHO_FASTIFY_NO_SOCKET: true,
   CHO_FASTIFY_WRONG_ADAPTER: true,
 };
 

@@ -492,14 +492,38 @@ describe("serve", () => {
     });
   });
 
-  it("rejects what is not a handler", async () => {
-    await assert.rejects(
-      // deno-lint-ignore no-explicit-any
-      serve({ handler: () => new Response("") } as any),
-      {
-        code: "CHO_WEB_INVALID_HANDLER",
-        message: "serve() expects a request handler, such as app.handler",
-      },
+  it("rejects what is neither an application nor a handler", async () => {
+    for (
+      const given of [
+        undefined,
+        null,
+        "handler",
+        {},
+        { handler: "app.handler" },
+        { handler: () => new Response(""), upgrade: "app.upgrade" },
+      ]
+    ) {
+      await assert.rejects(
+        // deno-lint-ignore no-explicit-any
+        serve(given as any),
+        {
+          code: "CHO_WEB_INVALID_HANDLER",
+          message:
+            "serve() expects an application, or a request handler such as app.handler",
+        },
+      );
+    }
+  });
+
+  it("serves an application: an object with a handler", {
+    skip: !SERVES && "this runtime has no server",
+  }, async () => {
+    const server = await serve(
+      { handler: () => new Response("from the application") },
+      { port: 0, hostname: "127.0.0.1" },
     );
+    const response = await fetch(`http://127.0.0.1:${server.port}/`);
+    assert.equal(await response.text(), "from the application");
+    await server.close();
   });
 });

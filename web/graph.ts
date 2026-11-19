@@ -78,6 +78,27 @@ export abstract class NodeRef {
   }
 }
 
+/** A method of a controller that handles an event of its socket. */
+export type SocketMethodRef = {
+  /** The name of the method on the controller. */
+  readonly name: string;
+  /** Calls the method on its controller instance. */
+  readonly handler: (...args: unknown[]) => unknown;
+};
+
+/**
+ * The socket of a controller: the methods that handle its events. An event
+ * with no method is not there.
+ */
+export type SocketRef = {
+  /** The method marked with `@WsOpen`. */
+  readonly open?: SocketMethodRef;
+  /** The method marked with `@WsMessage`. */
+  readonly message?: SocketMethodRef;
+  /** The method marked with `@WsClose`. */
+  readonly close?: SocketMethodRef;
+};
+
 /** A route handler: a controller method marked with `@Get`, `@Post`, ... */
 export class MethodRef extends NodeRef {
   /** The name of the method on the controller. */
@@ -103,6 +124,11 @@ export class MethodRef extends NodeRef {
    * other handler.
    */
   readonly sse: ChoWebSseOptions | undefined;
+  /**
+   * The socket of the controller, when the handler upgrades its request to
+   * a WebSocket (`@Ws`); `undefined` for any other handler.
+   */
+  readonly socket: SocketRef | undefined;
 
   /**
    * Create a route handler node.
@@ -119,6 +145,8 @@ export class MethodRef extends NodeRef {
    *   Default: `false`.
    * @param sse The options of `@Sse`, for a handler that answers with a
    *   stream of events. Default: `undefined`.
+   * @param socket The socket of the controller, for a handler marked with
+   *   `@Ws`. Default: `undefined`.
    */
   constructor(
     name: string,
@@ -131,6 +159,7 @@ export class MethodRef extends NodeRef {
     doc: ChoWebDoc = {},
     validated = false,
     sse?: ChoWebSseOptions,
+    socket?: SocketRef,
   ) {
     super(route, middlewares, errorHandler, doc);
     this.name = name;
@@ -139,6 +168,7 @@ export class MethodRef extends NodeRef {
     this.args = args;
     this.validated = validated;
     this.sse = sse;
+    this.socket = socket;
   }
 }
 

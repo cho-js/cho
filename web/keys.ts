@@ -11,7 +11,10 @@
 
 import type { ChoWebArg, ChoWebDoc, ChoWebSseOptions } from "./types.ts";
 
-/** The route of a handler method, written by `@Get`, `@Post`, ... and `@Sse`. */
+/**
+ * The route of a handler method, written by `@Get`, `@Post`, ..., `@Sse` and
+ * `@Ws`.
+ */
 export const HTTP: unique symbol = Symbol.for("chojs.web.http");
 
 /** What an HTTP method decorator declares about a handler method. */
@@ -25,6 +28,11 @@ export type HttpRoute = {
    * answers with a stream of server-sent events.
    */
   readonly sse?: ChoWebSseOptions;
+  /**
+   * `true` when `@Ws` declared the route: the handler upgrades the request
+   * to a WebSocket.
+   */
+  readonly socket?: true;
 };
 
 /**
@@ -37,6 +45,32 @@ export type HttpRoute = {
  */
 export function http_route(record: object): HttpRoute | undefined {
   return (record as { readonly [HTTP]?: HttpRoute })[HTTP];
+}
+
+/**
+ * The event of a socket a method handles, written by `@WsOpen`, `@WsMessage`
+ * and `@WsClose`.
+ */
+export const WS: unique symbol = Symbol.for("chojs.web.ws");
+
+/** An event of a socket that a method of a controller can handle. */
+export type SocketEvent = "open" | "message" | "close";
+
+/** The decorator of each event of a socket, for error messages. */
+export const SOCKET_DECORATORS: Readonly<Record<SocketEvent, string>> = {
+  open: "@WsOpen()",
+  message: "@WsMessage()",
+  close: "@WsClose()",
+};
+
+/**
+ * The event of a socket a method record declares, if any.
+ *
+ * @param record A method's metadata.
+ * @returns The event, or `undefined` when the method handles none.
+ */
+export function socket_event(record: object): SocketEvent | undefined {
+  return (record as { readonly [WS]?: SocketEvent })[WS];
 }
 
 /** The arguments of a handler method, written by `@Args`. */

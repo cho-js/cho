@@ -187,9 +187,18 @@ export class FastifyLinked implements Linked<FastifyInstance> {
    * until then.
    *
    * @param route The route to register.
-   * @throws {ChoError} When Fastify has loaded its plugins.
+   * @throws {ChoError} When Fastify has loaded its plugins, and for a route
+   *   that upgrades its request to a WebSocket (`@Ws`): Fastify holds the
+   *   server, and this adapter does not upgrade its connections.
    */
   mount(route: Route): void {
+    // Now, and not at the first connection, which would get a 426.
+    if (route.socket) {
+      throw fastify_error(
+        "CHO_FASTIFY_NO_SOCKET",
+        `FastifyLinker cannot register ${route.name} (${route.method} ${route.path}): the route upgrades its request to a WebSocket, and this adapter does not upgrade connections. Serve the application with serve() of @chojs/web/serve, which does`,
+      );
+    }
     if (this.#loaded) {
       throw fastify_error(
         "CHO_FASTIFY_MOUNT_TOO_LATE",

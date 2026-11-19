@@ -7,6 +7,9 @@
  *   which the web graph builder reads (see `build-graph.ts`).
  * - `@Sse` marks a route handler that answers with a stream of server-sent
  *   events (see `sse.ts`).
+ * - `@Ws` marks the handler that upgrades a request to a WebSocket, and
+ *   `@WsOpen`, `@WsMessage` and `@WsClose` the methods of the same controller
+ *   that handle the events of the socket (see `socket.ts`).
  * - `@Module` and `@Controller` are the core's decorators, with the `route`
  *   option of `@chojs/web`. They accept no other option.
  * - `@Middlewares` and `@Catch` declare the middlewares and the error handler
@@ -48,6 +51,10 @@ import {
   HTTP,
   http_route,
   type HttpRoute,
+  SOCKET_DECORATORS,
+  socket_event,
+  type SocketEvent,
+  WS,
 } from "./keys.ts";
 import { normalize_route } from "./path.ts";
 import type {
@@ -61,6 +68,9 @@ import type {
   ChoWebSseDecorator,
   ChoWebSseMethod,
   ChoWebSseOptions,
+  ChoWebWsCloseDecorator,
+  ChoWebWsMessageDecorator,
+  ChoWebWsOpenDecorator,
 } from "./types.ts";
 
 /** The option `@chojs/web` adds to `@Module` and `@Controller`. */
@@ -157,6 +167,7 @@ export function Controller<const D extends readonly Dependency[] = []>(
  * @param route The route of the handler, relative to its controller.
  * @param method The HTTP method.
  * @param sse The options of `@Sse`, when it is the decorator.
+ * @param socket `true` for `@Ws`: the handler upgrades its request.
  * @returns A method decorator.
  */
 function create_http_decorator(
@@ -164,6 +175,7 @@ function create_http_decorator(
   route: string,
   method: string,
   sse?: ChoWebSseOptions,
+  socket?: true,
 ): ChoMethodDecorator {
   return function (target, context, descriptor) {
     const decorator = `@${name}()`;
@@ -188,7 +200,8 @@ function create_http_decorator(
       );
     }
     normalize_route(route, `${decorator} on ${of}`);
-    const previous = http_route(read_metadata_object(decorated.meta) ?? {});
+    const record = read_metadata_object(decorated.meta) ?? {};
+    const previous = http_route(record);
     if (previous) {
       throw web_error(
         "CHO_WEB_DUPLICATE_DECORATOR",
@@ -197,12 +210,237 @@ function create_http_decorator(
         }. A method can have one HTTP method decorator.`,
       );
     }
+    assert_no_socket_event(decorator, of, record);
     add_to_metadata_object(decorated.meta, {
       [HTTP]: Object.freeze(
-        { method, route, ...(sse ? { sse } : {}) } satisfies HttpRoute,
+        {
+          method,
+          route,
+          ...(sse ? { sse } : {}),
+          ...(socket ? { socket } : {}),
+        } satisfies HttpRoute,
       ),
     });
   };
+}
+
+/**
+ * Throw if a method already handles an event of a socket: a method has one
+ * decorator of `@chojs/web` that says what it handles.
+ *
+ * @param decorator The decorator being added, for the error message.
+ * @param of The method, for the error message.
+ * @param record The record of the method.
+ */
+function assert_no_socket_event(
+  decorator: string,
+  of: string,
+  record: object,
+): void {
+  const event = socket_event(record);
+  if (event) {
+    throw web_error(
+      "CHO_WEB_DUPLICATE_DECORATOR",
+      `Cannot add ${decorator} to ${of}: it already has ${
+        SOCKET_DECORATORS[event]
+      }. A method handles a request, or one event of a socket.`,
+    );
+  }
+}
+
+/**
+ * Make the decorator of an event of a socket. It writes the event on the
+ * decorated method, under the private `WS` key.
+ *
+ * Like an HTTP method decorator, it checks its target when the class is
+ * defined: a public, non-static method with a string name, which handles
+ * nothing else.
+ *
+ * @param event The event the method handles.
+ * @returns A method decorator.
+ */
+function create_socket_decorator(event: SocketEvent): ChoMethodDecorator {
+  return function (target, context, descriptor) {
+    const decorator = SOCKET_DECORATORS[event];
+    const decorated = decorated_method(decorator, target, context, descriptor);
+    const of = `method ${String(decorated.name)}`;
+    if (typeof decorated.name !== "string") {
+      throw web_error(
+        "CHO_WEB_INVALID_TARGET",
+        `${decorator} cannot decorate ${of}: a handler must have a string name`,
+      );
+    }
+    if (decorated.private) {
+      throw web_error(
+        "CHO_WEB_INVALID_TARGET",
+        `${decorator} cannot decorate private ${of}: a handler must be public`,
+      );
+    }
+    if (decorated.static) {
+      throw web_error(
+        "CHO_WEB_INVALID_TARGET",
+        `${decorator} cannot decorate static ${of}: a handler must not be static`,
+      );
+    }
+    const record = read_metadata_object(decorated.meta) ?? {};
+    const previous = http_route(record);
+    if (previous) {
+      throw web_error(
+        "CHO_WEB_DUPLICATE_DECORATOR",
+        `Cannot add ${decorator} to ${of}: it already handles ${previous.method} ${
+          JSON.stringify(previous.route)
+        }. A method handles a request, or one event of a socket.`,
+      );
+    }
+    assert_no_socket_event(decorator, of, record);
+    add_to_metadata_object(decorated.meta, { [WS]: event });
+  };
+}
+
+/**
+ * Mark a method as the handler that upgrades a request to a
+ * [WebSocket](https://developer.mozilla.org/docs/Web/API/WebSockets_API):
+ * `GET route`, with the header `Upgrade: websocket`.
+ *
+ * The method is an ordinary `GET` handler, and it runs once for each
+ * connection, before there is a socket: the middlewares of the feature, of
+ * the controller and its own run before it, and it has `@Args`, `validate()`
+ * and `@Catch` as any handler.
+ *
+ * - **To accept the connection**, it returns. What it returns is the first
+ *   message of the socket, sent when the socket opens: a string as a text
+ *   message, bytes as a binary message, anything else as JSON. When it
+ *   returns nothing, nothing is sent.
+ * - **To refuse it**, it throws an `HttpError`, or returns a `Response`: the
+ *   request is answered, and no socket opens. A middleware that answers
+ *   refuses it the same way.
+ * - A request that does not ask for an upgrade is answered `426 Upgrade
+ *   Required`, before any middleware runs.
+ *
+ * The events of the socket are handled by the methods of the same controller
+ * marked with {@link WsOpen}, {@link WsMessage} and {@link WsClose}. A
+ * controller has one socket: one method at most for each of the four
+ * decorators.
+ *
+ * The connection is upgraded by `app.handler` on Deno and on Cloudflare
+ * Workers, and by `serve` of `@chojs/web/serve` on Bun and on Node.js.
+ *
+ * @param route The route of the handler, relative to its controller, without
+ *   leading or trailing `/`. It can declare parameters (`":room"`); `""`,
+ *   the default, is the controller's own route.
+ * @returns A method decorator.
+ * @throws {ChoError} When the route is invalid, when the method already
+ *   handles a request or an event of a socket, or when the decorated member
+ *   is not a public, non-static, string-named method.
+ *
+ * @example
+ * ```ts
+ * @Controller({ route: "chat" })
+ * class ChatController {
+ *   // GET /chat/:room, with "Upgrade: websocket"
+ *   @Ws(":room")
+ *   @Args(Param("room"))
+ *   join(room: string) {
+ *     if (!this.rooms.has(room)) throw new HttpError(404);
+ *     return { joined: room }; // the first message
+ *   }
+ *
+ *   @WsMessage()
+ *   message(data: string | Uint8Array, socket: ChoWebSocket) {
+ *     return { room: socket.ctx.params.room, received: data.length };
+ *   }
+ * }
+ * ```
+ */
+export function Ws(route: string = ""): ChoMethodDecorator {
+  return create_http_decorator("Ws", route, "GET", undefined, true);
+}
+
+/**
+ * Mark a method as what runs when the socket of its controller opens: after
+ * the first message was sent, and before any message is handled.
+ *
+ * The method receives the socket. What it returns is sent on the socket, as
+ * what {@link Ws} returns is; nothing is sent when it returns nothing. It
+ * can be asynchronous: no message is handled before it ends.
+ *
+ * @returns A method decorator, which only accepts a method that takes the
+ *   socket.
+ * @throws {ChoError} When the method already handles a request or an event,
+ *   or when the decorated member is not a public, non-static, string-named
+ *   method.
+ *
+ * @example
+ * ```ts
+ * @WsOpen()
+ * open(socket: ChoWebSocket) {
+ *   this.rooms.add(socket.ctx.params.room, socket);
+ * }
+ * ```
+ */
+export function WsOpen(): ChoWebWsOpenDecorator {
+  return create_socket_decorator("open") as ChoWebWsOpenDecorator;
+}
+
+/**
+ * Mark a method as the handler of the messages of the socket of its
+ * controller.
+ *
+ * The method receives the message, then the socket: a text message is a
+ * string, and a binary one is a `Uint8Array`, on every runtime. What it
+ * returns is sent back on the socket: a string as a text message, bytes as a
+ * binary message, anything else as JSON, and nothing when it returns
+ * nothing.
+ *
+ * - It can be asynchronous. The messages of one socket are handled one after
+ *   another, in the order they arrived; two sockets do not wait for each
+ *   other.
+ * - When it throws, the error is logged to the `cho:web` debug context, and
+ *   the socket is closed with the code `1011`.
+ *
+ * @returns A method decorator, which only accepts a method that takes the
+ *   message and the socket.
+ * @throws {ChoError} When the method already handles a request or an event,
+ *   or when the decorated member is not a public, non-static, string-named
+ *   method.
+ *
+ * @example
+ * ```ts
+ * @WsMessage()
+ * async message(data: string | Uint8Array, socket: ChoWebSocket) {
+ *   const saved = await this.store.add(socket.ctx.params.room, data);
+ *   return { id: saved.id }; // sent back, as JSON
+ * }
+ * ```
+ */
+export function WsMessage(): ChoWebWsMessageDecorator {
+  return create_socket_decorator("message") as ChoWebWsMessageDecorator;
+}
+
+/**
+ * Mark a method as what runs when the socket of its controller is closed,
+ * by either side, or because its connection was cut (the code `1006`).
+ *
+ * The method receives the close code, the reason, and the socket. It runs
+ * once for each socket that was opened, after every message that arrived
+ * before. The socket is closed: what the method returns is not sent.
+ *
+ * @returns A method decorator, which only accepts a method that takes the
+ *   code, the reason and the socket.
+ * @throws {ChoError} When the method already handles a request or an event,
+ *   or when the decorated member is not a public, non-static, string-named
+ *   method.
+ *
+ * @example
+ * ```ts
+ * @WsClose()
+ * close(code: number, reason: string, socket: ChoWebSocket) {
+ *   this.rooms.remove(socket.ctx.params.room, socket);
+ * }
+ * ```
+ */
+export function WsClose(): ChoWebWsCloseDecorator {
+  return create_socket_decorator("close") as ChoWebWsCloseDecorator;
 }
 
 /** The HTTP methods of `@Sse`. */

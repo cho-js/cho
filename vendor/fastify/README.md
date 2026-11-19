@@ -201,6 +201,7 @@ created is one of them. Once Fastify is ready, `app.mount` throws.
 | When routes exist   | Once the Fastify application is ready: `listen()`, `ready()` and `app.handler` wait for it                                       |
 | Mounted routes      | `app.mount` adds a route until the Fastify application is ready: after `listen()`, `ready()` or a first `app.handler`, it throws |
 | One linker, one app | A second `link()` on the same linker throws: its Fastify application already holds the routes of the first                       |
+| WebSockets          | Not upgraded: Fastify holds the server. A route marked with `@Ws` is refused when the application is created                     |
 
 ## Errors
 
@@ -214,6 +215,7 @@ people, and can change.
 | A route mounted once Fastify is ready | `CHO_FASTIFY_MOUNT_TOO_LATE` | `FastifyLinked.mount(): cannot add GET /b: the Fastify application is ready. Mount routes before listen(), ready() and the first request` |
 | `fromFastify` on another adapter      | `CHO_FASTIFY_WRONG_ADAPTER`  | `fromFastify(): a Fastify hook runs on the Fastify adapter only: create the application with a FastifyLinker`                             |
 | A hook that fails with no error       | `CHO_FASTIFY_HOOK_FAILED`    | `the hook rejected` (or `the hook threw`)                                                                                                 |
+| A route that upgrades to a WebSocket  | `CHO_FASTIFY_NO_SOCKET`      | `FastifyLinker cannot register ChatController.join (GET /chat/:room): the route upgrades its request to a WebSocket, …`                   |
 
 The last two fail the request: they go to the error handlers of the route. An
 error a hook fails with is passed on as it is.

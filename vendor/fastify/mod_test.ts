@@ -286,6 +286,23 @@ suite("FastifyLinker.link", () => {
     });
   });
 
+  it("refuses a route that upgrades to a WebSocket, when it is registered", () => {
+    const socket: Route = {
+      ...echo("GET", "/chat/:room"),
+      name: "ChatController.join",
+      socket: true,
+    };
+    const expected = {
+      code: "CHO_FASTIFY_NO_SOCKET",
+      message:
+        "FastifyLinker cannot register ChatController.join (GET /chat/:room): the route upgrades its request to a WebSocket, and this adapter does not upgrade connections. Serve the application with serve() of @chojs/web/serve, which does",
+    };
+    assert.throws(() => new FastifyLinker().link([socket]), expected);
+    // and a route mounted afterwards
+    const linked = new FastifyLinker().link([echo("GET", "/x")]);
+    assert.throws(() => linked.mount(socket), expected);
+  });
+
   it("gives a route that rejects to Fastify's error handler", async () => {
     const boom: Route = {
       ...echo("GET", "/x"),

@@ -415,7 +415,9 @@ export function openApiDocument(
       for (const method of controller.methods) {
         const docs = [feature.doc, controller.doc, method.doc];
         const verb = METHODS[method.method];
-        if (docs.some((doc) => doc.hidden) || !verb) {
+        // A route that upgrades to a WebSocket is not an operation: OpenAPI
+        // describes requests and responses.
+        if (docs.some((doc) => doc.hidden) || !verb || method.socket) {
           continue;
         }
         const name = `${
