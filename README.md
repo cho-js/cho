@@ -27,7 +27,7 @@ TypeScript.
 | [`@chojs/openapi`](./extras/openapi/README.md)        | [![JSR](https://jsr.io/badges/@chojs/openapi)](https://jsr.io/@chojs/openapi)               | The OpenAPI document of a `@chojs/web` application, and its page      |
 | [`@chojs/core`](./core/README.md)                     | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)                     | The dependency injection engine underneath                            |
 
-CHO is a tiny decorator-based framework for building modular applications. It
+CHO is an enterprise ready decorator-based framework for building modular applications. It
 uses modern JavaScript decorators (see
 [About JavaScript Decorators](#about-javascript-decorators)) to provide a clean
 and efficient way to define the structure of an application.
