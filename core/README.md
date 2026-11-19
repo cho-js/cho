@@ -23,6 +23,7 @@ asynchronous, decorator-driven, and free of reflection.
 - [At a glance](#at-a-glance)
 - [Concepts](#concepts)
 - [Lifecycle](#lifecycle)
+- [Configuring a module](#configuring-a-module)
 - [Testing with overrides](#testing-with-overrides)
 - [Writing a CHO module](#writing-a-cho-module)
 - [Errors](#errors)
@@ -101,9 +102,11 @@ Three rules shape every application:
   to a request lives in the request's context, not in the container.
 - **Every dependency is required.** A missing one is a wiring error, reported by
   `new Injector()`.
-- **Modules are not configured.** Configuration belongs to the creation of a
-  value: a library ships classes, and the application declares the providers
-  that construct them.
+- **A module is a fixed declaration.** Configuration belongs to the creation of
+  a value: a library ships classes, and the application declares the providers
+  that construct them. A library that ships a module is given what it needs with
+  [`configure`](#configuring-a-module), which makes a module of your own from
+  it.
 
 ## Lifecycle
 
@@ -130,6 +133,58 @@ class Db {
 
 The injector never disposes on its own. Whatever runs the application decides
 when: `ChoWeb.close()` and `ChoCommand.close()` call it.
+
+## Configuring a module
+
+A module is a fixed declaration: it takes no parameters. A library that ships a
+module leaves a placeholder for what it needs, and `configure` makes a module of
+your own from it, with more imports and more providers:
+
+```ts
+import { configure, provider } from "@chojs/core";
+import { MAIL_OPTIONS, MailModule } from "some-library";
+
+export const Mail = configure(MailModule, {
+  imports: [ConfigModule],
+  providers: [
+    provider({
+      provide: MAIL_OPTIONS,
+      deps: [Config],
+      factory: (config) => ({ from: config.mailFrom }),
+    }),
+  ],
+});
+
+@Module({ imports: [Mail] })
+class App {}
+```
+
+- **The module of the library does not change.** `configure` returns a new
+  module, a class that extends it, with everything it has.
+- **A provider you give for a token the module already provides replaces it.**
+  That is the placeholder: a provider of the library that throws, or a default.
+- **Your providers depend on what you give them**: on the imports you add, and
+  on what the module declares.
+- **Keep the result in a constant, and import that constant everywhere.** Each
+  call makes one more module, with instances of its own, and the new module is
+  not the one it was made from: a module that imports the original does not get
+  yours.
+- Only imports and providers: not controllers, exports or a route.
+
+To write such a library, declare the placeholder as a provider whose factory
+throws, with a message that says what to give:
+
+```ts
+provider({
+  provide: MAIL_OPTIONS,
+  factory: (): MailOptions => {
+    throw new Error("give MAIL_OPTIONS to MailModule, with configure()");
+  },
+});
+```
+
+An application that forgot it does not start: creating the module fails, with
+that message as the cause.
 
 ## Testing with overrides
 

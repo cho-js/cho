@@ -53,6 +53,8 @@
 // `@chojs/message`: the `@Injectable` decorator, and `token` and `provider`
 // to declare values that are not classes (and the `overrides` of tests).
 export {
+  configure,
+  type ConfigureOptions,
   type ControllerOptions,
   Injectable,
   type InjectableOptions,

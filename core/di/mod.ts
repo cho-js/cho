@@ -113,3 +113,4 @@ export {
   write_metadata_object,
 } from "./metadata.ts";
 export * from "./decorations.ts";
+export { configure, type ConfigureOptions } from "./configure.ts";

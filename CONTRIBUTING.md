@@ -225,6 +225,10 @@ A web adapter connects `@chojs/web` to an HTTP library. It lives in
   the route: an adapter does nothing for it.
 - It does not have to support every runtime, as long as its README says which
   ones it supports.
+- A module that needs settings declares a placeholder for them, a provider whose
+  factory throws with what to give, and its README shows `configure`
+  (`core/README.md`, "Configuring a module"). It does not ship a function that
+  returns a module.
 - Add the package to the `workspace` of the root `deno.json`, to
   `release-please-config.json` and to `.release-please-manifest.json`, and list
   it in the root `README.md` and in `web/README.md`.

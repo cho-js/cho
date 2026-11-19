@@ -707,9 +707,12 @@ export default { fetch: app.handler };
 
 ### Dependency injection and shutdown
 
-`@Module`, `@Controller`, `@Injectable`, `token` and `provider` come from the
-CHO core and are exported by this package, so an application imports everything
-from `@chojs/web`.
+`@Module`, `@Controller`, `@Injectable`, `token`, `provider` and `configure`
+come from the CHO core and are exported by this package, so an application
+imports everything from `@chojs/web`. A feature module of a library is given its
+settings with [`configure`](../core/README.md#configuring-a-module): the module
+it makes keeps the route, the controllers and the middlewares of the one it is
+made from.
 
 `ChoWeb.create` creates every instance before it resolves. `app.close()`
 releases them in reverse creation order: every instance with a

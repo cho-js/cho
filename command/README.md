@@ -227,9 +227,9 @@ class FileSystem {}
 
 ### Dependency injection and cleanup
 
-`@Module`, `@Controller`, `@Injectable`, `token` and `provider` come from the
-CHO core and are exported by this package, so an application imports everything
-from `@chojs/command`.
+`@Module`, `@Controller`, `@Injectable`, `token`, `provider` and `configure`
+come from the CHO core and are exported by this package, so an application
+imports everything from `@chojs/command`.
 
 ```ts
 const CONFIG = token<Config>("CONFIG");

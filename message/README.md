@@ -161,6 +161,11 @@ class OrdersController {
 What is **not** part of a topic: the consumer group, which is an option of the
 adapter, and the partition and offset of a message, which are in `ctx.native`.
 
+A feature module of a library is given its settings with
+[`configure`](../core/README.md#configuring-a-module), which `@chojs/message`
+exports: the module it makes keeps the topic, the controllers and the
+middlewares of the one it is made from.
+
 ### The message context
 
 A handler receives a `ChoMessageContext`:

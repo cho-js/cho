@@ -196,12 +196,14 @@ names, and hands them back apart from its own fields, as `options` (section
 4.1). It stores its own data under private keys, so no option can change what a
 class is or what it declares.
 
-**Modules are not configured.** A module is a fixed declaration: it takes no
-parameters, and it never sees the providers of the modules that import it
-(below), so an importer cannot pass it configuration. What needs configuration
-is a value, and a value is created by a provider. A reusable package therefore
-ships classes, and the application declares the providers that construct them
-with its own configuration:
+**A module is a fixed declaration.** It takes no parameters, and it never sees
+the providers of the modules that import it (below): an importer cannot reach
+into it. What needs configuration is a value, and a value is created by a
+provider. There are two ways to give a module of a library what it needs.
+
+**Without a module.** A reusable package that needs nothing else ships classes,
+and the application declares the providers that construct them with its own
+configuration:
 
 ```ts
 // a library: a class, no module
@@ -231,6 +233,91 @@ const BILLING = token<HttpClient>("BILLING");
 })
 class ClientsModule {}
 ```
+
+**With `configure`.** A package that ships a module (it has controllers, or
+providers of its own that an application should not have to list) leaves a
+placeholder for what it needs, and the application makes its own module from it:
+
+```ts
+// a library: a module with a placeholder for its settings
+export const MAIL_OPTIONS = token<MailOptions>("MAIL_OPTIONS");
+
+@Module({
+  providers: [
+    provider({
+      provide: MAIL_OPTIONS,
+      factory: (): MailOptions => {
+        throw new Error("give MAIL_OPTIONS to MailModule, with configure()");
+      },
+    }),
+    Mailer,
+  ],
+  controllers: [MailController],
+  exports: [Mailer],
+})
+export class MailModule {}
+
+// the application: one constant, imported everywhere
+export const Mail = configure(MailModule, {
+  imports: [ConfigModule],
+  providers: [
+    provider({
+      provide: MAIL_OPTIONS,
+      deps: [Config],
+      factory: (config) => ({ from: config.mailFrom }),
+    }),
+  ],
+});
+
+@Module({ imports: [Mail] })
+class App {}
+```
+
+`configure(module, { imports?, providers?, name? })` returns a **new module**: a
+class that extends the one it is given, with a record of its own. The module
+that is given does not change.
+
+- **The new module has everything the module has**: its providers, controllers
+  and exports, its `dependencies`, its extra options (a `route`, a `topic`), its
+  middlewares and its error handler. What is given comes after: the imports
+  after its imports, the providers after its providers. An import the module
+  already has is not added again.
+- **A provider given for a token the module already provides replaces it**: the
+  provider of the module is left out of the new one, so a placeholder never
+  runs. Two providers given for one token are still a mistake
+  (`CHO_CORE_DUPLICATE_TOKEN`).
+- **The providers given are declared by the new module**: their dependencies
+  resolve in its scope, so they see what the module declares and what it
+  imports, the imports given included. They are private to the module, unless it
+  exports their token.
+- **Only imports and providers.** Not controllers, not exports, and not the
+  extra options: `configure` is for what a module needs to be given, and the
+  imports are there to supply what the providers given depend on.
+- **`name`** is the name of the new class, for logs and errors. By default it is
+  the name of the module it is made from. An application that configures one
+  module twice names each, so that an error tells them apart.
+
+**Each call makes one more module, with instances of its own.** This follows
+from "instances are per declaration" (below), and it is the thing to know about
+`configure`:
+
+- two calls are two modules, also with the same settings;
+- the new module and the one it is made from are two modules: a module that
+  imports the original does not get the configured one, and one that imports
+  both has two sets of instances, and an ambiguous token
+  (`CHO_CORE_AMBIGUOUS_TOKEN`) for what both export.
+
+So the result of `configure` is kept in a constant, and that constant is what
+every module imports. A module that others must import as it is, such as one
+whose service they register themselves with, is not one to configure: it takes
+its settings another way, or needs none.
+
+**`configure` and `overrides`.** Both put a provider in the place of another
+one. `overrides` (section 2.7) replaces a provider of an application that is
+already declared, wherever it is, and its dependencies resolve where the
+provider was declared: it is for tests. `configure` makes a module, in the
+declaration of the application, and its providers depend on what the application
+gives it: it is for settings.
 
 **Scope rules.** These decide which token a module can inject:
 
@@ -441,7 +528,8 @@ const injector = new Injector(App, {
   everything at startup with `init()` and stop if it rejects, unless creating
   lazily is the point (a command-line application, where `--help` must not need
   the database).
-- **Modules are not configured** (section 2.4).
+- **A module is a fixed declaration** (section 2.4). It has no parameters, and
+  nothing writes to it from outside: `configure` makes another module from it.
 
 ### 2.8 Errors
 
@@ -492,21 +580,24 @@ class), quoted string, `InjectionToken(<description>)` or
 
 **Thrown by the decorators**, when the class is defined:
 
-| Mistake                                                               | Code                             | Message                                                                                                                 |
-| --------------------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| A second DI decorator on a class                                      | `CHO_CORE_ALREADY_DECORATED`     | `class X is already decorated with @Injectable, @Module or @Controller`                                                 |
-| An unknown option                                                     | `CHO_CORE_UNKNOWN_OPTION`        | `@Controller(): unknown option "deps". Known options: dependencies, route`                                              |
-| A list option is not an array                                         | `CHO_CORE_INVALID_OPTION`        | `<option> must be an array, got <v>` (`dependencies`, `imports`, `controllers`, `exports`, `providers`, `middlewares`)  |
-| A dependency is not a token                                           | `CHO_CORE_INVALID_OPTION`        | `all dependencies must be classes, symbols or injection tokens: <v>`                                                    |
-| An import is not a class                                              | `CHO_CORE_INVALID_OPTION`        | `all imports must be classes: <v>`                                                                                      |
-| A controller is not a class                                           | `CHO_CORE_INVALID_OPTION`        | `all controllers must be classes: <v>`                                                                                  |
-| An export is not a token                                              | `CHO_CORE_INVALID_OPTION`        | `all exports must be classes, symbols or injection tokens: <v>`                                                         |
-| A provider object is malformed                                        | `CHO_CORE_INVALID_PROVIDER`      | `provider <name> …` (see below)                                                                                         |
-| A middleware is not a function                                        | `CHO_CORE_INVALID_MIDDLEWARE`    | `all middlewares must be functions: <v>`                                                                                |
-| An error handler is not a function                                    | `CHO_CORE_INVALID_ERROR_HANDLER` | `the error handler must be a function or a class: <v>`                                                                  |
-| A second `@Catch` on a class or method                                | `CHO_CORE_DUPLICATE_CATCH`       | `an error handler is already set (one @Catch per target)`                                                               |
-| `@Middlewares` / `@Catch` on a static, private or symbol-named method | `CHO_CORE_INVALID_TARGET`        | `@Middlewares() cannot decorate static method <name>: only public, non-static methods with a string name are supported` |
-| A decorator on something it cannot decorate                           | `CHO_CORE_INVALID_TARGET`        | `<decorator> can only decorate a class or a method` (or `… a method`)                                                   |
+| Mistake                                                                                         | Code                             | Message                                                                                                                 |
+| ----------------------------------------------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| A second DI decorator on a class                                                                | `CHO_CORE_ALREADY_DECORATED`     | `class X is already decorated with @Injectable, @Module or @Controller`                                                 |
+| An unknown option                                                                               | `CHO_CORE_UNKNOWN_OPTION`        | `@Controller(): unknown option "deps". Known options: dependencies, route`                                              |
+| A list option is not an array                                                                   | `CHO_CORE_INVALID_OPTION`        | `<option> must be an array, got <v>` (`dependencies`, `imports`, `controllers`, `exports`, `providers`, `middlewares`)  |
+| A dependency is not a token                                                                     | `CHO_CORE_INVALID_OPTION`        | `all dependencies must be classes, symbols or injection tokens: <v>`                                                    |
+| An import is not a class                                                                        | `CHO_CORE_INVALID_OPTION`        | `all imports must be classes: <v>`                                                                                      |
+| A controller is not a class                                                                     | `CHO_CORE_INVALID_OPTION`        | `all controllers must be classes: <v>`                                                                                  |
+| An export is not a token                                                                        | `CHO_CORE_INVALID_OPTION`        | `all exports must be classes, symbols or injection tokens: <v>`                                                         |
+| `configure` is given what is not a module                                                       | `CHO_CORE_NOT_A_MODULE`          | `configure(): X is not a module. Give it a @Module class.`                                                              |
+| `configure` is given options that are not an object, or a `name` that is not a non-empty string | `CHO_CORE_INVALID_OPTION`        | `configure(): "name" is a non-empty string, got <v>`                                                                    |
+| An unknown option of `configure`                                                                | `CHO_CORE_UNKNOWN_OPTION`        | `configure(): unknown option "controllers". Known options: imports, name, providers`                                    |
+| A provider object is malformed                                                                  | `CHO_CORE_INVALID_PROVIDER`      | `provider <name> …` (see below)                                                                                         |
+| A middleware is not a function                                                                  | `CHO_CORE_INVALID_MIDDLEWARE`    | `all middlewares must be functions: <v>`                                                                                |
+| An error handler is not a function                                                              | `CHO_CORE_INVALID_ERROR_HANDLER` | `the error handler must be a function or a class: <v>`                                                                  |
+| A second `@Catch` on a class or method                                                          | `CHO_CORE_DUPLICATE_CATCH`       | `an error handler is already set (one @Catch per target)`                                                               |
+| `@Middlewares` / `@Catch` on a static, private or symbol-named method                           | `CHO_CORE_INVALID_TARGET`        | `@Middlewares() cannot decorate static method <name>: only public, non-static methods with a string name are supported` |
+| A decorator on something it cannot decorate                                                     | `CHO_CORE_INVALID_TARGET`        | `<decorator> can only decorate a class or a method` (or `… a method`)                                                   |
 
 A malformed provider object gives one of these messages, checked in this order.
 `<name>` is `for X` once `provide` is a valid token, otherwise `<v>`:
@@ -617,13 +708,13 @@ Properties, option keys, types and constants are outside the rule
 The DI essentials:
 
 - decorators: `Injectable`, `Module`, `Controller`, `Middlewares`, `Catch`;
-- `Injector`, `token`, `provider`;
+- `Injector`, `token`, `provider`, `configure`;
 - errors: `ChoError`, `isChoError`, and the type `ChoCoreErrorCode` (section
   2.8). These three are for applications: their names are those of a public API,
   and each CHO module gives them again;
-- types: `ModuleOptions`, `ControllerOptions`, `Dependency`, `Ctr`, `Target`,
-  `Any`, and the graph types `MetadataGraph`, `DependencyGraph`,
-  `DependencyNode`, `ModuleScope`.
+- types: `ModuleOptions`, `ControllerOptions`, `ConfigureOptions`, `Dependency`,
+  `Ctr`, `Target`, `Any`, and the graph types `MetadataGraph`,
+  `DependencyGraph`, `DependencyNode`, `ModuleScope`.
 
 ### 3.2 `@chojs/core/di`
 
@@ -758,7 +849,9 @@ creates nothing.
   shares it. With TC39 decorators it is written to `context.metadata`; with
   legacy or Bun decorators, to the class itself.
 - Class records are **own-only**: a subclass never sees its parent's record, and
-  can be decorated on its own.
+  can be decorated on its own. `configure` (section 2.4) relies on it: the
+  module it makes is a subclass, with a record that is a copy of its parent's
+  with other imports and providers, written as a decorator writes one.
 - **Method records are stored with the class**, by method name, in a method
   table next to the class's record (`Symbol.for("chojs.meta.methods")`), not on
   the method function. `decorated_method` gives a decorator where to write

@@ -18,6 +18,7 @@ export { type ChoCoreErrorCode, ChoError, isChoError } from "./errors.ts";
 export * from "./di/decorators.ts";
 export * from "./di/injector.ts";
 export { provider, token } from "./di/tokens.ts";
+export { configure, type ConfigureOptions } from "./di/configure.ts";
 export type { Any, Ctr, Target } from "./di/types.ts";
 // The types the exports above refer to, so that each of them can be named
 // from this entry point.
