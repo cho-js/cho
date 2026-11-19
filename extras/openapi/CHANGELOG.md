@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.6.0](https://github.com/cho-js/cho/compare/openapi-v3.5.0...openapi-v3.6.0) (2026-11-19)
+
+
+### Features
+
+* change validation to support standardschema ([913e964](https://github.com/cho-js/cho/commit/913e9647671af610473c7cd6f69e37a685749158))
+* websocket support for cho/web ([#28](https://github.com/cho-js/cho/issues/28)) ([221b77c](https://github.com/cho-js/cho/commit/221b77c264413c02f6db1370cadd46659e53984c))
+
 ## [3.5.0](https://github.com/cho-js/cho/compare/openapi-v3.4.0...openapi-v3.5.0) (2026-11-18)
 
 

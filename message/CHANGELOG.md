@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.6.0](https://github.com/cho-js/cho/compare/message-v3.5.0...message-v3.6.0) (2026-11-19)
+
+
+### Features
+
+* change validation to support standardschema ([913e964](https://github.com/cho-js/cho/commit/913e9647671af610473c7cd6f69e37a685749158))
+* modules configuration ([30ad35b](https://github.com/cho-js/cho/commit/30ad35bc87200c47e829d909c582887fc2c055aa))
+
 ## [3.5.0](https://github.com/cho-js/cho/compare/message-v3.4.0...message-v3.5.0) (2026-11-18)
 
 

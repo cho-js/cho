@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.0](https://github.com/cho-js/cho/compare/vendor-kafka-v3.5.0...vendor-kafka-v3.6.0) (2026-11-19)
+
+
+### Miscellaneous Chores
+
+* **vendor-kafka:** Synchronize cho versions
+
 ## [3.5.0](https://github.com/cho-js/cho/compare/vendor-kafka-v3.4.0...vendor-kafka-v3.5.0) (2026-11-18)
 
 
