@@ -81,10 +81,12 @@ Deno.serve(app.handler); // or Bun.serve({ fetch: app.handler })
 - A **handler** is a controller method marked with `@Get(route)`,
   `@Post(route)`, `@Put(route)`, `@Patch(route)`, `@Delete(route)`,
   `@Head(route)` or `@Options(route)`, or with `@Sse(route)`, a handler (`GET`
-  by default) that answers with a stream of events (section 3.4). Other methods
-  are not routes. A handler is a public, non-static method with a string name,
-  and has one HTTP method decorator: anything else throws when the class is
-  defined.
+  by default) that answers with a stream of events (section 3.4), or with
+  `@Ws(route)`, the `GET` handler that upgrades its request to a WebSocket
+  (section 3.5). Other methods are not routes: the methods marked with
+  `@WsOpen`, `@WsMessage` and `@WsClose` handle the events of a socket, not a
+  request. A handler is a public, non-static method with a string name, and has
+  one HTTP method decorator: anything else throws when the class is defined.
 
 Only what serves a route counts. A controller without a handler is not part of
 the web application, and a module left without such a controller is not a
@@ -431,14 +433,15 @@ Swagger UI and the like. `@chojs/openapi` generates it
 
 **Collected from what is already declared:**
 
-| Known                       | From                                                 | In an OpenAPI document         |
-| --------------------------- | ---------------------------------------------------- | ------------------------------ |
-| The HTTP method             | `@Get`, `@Post`, …                                   | the operation                  |
-| The full path               | the four route levels (section 2.2)                  | the path, `:id` written `{id}` |
-| The name                    | the controller and the method: `UsersController.get` | `operationId`                  |
-| The controller, the feature | the classes                                          | default `tags`                 |
-| Each argument               | `@Args`                                              | `parameters` and `requestBody` |
-| That it is an event stream  | `@Sse` (section 3.4)                                 | a `text/event-stream` response |
+| Known                        | From                                                 | In an OpenAPI document         |
+| ---------------------------- | ---------------------------------------------------- | ------------------------------ |
+| The HTTP method              | `@Get`, `@Post`, …                                   | the operation                  |
+| The full path                | the four route levels (section 2.2)                  | the path, `:id` written `{id}` |
+| The name                     | the controller and the method: `UsersController.get` | `operationId`                  |
+| The controller, the feature  | the classes                                          | default `tags`                 |
+| Each argument                | `@Args`                                              | `parameters` and `requestBody` |
+| That it is an event stream   | `@Sse` (section 3.4)                                 | a `text/event-stream` response |
+| That it upgrades to a socket | `@Ws` (section 3.5), with the methods of its events  | left out of the document       |
 
 An argument made by one of the five functions carries its description:
 
@@ -526,11 +529,11 @@ An unknown option throws when the decorator is called, like the options of
 **Where it is exposed.** On the graph of the application (`app.graph`,
 `@chojs/web/graph`), with every instance already created:
 
-| Node            | Gains                                                                                |
-| --------------- | ------------------------------------------------------------------------------------ |
-| `MethodRef`     | `args`: the arguments of the handler, in order; `doc`: its `@Doc`; `sse`: its `@Sse` |
-| `ControllerRef` | `doc`: its `@Doc`                                                                    |
-| `FeatureRef`    | `doc`: its `@Doc`                                                                    |
+| Node            | Gains                                                                                                                          |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `MethodRef`     | `args`: the arguments of the handler, in order; `doc`: its `@Doc`; `sse`: its `@Sse`; `socket`: the event methods of its `@Ws` |
+| `ControllerRef` | `doc`: its `@Doc`                                                                                                              |
+| `FeatureRef`    | `doc`: its `@Doc`                                                                                                              |
 
 `doc` is an empty object when there is no `@Doc`, and `args` an empty list when
 there is no `@Args`. `validated` on a `MethodRef` says whether the validation
@@ -870,8 +873,31 @@ one to the application, with the cookies of the user. A socket that trusts a
 cookie checks the `Origin` header of the request, in a middleware of its `@Ws`
 method.
 
+**Testing a socket** needs no connection. `app.upgrade(request)` gives the
+upgrade a route accepted (section 6), and `accept` takes a connection of the
+test, which records what is sent:
+
+```ts
+const upgrade = await app.upgrade(
+  new Request("http://localhost/chat/lobby", {
+    headers: { upgrade: "websocket" },
+  }),
+);
+assert.ok(!(upgrade instanceof Response)); // not refused
+
+const sent: unknown[] = [];
+const events = upgrade.accept({
+  send: (data) => void sent.push(data),
+  close() {},
+  native: undefined,
+});
+events.message("hello");
+events.closed(1000, "");
+```
+
 **Not in this version:** compression of messages, subprotocols, a validator for
-messages, and telling the application that a client reads slowly.
+messages, telling the application that a client reads slowly, and sockets
+through the Fastify adapter (section 7).
 
 ## 4. Middlewares
 
@@ -1239,6 +1265,20 @@ differs by runtime, so it is not in the handler of the route:
   `503`. An adapter with a server of its own calls it the same way: it upgrades
   the connection, then gives what the connection can do to `upgrade.accept`,
   which returns where to give the messages and the close.
+
+  | Of an upgrade (`ChoWebUpgrade`) | What it is                                                               |
+  | ------------------------------- | ------------------------------------------------------------------------ |
+  | `headers`                       | the headers the middlewares added to the answer, to send with the `101`  |
+  | `accept(io)`                    | starts the socket, once the connection is upgraded. It is called once    |
+  | `io.send(data)`                 | sends a text message (a string) or a binary one (bytes)                  |
+  | `io.close(code, reason)`        | closes the connection                                                    |
+  | `io.native`                     | the socket of the runtime: `socket.native`                               |
+  | `events.message(data)`          | what `accept` returns: a message arrived, a string or bytes              |
+  | `events.closed(code, reason)`   | the connection is closed, whoever closed it; `1006` for one that was cut |
+
+  The first message is sent inside `accept`, and `@WsOpen` runs there. The order
+  of the events, what a method returns, and its errors are handled behind
+  `accept`, the same for every runtime: who upgrades only moves messages.
 - **A server of your own.** `Bun.serve({ port, ...bunOptions(app) })` gives Bun
   the `fetch` and the `websocket` it needs, and
   `server.on("upgrade", nodeUpgrade(app))` gives a `node:http` server its
@@ -1248,6 +1288,21 @@ differs by runtime, so it is not in the handler of the route:
   connection is pinged every 30 seconds, and one that does not answer is cut. A
   frame the protocol does not allow closes the socket with the code of the RFC
   (`1002`, `1007`), and a message above `maxPayload` with `1009`.
+  - **The handshake is checked before the route runs.** A request that asks for
+    a WebSocket and is not a valid handshake is answered at once: `405` for a
+    method that is not `GET`, `400` for a `Connection` header without `Upgrade`
+    or a `Sec-WebSocket-Key` that is missing or not valid, and `426`, with
+    `Sec-WebSocket-Version: 13`, for another version of the protocol.
+  - **A refusal of the route** is written to the connection as an HTTP answer,
+    with its status, its headers and its body, and the connection is closed.
+  - **A close frame is answered** with its code and its reason, then the
+    connection ends. A client that does not end its side is cut after 5 seconds,
+    and one that goes away with no close frame closes its socket with `1006`.
+  - **Text that is not UTF-8** is refused when its message is whole, not at the
+    first byte that is wrong.
+  - **It passes the Autobahn test suite**: 301 cases, none failed
+    (`tools/autobahn/README.md`). On Bun and on Deno the protocol is the
+    runtime's.
 - `maxPayload` applies on Node.js and on Bun. Deno has no such limit to set.
 - **The socket of the runtime** is `socket.native`: a `WebSocket` on Deno and on
   Workers, a `ServerWebSocket` on Bun (with its `subscribe` and `publish`), and
@@ -1337,21 +1392,22 @@ method and path.
 
 ## 7. Runtime adapters
 
-|                               | `ChoLinker` (built in)                                                       | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                          |
-| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------- |
-| Linker                        | `new ChoLinker(options?)`                                                    | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                                    |
-| Runs on                       | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4, Cloudflare Workers) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                                     |
-| `app.linked.instance`         | a `ChoRouter`                                                                | the `Hono` application                           | the Fastify application                                          |
-| Served with                   | `app.handler`                                                                | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()`       |
-| `ctx.native`                  | `undefined`                                                                  | Hono's `Context`                                 | `{ request, reply }` of Fastify                                  |
-| When two routes match         | the first declared                                                           | the first declared                               | the static one                                                   |
-| `HEAD` without `@Head`        | `@Get`, without the body                                                     | `@Get`, without the body                         | `@Get`, without the body                                         |
-| No route matches              | the `notFound` option; `404`                                                 | `notFound` of the Hono application               | the not-found handler of the Fastify application                 |
-| A route rejects               | logged with `console.error`; `500`                                           | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`              |
-| A route throws an `HttpError` | answered by the route (section 5.1)                                          | answered by the route                            | answered by the route                                            |
-| An event stream (`@Sse`)      | streamed by the server that runs `app.handler`                               | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end |
-| Its own middlewares           | `@chojs/vendor-cho` (`cors`)                                                 | `fromHono(middleware)`                           | `fromFastify(hook)`                                              |
-| A route mounted late          | accepted                                                                     | throws, after the first request                  | throws, once the application is ready                            |
+|                               | `ChoLinker` (built in)                                                       | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| Linker                        | `new ChoLinker(options?)`                                                    | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                                                                |
+| Runs on                       | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4, Cloudflare Workers) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                                                                 |
+| `app.linked.instance`         | a `ChoRouter`                                                                | the `Hono` application                           | the Fastify application                                                                      |
+| Served with                   | `app.handler`                                                                | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()`                                   |
+| `ctx.native`                  | `undefined`                                                                  | Hono's `Context`                                 | `{ request, reply }` of Fastify                                                              |
+| When two routes match         | the first declared                                                           | the first declared                               | the static one                                                                               |
+| `HEAD` without `@Head`        | `@Get`, without the body                                                     | `@Get`, without the body                         | `@Get`, without the body                                                                     |
+| No route matches              | the `notFound` option; `404`                                                 | `notFound` of the Hono application               | the not-found handler of the Fastify application                                             |
+| A route rejects               | logged with `console.error`; `500`                                           | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`                                          |
+| A route throws an `HttpError` | answered by the route (section 5.1)                                          | answered by the route                            | answered by the route                                                                        |
+| An event stream (`@Sse`)      | streamed by the server that runs `app.handler`                               | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end                             |
+| A WebSocket (`@Ws`)           | upgraded: `app.handler` on Deno and Workers, `serve(app)` on Bun and Node.js | the same: `@chojs/web` upgrades, not Hono        | not upgraded: the route is refused when the application is created (`CHO_FASTIFY_NO_SOCKET`) |
+| Its own middlewares           | `@chojs/vendor-cho` (`cors`)                                                 | `fromHono(middleware)`                           | `fromFastify(hook)`                                                                          |
+| A route mounted late          | accepted                                                                     | throws, after the first request                  | throws, once the application is ready                                                        |
 
 **The middlewares of the built-in router.** `new ChoLinker({ middlewares })`
 takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
@@ -1378,8 +1434,11 @@ takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
 `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId`, `etag`,
 `basicAuth`, `bearerAuth` and `compress`. None of them reads the body of an
 event stream (section 3.4): `etag` and `compress` pass a `text/event-stream`
-response on as it is. On the other adapters, what wraps every request goes on
-the library's own application.
+response on as it is. A route that upgrades to a WebSocket (section 3.5) passes
+through all of them: what they add to its answer goes with the `101`, apart from
+the headers that describe a body (`content-*`, `etag`), which a `101` has not.
+On the other adapters, what wraps every request goes on the library's own
+application.
 
 An adapter implements `Linker` (`@chojs/web/linker`): it receives the
 application's routes and returns a `Linked`. `@chojs/web` never imports an
@@ -1399,12 +1458,13 @@ synchronous, and it throws when the runtime can no longer take a route.
 
 An adapter does no plumbing. Each `Route` is ready to call:
 
-| Property | Holds                                                                              |
-| -------- | ---------------------------------------------------------------------------------- |
-| `method` | the HTTP method, upper case (`"GET"`)                                              |
-| `path`   | the full path, global prefix included (`"/api/users/:id"`)                         |
-| `name`   | where it is declared, for logs (`"UsersController.get"`)                           |
-| `handle` | `(req, params?, native?, state?) => Promise<Response>`: answers a matching request |
+| Property | Holds                                                                                    |
+| -------- | ---------------------------------------------------------------------------------------- |
+| `method` | the HTTP method, upper case (`"GET"`)                                                    |
+| `path`   | the full path, global prefix included (`"/api/users/:id"`)                               |
+| `name`   | where it is declared, for logs (`"UsersController.get"`)                                 |
+| `handle` | `(req, params?, native?, state?) => Promise<Response>`: answers a matching request       |
+| `socket` | `true` for a route that upgrades its request to a WebSocket (`@Ws`); not there otherwise |
 
 `handle` runs the route's middlewares, its handler and its error handler. The
 adapter gives it the `Request`, the decoded path parameters of the match and,
@@ -1414,6 +1474,21 @@ middlewares of the built-in router): handlers see it as `ctx.state`. It rejects
 when the route fails without an error handler: the adapter answers `500`. It
 does not reject for an `HttpError` (section 5.1): the route resolves with its
 answer, so an adapter has nothing to do for one.
+
+**A route that upgrades** (`socket: true`) is registered as any `GET` route, and
+an adapter has nothing to do for it either, as long as two things hold:
+
+- **The route receives the `Request` the adapter was given.** The route and who
+  upgrades know an accepted upgrade by that object: an adapter that gives the
+  route a copy of the request refuses every upgrade.
+- **The answer of the route goes out with its status.** A route that accepted
+  answers `426`, and who upgrades (`app.handler`, or `serve`) replaces it. The
+  response itself can be copied, to add a header.
+
+An adapter that holds the server itself, as the Fastify adapter does, cannot
+leave the upgrade to `serve`. It upgrades the connection with `app.upgrade`
+(section 6), or refuses such a route when it is registered, as the Fastify
+adapter does for now.
 
 ```ts
 class MyLinker implements Linker<MyServer> {
@@ -1439,12 +1514,17 @@ The tree behind the declared routes is on `app.graph` (`@chojs/web/graph`), with
 every instance, middleware and error handler already created. A mounted route is
 not in it:
 
-| Node            | Holds                                                                                                               |
-| --------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `AppRef`        | `route` (the global prefix), `errorHandler` (the application's), `features`                                         |
-| `FeatureRef`    | `route`, `middlewares`, `errorHandler`, `doc`, `controllers`                                                        |
-| `ControllerRef` | `route`, `middlewares`, `errorHandler`, `doc`, `instance`, `methods`                                                |
-| `MethodRef`     | `route`, `middlewares`, `errorHandler`, `doc`, `name`, `method` (`"GET"`, …), `handler`, `args`, `validated`, `sse` |
+| Node            | Holds                                                                                                                         |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `AppRef`        | `route` (the global prefix), `errorHandler` (the application's), `features`                                                   |
+| `FeatureRef`    | `route`, `middlewares`, `errorHandler`, `doc`, `controllers`                                                                  |
+| `ControllerRef` | `route`, `middlewares`, `errorHandler`, `doc`, `instance`, `methods`                                                          |
+| `MethodRef`     | `route`, `middlewares`, `errorHandler`, `doc`, `name`, `method` (`"GET"`, …), `handler`, `args`, `validated`, `sse`, `socket` |
+
+`socket` is there for a handler marked with `@Ws`: the methods of the controller
+that handle the events of its socket, `open`, `message` and `close`, each with
+its `name` and its `handler`, bound to the controller. An event with no method
+is not there.
 
 ### 7.1 Cloudflare Workers
 
@@ -1700,6 +1780,25 @@ the validation middleware, when it is on the route (section 3.2).
   `Response`. The plugin runs when Fastify gets ready, and registers the routes
   the adapter holds then: those of `link()`, and those mounted since. That is
   why a route is taken until Fastify is ready, and not after.
+- **Sockets** (`web/socket.ts`). `@Ws` writes the record of `@Get`, with
+  `socket: true`, and each event decorator writes its event under a key of its
+  own (`Symbol.for("chojs.web.ws")`). When the graph is built, the rules of one
+  socket for a controller are checked, and the event methods are bound to the
+  controller. When the routes are compiled, the chain of such a route ends by
+  recording the upgrade for its `Request`, in a `WeakMap`, and answering `426`.
+  `app.upgrade` and `app.handler` take the record when the route has answered,
+  if the answer is still a `426`. `accept` then makes one connection: a queue
+  that runs an event at once when none waits and after the one before it
+  otherwise, sends what the methods return, and closes the socket for an error.
+  The application keeps its open connections, to close them with `1001`.
+- **Who upgrades.** On Deno and on Workers, `upgrade_here` (`web/socket.ts`)
+  makes the response that upgrades, and gives the events of the standard
+  `WebSocket` to the connection. On Bun, `serve` gives `Bun.serve` one set of
+  callbacks, which find the connection in the data of each socket. On Node.js,
+  `serve` listens to the `'upgrade'` event, and speaks the protocol itself
+  (`web/ws-protocol.ts`): the handshake, a reader that joins fragments and
+  checks what a client may send, and a writer of frames. That module works on
+  bytes and uses nothing of Node.js, so its tests run on every runtime.
 - **Testing without an adapter.** `web/testing.ts` (not published) has a linker
   that matches requests itself, mounted routes included; the tests of
   `@chojs/web` use it.

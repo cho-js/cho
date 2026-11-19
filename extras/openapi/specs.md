@@ -121,6 +121,10 @@ Every handler of the graph is one operation, unless it is hidden: `hidden:
 true`
 in the `@Doc` of the handler, of its controller or of its feature.
 
+A handler that upgrades its request to a WebSocket (`@Ws` of `@chojs/web`) is
+not an operation, and is left out: OpenAPI describes requests and responses, not
+the messages of a socket.
+
 | In the document | From                                                                                          |
 | --------------- | --------------------------------------------------------------------------------------------- |
 | the path        | the four route levels, joined as `@chojs/web` joins them; a parameter `:id` is written `{id}` |
