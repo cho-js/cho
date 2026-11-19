@@ -1,12 +1,12 @@
 {
-  "core": "3.4.0",
-  "command": "3.4.0",
-  "web": "3.4.0",
-  "message": "3.4.0",
-  "vendor/hono": "3.4.0",
-  "vendor/fastify": "3.4.0",
-  "vendor/cho": "3.4.0",
-  "vendor/kafka": "3.4.0",
-  "vendor/nats": "3.4.0",
-  "extras/openapi": "3.4.0"
+  "core": "3.5.0",
+  "command": "3.5.0",
+  "web": "3.5.0",
+  "message": "3.5.0",
+  "vendor/hono": "3.5.0",
+  "vendor/fastify": "3.5.0",
+  "vendor/cho": "3.5.0",
+  "vendor/kafka": "3.5.0",
+  "vendor/nats": "3.5.0",
+  "extras/openapi": "3.5.0"
 }

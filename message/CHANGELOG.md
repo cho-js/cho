@@ -1,5 +1,24 @@
 # Changelog
 
+## [3.5.0](https://github.com/cho-js/cho/compare/message-v3.4.0...message-v3.5.0) (2026-11-18)
+
+
+### Features
+
+* arguments support for messages ([7a4d970](https://github.com/cho-js/cho/commit/7a4d9707953f30b767e02901f67c93af1550218c))
+* contract messaging ([f1d7c0d](https://github.com/cho-js/cho/commit/f1d7c0d4e43ab6b6bcdfae6975a8375b56837c97))
+* experimental kafka support in deno and bun ([c466395](https://github.com/cho-js/cho/commit/c466395cf397af5c5c15c5ad14a2debdb60cfe94))
+* experimental worker support ([1b9bedb](https://github.com/cho-js/cho/commit/1b9bedbd602ca0175ddfb0ad528e30340751d794))
+* message support reply pattern ([#25](https://github.com/cho-js/cho/issues/25)) ([4443553](https://github.com/cho-js/cho/commit/4443553eae03cd01f2e451026426c1870736256d))
+* nats jetstream support ([0ffadb4](https://github.com/cho-js/cho/commit/0ffadb48e87366545b104c7b226a828d34e0f18c))
+* nats linker for cho/message ([#26](https://github.com/cho-js/cho/issues/26)) ([4329a0e](https://github.com/cho-js/cho/commit/4329a0ead1afb156572c30e2f41c84327ddfa928))
+* system wide error system ([#23](https://github.com/cho-js/cho/issues/23)) ([fc82ba6](https://github.com/cho-js/cho/commit/fc82ba6251932f54ed7cd66537d9347ba3fe337f))
+
+
+### Bug Fixes
+
+* improper code sanitization [#2](https://github.com/cho-js/cho/issues/2) ([34911ed](https://github.com/cho-js/cho/commit/34911edd3147a60fdb2758cb787517ee4a360181))
+
 ## [3.4.0](https://github.com/cho-js/cho/compare/message-v3.3.0...message-v3.4.0) (2026-11-18)
 
 
