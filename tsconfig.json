@@ -9,7 +9,8 @@
       "@chojs/web/serve": ["./web/serve.ts"],
       "@chojs/message": ["./message/mod.ts"],
       "@chojs/message/linker": ["./message/linker.ts"],
-      "@chojs/vendor-nats": ["./vendor/nats/mod.ts"]
+      "@chojs/vendor-nats": ["./vendor/nats/mod.ts"],
+      "@chojs/dev": ["./extras/dev/mod.ts"]
     }
   }
 }

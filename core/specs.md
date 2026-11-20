@@ -786,6 +786,16 @@ For this, the `Injector` also exposes:
 - `dispose()`: releases the instances; a CHO module calls it from its own
   `close()` (section 2.7).
 
+The two graphs can be built without an injector, for a tool that reads an
+application and does not create it (`@chojs/dev` draws one):
+
+- `build_meta_graph(root, overrides?)`: the metadata graph of a root module;
+- `build_dependency_graph(meta)`: the dependency graph of a metadata graph.
+
+Both are synchronous, create nothing, and throw what `new Injector(root)` throws
+(section 2.8). The first reads the declarations; the second links them, so it is
+the one that fails on a missing, ambiguous or circular dependency.
+
 ### 3.3 `@chojs/core/utils`
 
 Runtime helpers that work on every runtime:

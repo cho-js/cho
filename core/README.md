@@ -298,12 +298,12 @@ Every code is listed with its mistake in the
 
 ## Entry points
 
-| Entry point                    | Contents                                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `@chojs/core`                  | The DI essentials: the decorators, `Injector`, `token`, `provider`; `ChoValidator` and its types |
-| `@chojs/core/di`               | Everything above, plus the metadata and decorator helpers for CHO modules                        |
-| `@chojs/core/utils`            | Runtime helpers: `env`, `set_env`, `engine`, `debuglog`, `compose`, `describe`                   |
-| `@chojs/core/utils/test_utils` | Test helpers: apply decorators as function calls, capture console output                         |
+| Entry point                    | Contents                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `@chojs/core`                  | The DI essentials: the decorators, `Injector`, `token`, `provider`; `ChoValidator` and its types  |
+| `@chojs/core/di`               | Everything above, plus the metadata and decorator helpers for CHO modules, and the graph builders |
+| `@chojs/core/utils`            | Runtime helpers: `env`, `set_env`, `engine`, `debuglog`, `compose`, `describe`                    |
+| `@chojs/core/utils/test_utils` | Test helpers: apply decorators as function calls, capture console output                          |
 
 ## Runtime support
 

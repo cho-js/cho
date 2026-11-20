@@ -1,0 +1,13 @@
+{
+  "name": "@chojs/dev",
+  "version": "3.6.0",
+  "license": "MIT",
+  "exports": "./mod.ts",
+  "publish": {
+    "exclude": [
+      "./**/*_test.ts",
+      "./testing.ts",
+      "./tasks.md"
+    ]
+  }
+}

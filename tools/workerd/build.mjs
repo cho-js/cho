@@ -79,6 +79,7 @@ await build({
     "@chojs/vendor-cho": resolve(repo, "vendor/cho/mod.ts"),
     "@chojs/vendor-hono": resolve(repo, "vendor/hono/mod.ts"),
     "@chojs/openapi": resolve(repo, "extras/openapi/mod.ts"),
+    "@chojs/dev": resolve(repo, "extras/dev/mod.ts"),
   },
   external: ["node:*", "cloudflare:*"],
   plugins: [without_fastify],

@@ -78,6 +78,7 @@ to show up.
 | [`@chojs/vendor-kafka`](./vendor/kafka/README.md)     | [![JSR](https://jsr.io/badges/@chojs/vendor-kafka)](https://jsr.io/@chojs/vendor-kafka)     | Running `@chojs/message` on Apache Kafka (tested on Deno and Bun too) |
 | [`@chojs/vendor-nats`](./vendor/nats/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-nats)](https://jsr.io/@chojs/vendor-nats)       | Running `@chojs/message` on [NATS](https://nats.io), with replies     |
 | [`@chojs/openapi`](./extras/openapi/README.md)        | [![JSR](https://jsr.io/badges/@chojs/openapi)](https://jsr.io/@chojs/openapi)               | The OpenAPI document of a `@chojs/web` application, and its page      |
+| [`@chojs/dev`](./extras/dev/README.md)                | [![JSR](https://jsr.io/badges/@chojs/dev)](https://jsr.io/@chojs/dev)                       | Development tools: the endpoints of an application, and its graph     |
 | [`@chojs/core`](./core/README.md)                     | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)                     | The dependency injection engine underneath                            |
 
 
@@ -193,6 +194,7 @@ application with TypeScript 5 or run it with a tool such as `tsx`.
 | `@chojs/vendor-kafka`   | [README](./vendor/kafka/README.md)   | [specs](./vendor/kafka/specs.md)   |
 | `@chojs/vendor-nats`    | [README](./vendor/nats/README.md)    | [specs](./vendor/nats/specs.md)    |
 | `@chojs/openapi`        | [README](./extras/openapi/README.md) | [specs](./extras/openapi/specs.md) |
+| `@chojs/dev`            | [README](./extras/dev/README.md)     | [specs](./extras/dev/specs.md)     |
 | `@chojs/core`           | [README](./core/README.md)           | [specs](./core/specs.md)           |
 
 Runnable examples are in [`examples/`](./examples).

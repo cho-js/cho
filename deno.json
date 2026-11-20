@@ -14,7 +14,8 @@
     "./vendor/fastify",
     "./vendor/kafka",
     "./vendor/nats",
-    "./extras/openapi"
+    "./extras/openapi",
+    "./extras/dev"
   ],
   "imports": {
     "@nats-io/transport-deno": "jsr:@nats-io/transport-deno@^3.4.0",
