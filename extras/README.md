@@ -67,6 +67,7 @@ here. No: it does not.
 | Package                                 | What it makes of an application                                  |
 | --------------------------------------- | ---------------------------------------------------------------- |
 | [`@chojs/openapi`](./openapi/README.md) | The OpenAPI document of a `@chojs/web` application, and its page |
+| [`@chojs/dev`](./dev/README.md)         | The list of its endpoints, and its graph, drawn on a page        |
 
 ## When this folder grows
 

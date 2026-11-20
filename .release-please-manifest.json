@@ -8,5 +8,6 @@
   "vendor/cho": "3.6.0",
   "vendor/kafka": "3.6.0",
   "vendor/nats": "3.6.0",
-  "extras/openapi": "3.6.0"
+  "extras/openapi": "3.6.0",
+  "extras/dev": "3.6.0"
 }

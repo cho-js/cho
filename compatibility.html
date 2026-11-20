@@ -380,6 +380,22 @@
                   >3</a></sup>
               </td>
             </tr>
+            <tr>
+              <th scope="row">
+                <a href="./extras/dev/README.md"><code
+                  >@chojs/dev</code></a>
+                <small>The endpoints of an application, and its graph</small>
+              </th>
+              <td><span class="mark yes" role="img" aria-label="Yes">✓</span></td>
+              <td><span class="mark yes" role="img" aria-label="Yes">✓</span></td>
+              <td><span class="mark yes" role="img" aria-label="Yes">✓</span></td>
+              <td>
+                <span class="mark yes" role="img" aria-label="Yes">✓</span><sup><a
+                    href="#note-3"
+                    aria-label="Note 3"
+                  >3</a></sup>
+              </td>
+            </tr>
 
             <tr class="group">
               <th colspan="5" scope="colgroup">HTTP adapters</th>
@@ -549,8 +565,9 @@
         <li id="note-3">
           <strong>A bundle keeps the names.</strong> A Worker is bundled, and
           the bundler compiles the decorators. CHO puts the names of classes
-          and functions in error messages, in logs and in the tags of an
-          OpenAPI document: a bundle that renames them changes those.
+          and functions in error messages, in logs, in the tags of an
+          OpenAPI document and in the graph of <code>@chojs/dev</code>: a
+          bundle that renames them changes those.
         </li>
         <li id="note-4">
           <strong>The built-in router needs the global

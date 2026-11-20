@@ -100,6 +100,10 @@ export type {
   DependencyNode,
   ModuleScope,
 } from "./dependency-graph.ts";
+// The two builders, for tools that read an application without creating it:
+// both are synchronous, and nothing is created.
+export { build_meta_graph } from "./metadata-graph.ts";
+export { build_dependency_graph } from "./dependency-graph.ts";
 // The metadata store. The records' own types and keys (`keys.ts`) are
 // private: CHO modules read the DI data through the metadata graph.
 export {

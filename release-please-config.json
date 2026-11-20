@@ -18,7 +18,8 @@
         "vendor-cho",
         "vendor-kafka",
         "vendor-nats",
-        "openapi"
+        "openapi",
+        "dev"
       ]
     }
   ],
@@ -134,6 +135,18 @@
     "extras/openapi": {
       "component": "openapi",
       "package-name": "@chojs/openapi",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    },
+    "extras/dev": {
+      "component": "dev",
+      "package-name": "@chojs/dev",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {

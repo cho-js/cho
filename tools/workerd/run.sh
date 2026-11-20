@@ -29,7 +29,8 @@ else
   # The packages that run on Workers.
   files=$(ls core/*_test.ts core/di/*_test.ts core/utils/*_test.ts \
     web/*_test.ts message/*_test.ts vendor/cho/*_test.ts \
-    vendor/hono/*_test.ts extras/openapi/*_test.ts)
+    vendor/hono/*_test.ts extras/openapi/*_test.ts \
+    extras/dev/*_test.ts)
   workers=$(ls tools/workerd/workers/*.ts)
 fi
 cd "$WORK"
