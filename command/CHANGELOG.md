@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.0](https://github.com/cho-js/cho/compare/command-v3.5.0...command-v3.6.0) (2026-11-19)
+
+
+### Features
+
+* modules configuration ([30ad35b](https://github.com/cho-js/cho/commit/30ad35bc87200c47e829d909c582887fc2c055aa))
+
 ## [3.5.0](https://github.com/cho-js/cho/compare/command-v3.4.0...command-v3.5.0) (2026-11-18)
 
 

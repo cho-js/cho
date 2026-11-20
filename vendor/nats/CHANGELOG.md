@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.0](https://github.com/cho-js/cho/compare/vendor-nats-v3.5.0...vendor-nats-v3.6.0) (2026-11-19)
+
+
+### Features
+
+* change validation to support standardschema ([913e964](https://github.com/cho-js/cho/commit/913e9647671af610473c7cd6f69e37a685749158))
+
 ## [3.5.0](https://github.com/cho-js/cho/compare/vendor-nats-v3.4.0...vendor-nats-v3.5.0) (2026-11-18)
 
 

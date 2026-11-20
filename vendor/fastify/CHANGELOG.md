@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.0](https://github.com/cho-js/cho/compare/vendor-fastify-v3.5.0...vendor-fastify-v3.6.0) (2026-11-19)
+
+
+### Features
+
+* websocket support for cho/web ([#28](https://github.com/cho-js/cho/issues/28)) ([221b77c](https://github.com/cho-js/cho/commit/221b77c264413c02f6db1370cadd46659e53984c))
+
 ## [3.5.0](https://github.com/cho-js/cho/compare/vendor-fastify-v3.4.0...vendor-fastify-v3.5.0) (2026-11-18)
 
 
