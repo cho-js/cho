@@ -25,6 +25,14 @@ function model_in(html: string): unknown {
   return JSON.parse(found[1]!);
 }
 
+/** The files a page loads: the address of each of its scripts, in order. */
+function scripts_of(html: string): string[] {
+  return Array.from(
+    html.matchAll(/<script src="([^"]*)">/g),
+    (found) => found[1]!,
+  );
+}
+
 describe("graphPage", () => {
   it("is a whole HTML page, with the name of the root module as its title", () => {
     const html = graphPage(shop().App);
@@ -55,11 +63,8 @@ describe("graphPage", () => {
         PAGE_VERSIONS["cytoscape-elk"]
       }/dist/cytoscape-elk.js`,
     ];
-    assert.ok(
-      html.includes(
-        urls.map((url) => `<script src="${url}"></script>`).join("\n"),
-      ),
-    );
+    // These three, in this order, and no other file.
+    assert.deepEqual(scripts_of(html), urls);
     for (const version of Object.values(PAGE_VERSIONS)) {
       assert.match(version, /^\d+\.\d+\.\d+$/);
     }
@@ -67,14 +72,12 @@ describe("graphPage", () => {
 
   it("loads them from where the assets option says", () => {
     const html = graphPage(shop().App, { assets: "/static/graph/" });
-    assert.ok(
-      html.includes(
-        '<script src="/static/graph/cytoscape.min.js"></script>\n' +
-          '<script src="/static/graph/elk.bundled.js"></script>\n' +
-          '<script src="/static/graph/cytoscape-elk.js"></script>',
-      ),
-    );
-    assert.ok(!html.includes(CDN));
+    // Nothing is loaded from the CDN any more.
+    assert.deepEqual(scripts_of(html), [
+      "/static/graph/cytoscape.min.js",
+      "/static/graph/elk.bundled.js",
+      "/static/graph/cytoscape-elk.js",
+    ]);
   });
 
   it("has the title that is given, written as text", () => {
