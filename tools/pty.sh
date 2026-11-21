@@ -6,6 +6,10 @@
 # real input, in raw mode, read by the node:readline of the runtime. It runs
 # examples/prompt.ts twice: once to the end, once cancelled with Ctrl+C.
 #
+# Then it runs `cho new`, which asks with the same questions, and checks the
+# workspace it wrote. On Node.js it is the npm package of the tool that runs:
+# the file `npm install --global @chojs/cli` installs.
+#
 #   tools/pty.sh                 Deno, Node.js and Bun
 #   tools/pty.sh deno node       these runtimes only
 #
@@ -15,6 +19,7 @@ set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 cd "$here/.."
+root=$(pwd)
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -26,6 +31,15 @@ command_of() {
     node) echo "npx --yes tsx examples/prompt.ts" ;;
     bun) echo "bun examples/prompt.ts" ;;
     *) echo "unknown runtime: $1" >&2; exit 2 ;;
+  esac
+}
+
+# The `cho` of a runtime: the source on Deno and on Bun, the bundle on Node.js.
+cho_of() {
+  case "$1" in
+    deno) echo "deno run --allow-env --allow-read --allow-write --allow-run --config $root/deno.json $root/cli/main.ts" ;;
+    node) echo "node $root/cli/npm/cho.js" ;;
+    bun) echo "bun $root/cli/main.ts" ;;
   esac
 }
 
@@ -108,6 +122,44 @@ for runtime in ${*:-deno node bun}; do
   check "$runtime" "the default of an empty line" "$screen" \
     "✔ Project name · my-app"
   check "$runtime" "Ctrl+C cancels" "$screen" "Cancelled."
+
+  # 3. `cho new`, in a folder of its own: five questions, and a workspace. The
+  # two steps are answered by flags: nothing is installed here.
+  if [ "$runtime" = node ]; then
+    deno task --cwd cli npm > "$work/npm-build" 2>&1 || cat "$work/npm-build"
+  fi
+  folder="$work/$runtime-new"
+  mkdir "$folder"
+  # script(1) takes a command, not a folder: a file changes folder, and runs.
+  launcher="$work/$runtime-new.sh"
+  printf 'cd "%s" && exec %s new --no-git --no-install\n' \
+    "$folder" "$(cho_of "$runtime")" > "$launcher"
+  screen="$work/$runtime-new-screen"
+  : > "$screen"
+  {
+    wait_for "$screen" "Workspace name"
+    printf 'shop\r'
+    wait_for "$screen" "What are you building"
+    printf '\033[B\r' # the down arrow: a command-line tool
+    wait_for "$screen" "Runtime"
+    printf '\r' # the runtime it runs on
+    wait_for "$screen" "Project name"
+    printf '\r'
+    wait_for "$screen" "Folder of the projects"
+    printf '\r'
+    wait_for "$screen" "Created shop"
+  } | in_terminal "sh $launcher" > "$screen" 2>&1 || true
+  check "$runtime" "cho new asks its questions" "$screen" \
+    "✔ What are you building? · A command-line tool"
+  check "$runtime" "cho new creates the workspace" "$screen" "Created shop ("
+  if grep -qF "\"runtime\": \"$runtime\"" "$folder/shop/cho.json" 2> /dev/null &&
+    [ -f "$folder/shop/apps/cli/main.ts" ]; then
+    echo "ok      $runtime: cho new wrote cho.json, and the project"
+  else
+    echo "FAILED  $runtime: cho new wrote cho.json, and the project :: in $folder:"
+    find "$folder" -type f | sed 's/^/    /'
+    failed=1
+  fi
 done
 
 exit "$failed"

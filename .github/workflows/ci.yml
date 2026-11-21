@@ -29,7 +29,7 @@ jobs:
       - run: deno lint
       - run: tools/brokers.sh start nats
       - run: deno task test
-      - name: The questions of @chojs/prompt, in a real terminal
+      - name: The questions of @chojs/prompt and of cho new, in a real terminal
         run: tools/pty.sh deno
       - name: Publish dry run
         run: deno publish --dry-run
@@ -47,12 +47,21 @@ jobs:
       - run: deno install # installs the npm dependencies (hono, fastify) into node_modules
       - run: tools/brokers.sh start nats
       - run: npx --yes tsx --test
-      - name: The questions of @chojs/prompt, in a real terminal
+      - name: The questions of @chojs/prompt and of cho new, in a real terminal
         run: tools/pty.sh node
       - name: The npm package of the CLI
         run: |
           deno task --cwd cli npm
           node cli/npm/cho.js --help
+          # a workspace, written by the file a user would get: every answer
+          # is a flag, and nothing is installed
+          folder=$(mktemp -d)
+          (cd "$folder" && node "$GITHUB_WORKSPACE/cli/npm/cho.js" new shop \
+            --kind web --runtime node --project api --apps-dir apps \
+            --no-git --no-install)
+          test -f "$folder/shop/cho.json"
+          test -f "$folder/shop/.npmrc"
+          test -f "$folder/shop/apps/api/main.ts"
           npm publish --dry-run ./cli/npm
 
   kafka:
@@ -84,7 +93,7 @@ jobs:
       - run: deno install
       - run: tools/brokers.sh start nats
       - run: bun test
-      - name: The questions of @chojs/prompt, in a real terminal
+      - name: The questions of @chojs/prompt and of cho new, in a real terminal
         run: tools/pty.sh bun
 
   workerd:

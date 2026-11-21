@@ -6,11 +6,13 @@
  * alike: the command line and the exit are those of `node:process`.
  *
  * ```sh
- * deno install --global --allow-env --name cho jsr:@chojs/cli   # Deno
- * npm install --global @chojs/cli                               # Node.js
- * bun add --global @chojs/cli                                   # Bun
+ * # Deno: `new` reads, writes, and runs git and the installation
+ * deno install --global --allow-env --allow-read --allow-write --allow-run --name cho jsr:@chojs/cli
+ * npm install --global @chojs/cli   # Node.js
+ * bun add --global @chojs/cli       # Bun
  *
  * cho --help
+ * cho new shop
  * ```
  *
  * @module
