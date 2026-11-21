@@ -633,13 +633,18 @@ release runs.
 
 JSR is first: when npm fails, running the job again publishes what is missing.
 
-npm accepts the workflow in one of two ways:
+npm accepts the workflow by **trusted publishing** (OIDC): there is no npm
+token, and the workflow reads none.
 
-- **Trusted publishing.** The package names, on npmjs.com, the repository
-  (`cho-js/cho`) and the workflow (`release.yml`) that may publish it. The
-  workflow has the `id-token: write` permission, which JSR uses too, and no
-  secret is kept. npm adds the provenance of the package itself.
-- **A token**, in the `NPM_TOKEN` secret of the repository.
+- The package names, on npmjs.com, who may publish it: the organization
+  (`cho-js`), the repository (`cho`) and the file of the workflow
+  (`release.yml`). Every field is case-sensitive, and `npm publish` is among the
+  actions it allows.
+- The workflow has the `id-token: write` permission, which JSR uses too, and
+  runs on a runner of GitHub. npm 11.5.1 or later is needed: Node.js 24 has it.
+- `repository.url` of the package is the repository of CHO: npm compares it with
+  the workflow that publishes.
+- npm adds the provenance of the package itself.
 
 ## 8. Runtime support
 

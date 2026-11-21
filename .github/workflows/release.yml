@@ -12,8 +12,10 @@
 # The CLI is published a second time, to npm: `npm install --global` needs a
 # JavaScript package with a `bin` entry, which JSR does not make. `cli/npm.ts`
 # builds it. npm takes the identity of this workflow (trusted publishing, with
-# the same `id-token` permission as JSR), or the NPM_TOKEN secret when there is
-# one. A version that is already on npm is skipped, as on JSR.
+# the same `id-token` permission as JSR): there is no npm token, and none is
+# read. The package names this repository and this file as its trusted
+# publisher, on npmjs.com. A version that is already on npm is skipped, as on
+# JSR.
 name: Release
 
 on:
@@ -43,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # JSR authenticates GitHub Actions with OIDC
+      id-token: write # JSR and npm authenticate GitHub Actions with OIDC
     steps:
       - uses: actions/checkout@v7
 
@@ -65,12 +67,13 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24" # trusted publishing needs npm 11.5.1 or later
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false # no cache in a release
 
+      # No token: `npm publish` authenticates with the OIDC identity of this
+      # workflow. `npm view` reads a public package, and needs none.
       - name: Publish the CLI to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           deno task --cwd cli npm
           version=$(node -p "require('./cli/npm/package.json').version")
