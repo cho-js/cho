@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.0](https://github.com/cho-js/cho/compare/core-v3.6.0...core-v3.7.0) (2026-11-21)
+
+
+### Features
+
+* cho/dev ([#29](https://github.com/cho-js/cho/issues/29)) ([9b9333e](https://github.com/cho-js/cho/commit/9b9333e0fef2dcd449d46586cab3e31f44dde2de))
+
 ## [3.6.0](https://github.com/cho-js/cho/compare/core-v3.5.0...core-v3.6.0) (2026-11-19)
 
 

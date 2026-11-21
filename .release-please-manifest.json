@@ -1,15 +1,15 @@
 {
-  "core": "3.6.0",
-  "command": "3.6.0",
-  "web": "3.6.0",
-  "message": "3.6.0",
-  "vendor/hono": "3.6.0",
-  "vendor/fastify": "3.6.0",
-  "vendor/cho": "3.6.0",
-  "vendor/kafka": "3.6.0",
-  "vendor/nats": "3.6.0",
-  "extras/openapi": "3.6.0",
-  "extras/dev": "3.6.0",
-  "extras/prompt": "3.6.0",
-  "cli": "3.6.0"
+  "core": "3.7.0",
+  "command": "3.7.0",
+  "web": "3.7.0",
+  "message": "3.7.0",
+  "vendor/hono": "3.7.0",
+  "vendor/fastify": "3.7.0",
+  "vendor/cho": "3.7.0",
+  "vendor/kafka": "3.7.0",
+  "vendor/nats": "3.7.0",
+  "extras/openapi": "3.7.0",
+  "extras/dev": "3.7.0",
+  "extras/prompt": "3.7.0",
+  "cli": "3.7.0"
 }

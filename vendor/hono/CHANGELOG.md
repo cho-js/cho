@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.0](https://github.com/cho-js/cho/compare/vendor-hono-v3.6.0...vendor-hono-v3.7.0) (2026-11-21)
+
+
+### Miscellaneous Chores
+
+* **vendor-hono:** Synchronize cho versions
+
 ## [3.6.0](https://github.com/cho-js/cho/compare/vendor-hono-v3.5.0...vendor-hono-v3.6.0) (2026-11-19)
 
 
