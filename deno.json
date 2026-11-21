@@ -1,7 +1,7 @@
 {
   "tasks": {
     "cli": "deno run --allow-env --allow-net --allow-read --allow-write cli/main.ts",
-    "test": "deno test --allow-env --allow-net --allow-read",
+    "test": "deno test --allow-env --allow-net --allow-read --allow-write --allow-run",
     "test-node": "tsx --test",
     "test-bun": "bun test"
   },

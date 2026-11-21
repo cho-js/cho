@@ -4,13 +4,17 @@
   "license": "MIT",
   "exports": "./main.ts",
   "tasks": {
+    "gen": "deno run --allow-read --allow-write --allow-run new/gen.ts",
     "npm": "deno run --allow-read --allow-write --allow-run npm.ts"
   },
   "publish": {
     "exclude": [
       "./**/*_test.ts",
       "./npm.ts",
-      "./npm/"
+      "./npm/",
+      "./new/gen.ts",
+      "./new/templates/",
+      "./new/testing.ts"
     ]
   }
 }

@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://chojs.io/schema/cho.v1.json",
+  "title": "cho.json",
+  "description": "The settings of a CHO workspace, read by the cho command-line tool.",
+  "type": "object",
+  "required": [
+    "version",
+    "runtime",
+    "projects"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "description": "The address of this schema, for an editor.",
+      "type": "string"
+    },
+    "version": {
+      "description": "The version of the format of this file.",
+      "const": 1
+    },
+    "runtime": {
+      "description": "The runtime of the workspace: what runs its projects, and installs their packages.",
+      "enum": [
+        "deno",
+        "node",
+        "bun"
+      ]
+    },
+    "appsDir": {
+      "description": "The folder a new project is created in.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "default": "apps"
+    },
+    "projects": {
+      "description": "The projects of the workspace, by name.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/project"
+      }
+    }
+  },
+  "definitions": {
+    "project": {
+      "description": "A project of the workspace.",
+      "type": "object",
+      "required": [
+        "kind",
+        "root"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "What the project is: a web application (@chojs/web), or a command-line tool (@chojs/command).",
+          "enum": [
+            "web",
+            "cli"
+          ]
+        },
+        "root": {
+          "description": "The folder of the project, from the root of the workspace.",
+          "type": "string"
+        },
+        "entry": {
+          "description": "The file that runs the project, from its folder.",
+          "type": "string",
+          "default": "main.ts"
+        },
+        "module": {
+          "description": "The file that exports the root module of the project, as AppModule, from its folder.",
+          "type": "string",
+          "default": "app.ts"
+        }
+      }
+    }
+  }
+}
