@@ -14,8 +14,12 @@ The only cross-platform, cross-runtime, decorator-based framework for building m
 # CHO
 
 CHO is an enterprise ready decorator-based framework for building modular applications. It
-uses modern [JavaScript decorators](#about-javascript-decorators) to provide a clean
+uses modern JavaScript decorators to provide a clean
 and efficient way to define the structure of an application.
+
+### Portability
+
+CHO applications can run on multiple JavaScript runtimes, including **Node.js**, **Deno**, **Bun**, and **Cloudflare Workers**. This allows developers to write code once and deploy it anywhere, without worrying about runtime-specific issues.
 
 <p align="center">
   <img src="./assets/node.png" height="50"  alt="Node.js Logo" />
@@ -24,25 +28,6 @@ and efficient way to define the structure of an application.
   <img src="./assets/cf.png"  height="50" alt="Cloudflare Workers Logo" />
 </p>
 
----
-
-## Packages
-
-| Package                                               | Version                                                                                     | For                                                                   |
-|-------------------------------------------------------|---------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
-| [`@chojs/web`](./web/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/web)](https://jsr.io/@chojs/web)                       | HTTP applications                                                     |
-| [`@chojs/command`](./command/README.md)               | [![JSR](https://jsr.io/badges/@chojs/command)](https://jsr.io/@chojs/command)               | Command-line applications                                             |
-| [`@chojs/message`](./message/README.md)               | [![JSR](https://jsr.io/badges/@chojs/message)](https://jsr.io/@chojs/message)               | Applications that handle the messages of a broker, such as Kafka      |
-| [`@chojs/vendor-cho`](./vendor/cho/README.md)         | [![JSR](https://jsr.io/badges/@chojs/vendor-cho)](https://jsr.io/@chojs/vendor-cho)         | Middlewares for the built-in router of `@chojs/web`, such as CORS     |
-| [`@chojs/vendor-hono`](./vendor/hono/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-hono)](https://jsr.io/@chojs/vendor-hono)       | Running `@chojs/web` on [Hono](https://hono.dev)                      |
-| [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | [![JSR](https://jsr.io/badges/@chojs/vendor-fastify)](https://jsr.io/@chojs/vendor-fastify) | Running `@chojs/web` on [Fastify](https://fastify.dev) (Node.js only) |
-| [`@chojs/vendor-kafka`](./vendor/kafka/README.md)     | [![JSR](https://jsr.io/badges/@chojs/vendor-kafka)](https://jsr.io/@chojs/vendor-kafka)     | Running `@chojs/message` on Apache Kafka (tested on Deno and Bun too) |
-| [`@chojs/vendor-nats`](./vendor/nats/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-nats)](https://jsr.io/@chojs/vendor-nats)       | Running `@chojs/message` on [NATS](https://nats.io), with replies     |
-| [`@chojs/openapi`](./extras/openapi/README.md)        | [![JSR](https://jsr.io/badges/@chojs/openapi)](https://jsr.io/@chojs/openapi)               | The OpenAPI document of a `@chojs/web` application, and its page      |
-| [`@chojs/dev`](./extras/dev/README.md)                | [![JSR](https://jsr.io/badges/@chojs/dev)](https://jsr.io/@chojs/dev)                       | Development tools: the endpoints of an application, and its graph     |
-| [`@chojs/prompt`](./extras/prompt/README.md)          | [![JSR](https://jsr.io/badges/@chojs/prompt)](https://jsr.io/@chojs/prompt)                 | Questions in a terminal: a text, a yes or no, a choice of a list      |
-| [`@chojs/cli`](./cli/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/cli)](https://jsr.io/@chojs/cli)                       | `cho`, the command-line tool of the framework                         |
-| [`@chojs/core`](./core/README.md)                     | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)                     | The dependency injection engine underneath                            |
 
 ## A quick look
 
@@ -149,23 +134,28 @@ give `ChoWeb.create` the linker of an adapter:
 Deno and Bun run TypeScript decorators directly. On Node.js, compile the
 application with TypeScript 5 or run it with a tool such as `tsx`.
 
-## Documentation
 
-| Package                 | Guide                                | Specification                      |
-|-------------------------|--------------------------------------|------------------------------------|
-| `@chojs/web`            | [README](./web/README.md)            | [specs](./web/specs.md)            |
-| `@chojs/command`        | [README](./command/README.md)        | [specs](./command/specs.md)        |
-| `@chojs/message`        | [README](./message/README.md)        | [specs](./message/specs.md)        |
-| `@chojs/vendor-cho`     | [README](./vendor/cho/README.md)     |                                    |
-| `@chojs/vendor-hono`    | [README](./vendor/hono/README.md)    |                                    |
-| `@chojs/vendor-fastify` | [README](./vendor/fastify/README.md) |                                    |
-| `@chojs/vendor-kafka`   | [README](./vendor/kafka/README.md)   | [specs](./vendor/kafka/specs.md)   |
-| `@chojs/vendor-nats`    | [README](./vendor/nats/README.md)    | [specs](./vendor/nats/specs.md)    |
-| `@chojs/openapi`        | [README](./extras/openapi/README.md) | [specs](./extras/openapi/specs.md) |
-| `@chojs/dev`            | [README](./extras/dev/README.md)     | [specs](./extras/dev/specs.md)     |
-| `@chojs/prompt`         | [README](./extras/prompt/README.md)  | [specs](./extras/prompt/specs.md)  |
-| `@chojs/cli`            | [README](./cli/README.md)            | [specs](./cli/specs.md)            |
-| `@chojs/core`           | [README](./core/README.md)           | [specs](./core/specs.md)           |
+
+## Packages
+
+The name of a package links to its guide, and the specification is its full
+description.
+
+| Package                                               | Version                                                                                     | For                                                                   | Specification                      |
+|-------------------------------------------------------|---------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|------------------------------------|
+| [`@chojs/web`](./web/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/web)](https://jsr.io/@chojs/web)                       | HTTP applications                                                     | [specs](./web/specs.md)            |
+| [`@chojs/command`](./command/README.md)               | [![JSR](https://jsr.io/badges/@chojs/command)](https://jsr.io/@chojs/command)               | Command-line applications                                             | [specs](./command/specs.md)        |
+| [`@chojs/message`](./message/README.md)               | [![JSR](https://jsr.io/badges/@chojs/message)](https://jsr.io/@chojs/message)               | Applications that handle the messages of a broker, such as Kafka      | [specs](./message/specs.md)        |
+| [`@chojs/vendor-cho`](./vendor/cho/README.md)         | [![JSR](https://jsr.io/badges/@chojs/vendor-cho)](https://jsr.io/@chojs/vendor-cho)         | Middlewares for the built-in router of `@chojs/web`, such as CORS     |                                    |
+| [`@chojs/vendor-hono`](./vendor/hono/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-hono)](https://jsr.io/@chojs/vendor-hono)       | Running `@chojs/web` on [Hono](https://hono.dev)                      |                                    |
+| [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | [![JSR](https://jsr.io/badges/@chojs/vendor-fastify)](https://jsr.io/@chojs/vendor-fastify) | Running `@chojs/web` on [Fastify](https://fastify.dev) (Node.js only) |                                    |
+| [`@chojs/vendor-kafka`](./vendor/kafka/README.md)     | [![JSR](https://jsr.io/badges/@chojs/vendor-kafka)](https://jsr.io/@chojs/vendor-kafka)     | Running `@chojs/message` on Apache Kafka (tested on Deno and Bun too) | [specs](./vendor/kafka/specs.md)   |
+| [`@chojs/vendor-nats`](./vendor/nats/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-nats)](https://jsr.io/@chojs/vendor-nats)       | Running `@chojs/message` on [NATS](https://nats.io), with replies     | [specs](./vendor/nats/specs.md)    |
+| [`@chojs/openapi`](./extras/openapi/README.md)        | [![JSR](https://jsr.io/badges/@chojs/openapi)](https://jsr.io/@chojs/openapi)               | The OpenAPI document of a `@chojs/web` application, and its page      | [specs](./extras/openapi/specs.md) |
+| [`@chojs/dev`](./extras/dev/README.md)                | [![JSR](https://jsr.io/badges/@chojs/dev)](https://jsr.io/@chojs/dev)                       | Development tools: the endpoints of an application, and its graph     | [specs](./extras/dev/specs.md)     |
+| [`@chojs/prompt`](./extras/prompt/README.md)          | [![JSR](https://jsr.io/badges/@chojs/prompt)](https://jsr.io/@chojs/prompt)                 | Questions in a terminal: a text, a yes or no, a choice of a list      | [specs](./extras/prompt/specs.md)  |
+| [`@chojs/cli`](./cli/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/cli)](https://jsr.io/@chojs/cli)                       | `cho`, the command-line tool of the framework                         | [specs](./cli/specs.md)            |
+| [`@chojs/core`](./core/README.md)                     | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)                     | The dependency injection engine underneath                            | [specs](./core/specs.md)           |
 
 Runnable examples are in [`examples/`](./examples).
 
@@ -177,39 +167,6 @@ Contributions are welcome: see [CONTRIBUTING.md](./CONTRIBUTING.md) and the
 ## License
 
 [MIT](./LICENSE)
-
----
-
-## About JavaScript Decorators
-
-### Portability (Cross-Platform/Engine Agnostic)
-
-In the modern software development landscape, the ability to deploy applications
-across various environments and platforms is crucial. Developers often face
-challenges when trying to ensure that their applications run seamlessly on
-different runtimes such as **Node.js**, **Deno**, **Bun**, **Cloudflare
-Workers**, **AWS Lambda** and more. Each of these runtimes has its own set of
-features, performance characteristics and limitations, making it difficult to
-write code that is truly portable.
-
-CHO keeps application code away from all of that. And allows you to run the same application on multiple runtimes,
-without any change in the code.
-
-### Standardization
-
-Decorators and reflect metadata are not yet part of the official ECMAScript
-standard, leading to inconsistencies in their implementation across different
-runtimes (TS experimental vs TC39 proposal, for example). This lack of
-standardization can result in compatibility issues and hinder the adoption of
-these features in different production environments. This project aims to
-provide a consistent and reliable way to use decorators across multiple
-JavaScript runtimes, ensuring that developers can leverage these powerful
-features without worrying about compatibility issues.
-
-The same CHO application runs with standard (TC39) decorators and with legacy or
-Bun decorators. It needs no `reflect-metadata` and no compiler plugin:
-dependencies are declared explicitly, and still checked against the constructor
-at compile time.
 
 ---
 
