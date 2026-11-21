@@ -17,51 +17,12 @@ CHO is an enterprise ready decorator-based framework for building modular applic
 uses modern [JavaScript decorators](#about-javascript-decorators) to provide a clean
 and efficient way to define the structure of an application.
 
-### Portability (Cross-Platform/Engine Agnostic)
-
-In the modern software development landscape, the ability to deploy applications
-across various environments and platforms is crucial. Developers often face
-challenges when trying to ensure that their applications run seamlessly on
-different runtimes such as **Node.js**, **Deno**, **Bun**, **Cloudflare
-Workers**, **AWS Lambda** and more. Each of these runtimes has its own set of
-features, performance characteristics and limitations, making it difficult to
-write code that is truly portable.
-
-
 <p align="center">
   <img src="./assets/node.png" height="50"  alt="Node.js Logo" />
   <img src="./assets/deno.png" height="50" alt="Deno Logo" />
   <img src="./assets/bun.png" height="50" alt="Bun Logo" />
   <img src="./assets/cf.png"  height="50" alt="Cloudflare Workers Logo" />
 </p>
-
-CHO keeps application code away from all of that. And allows you to run the same application on multiple runtimes,
-without any change in the code.
-
-### Standardization
-
-Decorators and reflect metadata are not yet part of the official ECMAScript
-standard, leading to inconsistencies in their implementation across different
-runtimes (TS experimental vs TC39 proposal, for example). This lack of
-standardization can result in compatibility issues and hinder the adoption of
-these features in different production environments. This project aims to
-provide a consistent and reliable way to use decorators across multiple
-JavaScript runtimes, ensuring that developers can leverage these powerful
-features without worrying about compatibility issues.
-
-The same CHO application runs with standard (TC39) decorators and with legacy or
-Bun decorators. It needs no `reflect-metadata` and no compiler plugin:
-dependencies are declared explicitly, and still checked against the constructor
-at compile time.
-
-### Build for Performance
-
-Minimalistic and optimized for performance!
-
-There is no reflection at runtime. The whole module graph is validated and
-linked once, when the application starts, so creating an instance afterwards
-needs no lookup, and a mistake in the wiring never waits for the first request
-to show up.
 
 ---
 
@@ -82,7 +43,6 @@ to show up.
 | [`@chojs/prompt`](./extras/prompt/README.md)          | [![JSR](https://jsr.io/badges/@chojs/prompt)](https://jsr.io/@chojs/prompt)                 | Questions in a terminal: a text, a yes or no, a choice of a list      |
 | [`@chojs/cli`](./cli/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/cli)](https://jsr.io/@chojs/cli)                       | `cho`, the command-line tool of the framework                         |
 | [`@chojs/core`](./core/README.md)                     | [![JSR](https://jsr.io/badges/@chojs/core)](https://jsr.io/@chojs/core)                     | The dependency injection engine underneath                            |
-
 
 ## A quick look
 
@@ -158,6 +118,12 @@ Deno.exit(await app.run(Deno.args)); // greet hello --name you
 Pick the package for what you are building; it brings everything an application
 needs.
 
+```shell
+npm install --global @chojs/cli
+```
+
+Or add it to your project with:
+
 ```sh
 # an HTTP application
 deno add jsr:@chojs/web
@@ -212,7 +178,40 @@ Contributions are welcome: see [CONTRIBUTING.md](./CONTRIBUTING.md) and the
 
 [MIT](./LICENSE)
 
+---
+
 ## About JavaScript Decorators
+
+### Portability (Cross-Platform/Engine Agnostic)
+
+In the modern software development landscape, the ability to deploy applications
+across various environments and platforms is crucial. Developers often face
+challenges when trying to ensure that their applications run seamlessly on
+different runtimes such as **Node.js**, **Deno**, **Bun**, **Cloudflare
+Workers**, **AWS Lambda** and more. Each of these runtimes has its own set of
+features, performance characteristics and limitations, making it difficult to
+write code that is truly portable.
+
+CHO keeps application code away from all of that. And allows you to run the same application on multiple runtimes,
+without any change in the code.
+
+### Standardization
+
+Decorators and reflect metadata are not yet part of the official ECMAScript
+standard, leading to inconsistencies in their implementation across different
+runtimes (TS experimental vs TC39 proposal, for example). This lack of
+standardization can result in compatibility issues and hinder the adoption of
+these features in different production environments. This project aims to
+provide a consistent and reliable way to use decorators across multiple
+JavaScript runtimes, ensuring that developers can leverage these powerful
+features without worrying about compatibility issues.
+
+The same CHO application runs with standard (TC39) decorators and with legacy or
+Bun decorators. It needs no `reflect-metadata` and no compiler plugin:
+dependencies are declared explicitly, and still checked against the constructor
+at compile time.
+
+---
 
 This project uses the TC39 stage 3 decorators proposal (JavaScript decorators).
 
