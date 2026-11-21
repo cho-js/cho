@@ -1,35 +1,52 @@
 # Extras
 
-Modules that are built on top of a CHO application, and are not one of its
-parts: they read what the application declares, and make something of it. An
-OpenAPI document of the routes of a `@chojs/web` application is one.
+Modules that are not a part of a CHO application, and that this repository has a
+reason to keep. There are two kinds:
+
+- **A module built on top of an application**: it reads what the application
+  declares, and makes something of it. An OpenAPI document of the routes of a
+  `@chojs/web` application is one.
+- **A module a package of this repository is built on**: `cho`, the command-line
+  tool, asks its questions with `@chojs/prompt`.
 
 An extra is a package of its own. An application that does not use it does not
 install it.
 
 ## What belongs here
 
-A module belongs here when **it reads the graph of an application, or anything
-else the framework does not promise to keep**: `app.graph`, the refs of the
-routes, the commands or the topics, the metadata the decorators write.
+A module belongs here in one of two cases.
 
-Such a module breaks when the framework changes. So it lives next to the
-framework: it is changed in the same pull request, checked by the same CI, and
-released with the same version.
+**It reads the graph of an application, or anything else the framework does not
+promise to keep**: `app.graph`, the refs of the routes, the commands or the
+topics, the metadata the decorators write. Such a module breaks when the
+framework changes. So it lives next to the framework: it is changed in the same
+pull request, checked by the same CI, and released with the same version.
+
+**A package of this repository is built on it, and nothing else makes it.** It
+may read nothing of the framework: `@chojs/prompt` asks questions in a terminal,
+and would work with no CHO application at all. It is here because `cho` is
+released with it, in one file that holds both: a change in one is tested with
+the other, in the same pull request. A module of this kind is small and general,
+and is written here because installing one was not worth a dependency (rule 5).
 
 ## What does not
 
-- **A module that only uses the public API**: a middleware, a provider, a client
-  of a database, a logger. Nothing ties it to this repository, and such modules
-  have no end: they go in a repository of their own.
+- **A module that only uses the public API, and that no package of this
+  repository is built on**: a middleware, a provider, a client of a database, a
+  logger. Nothing ties it to this repository, and such modules have no end: they
+  go in a repository of their own.
 - **An adapter of an external library**: a router, a broker. It goes in
   [`vendor/`](../vendor).
 - **A kind of application**: it goes at the root, next to `web`, `command` and
   `message`.
 
-When the answer is not clear, the question is: _can a change inside the
-framework, with no change of its public API, break this module?_ Yes: it belongs
-here. No: it does not.
+When the answer is not clear, there are two questions:
+
+1. _Can a change inside the framework, with no change of its public API, break
+   this module?_
+2. _Is a package of this repository built on it?_
+
+One yes: it belongs here. Two noes: it does not.
 
 ## Rules of an extra
 
@@ -45,7 +62,7 @@ here. No: it does not.
    application declares for it: `@Doc` of `@chojs/web` is where an application
    says what its code cannot tell.
 4. **It says which runtimes it runs on.** All of those of the package it reads,
-   unless it documents why not.
+   or of the package that is built on it, unless it documents why not.
 5. **Small dependencies are written, not installed.** An external dependency
    needs a reason, and the README of the extra gives it.
 6. **It is a package like the others**: `deno.json`, `mod.ts`, tests next to the
@@ -64,14 +81,16 @@ here. No: it does not.
 
 ## Packages
 
-| Package                                 | What it makes of an application                                  |
+| Package                                 | What it gives                                                    |
 | --------------------------------------- | ---------------------------------------------------------------- |
 | [`@chojs/openapi`](./openapi/README.md) | The OpenAPI document of a `@chojs/web` application, and its page |
 | [`@chojs/dev`](./dev/README.md)         | The list of its endpoints, and its graph, drawn on a page        |
+| [`@chojs/prompt`](./prompt/README.md)   | Questions in a terminal: a text, a yes or no, a choice of a list |
 
 ## When this folder grows
 
-An extra that no longer reads what the framework does not promise, or one that
+An extra that no longer has a reason to be here (it reads nothing the framework
+does not promise, and no package of the repository is built on it), or one that
 needs its own pace of releases, moves to a repository of its own, with its
 history. Its name on JSR stays the same, so nothing changes for the applications
 that use it.

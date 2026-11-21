@@ -1,5 +1,6 @@
 {
   "tasks": {
+    "cli": "deno run --allow-env --allow-net --allow-read --allow-write cli/main.ts",
     "test": "deno test --allow-env --allow-net --allow-read",
     "test-node": "tsx --test",
     "test-bun": "bun test"
@@ -15,7 +16,9 @@
     "./vendor/kafka",
     "./vendor/nats",
     "./extras/openapi",
-    "./extras/dev"
+    "./extras/dev",
+    "./extras/prompt",
+    "./cli"
   ],
   "imports": {
     "@nats-io/transport-deno": "jsr:@nats-io/transport-deno@^3.4.0",
@@ -23,6 +26,7 @@
   },
   "exclude": [
     "tools/workerd/",
+    "cli/npm/",
     "examples/worker/"
   ],
   "fmt": {

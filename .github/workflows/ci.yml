@@ -29,6 +29,8 @@ jobs:
       - run: deno lint
       - run: tools/brokers.sh start nats
       - run: deno task test
+      - name: The questions of @chojs/prompt, in a real terminal
+        run: tools/pty.sh deno
       - name: Publish dry run
         run: deno publish --dry-run
 
@@ -45,6 +47,13 @@ jobs:
       - run: deno install # installs the npm dependencies (hono, fastify) into node_modules
       - run: tools/brokers.sh start nats
       - run: npx --yes tsx --test
+      - name: The questions of @chojs/prompt, in a real terminal
+        run: tools/pty.sh node
+      - name: The npm package of the CLI
+        run: |
+          deno task --cwd cli npm
+          node cli/npm/cho.js --help
+          npm publish --dry-run ./cli/npm
 
   kafka:
     # The Kafka adapter against a real broker, on the runtime its client
@@ -75,6 +84,8 @@ jobs:
       - run: deno install
       - run: tools/brokers.sh start nats
       - run: bun test
+      - name: The questions of @chojs/prompt, in a real terminal
+        run: tools/pty.sh bun
 
   workerd:
     # Cloudflare Workers: each test file runs as a Worker, in workerd.

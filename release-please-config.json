@@ -19,7 +19,9 @@
         "vendor-kafka",
         "vendor-nats",
         "openapi",
-        "dev"
+        "dev",
+        "prompt",
+        "cli"
       ]
     }
   ],
@@ -147,6 +149,30 @@
     "extras/dev": {
       "component": "dev",
       "package-name": "@chojs/dev",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    },
+    "extras/prompt": {
+      "component": "prompt",
+      "package-name": "@chojs/prompt",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "deno.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    },
+    "cli": {
+      "component": "cli",
+      "package-name": "@chojs/cli",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {

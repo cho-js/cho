@@ -461,6 +461,37 @@
                   >12</a></sup>
               </td>
             </tr>
+            <tr>
+              <th scope="row">
+                <a href="./cli/README.md"><code>@chojs/cli</code></a>
+                <small><code>cho</code>, the tool of the framework</small>
+              </th>
+              <td><span class="mark yes" role="img" aria-label="Yes">✓</span></td>
+              <td><span class="mark yes" role="img" aria-label="Yes">✓</span></td>
+              <td><span class="mark yes" role="img" aria-label="Yes">✓</span></td>
+              <td>
+                <span class="mark no" role="img" aria-label="No">✕</span><sup><a
+                    href="#note-12"
+                    aria-label="Note 12"
+                  >12</a></sup>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">
+                <a href="./extras/prompt/README.md"><code
+                  >@chojs/prompt</code></a>
+                <small>Questions in a terminal</small>
+              </th>
+              <td><span class="mark yes" role="img" aria-label="Yes">✓</span></td>
+              <td><span class="mark yes" role="img" aria-label="Yes">✓</span></td>
+              <td><span class="mark yes" role="img" aria-label="Yes">✓</span></td>
+              <td>
+                <span class="mark no" role="img" aria-label="No">✕</span><sup><a
+                    href="#note-12"
+                    aria-label="Note 12"
+                  >12</a></sup>
+              </td>
+            </tr>
 
             <tr class="group">
               <th colspan="5" scope="colgroup">Messages</th>
@@ -623,7 +654,9 @@
         </li>
         <li id="note-12">
           <strong>A Worker has no command line.</strong> The tests of
-          <code>@chojs/command</code> do not run there.
+          <code>@chojs/command</code> and of <code>@chojs/cli</code> do not run
+          there. <code>@chojs/prompt</code> loads there, and has no
+          terminal to ask on: a question is refused.
         </li>
         <li id="note-13">
           <strong>Messages on a Worker.</strong> The package itself runs

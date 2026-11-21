@@ -1,0 +1,16 @@
+{
+  "name": "@chojs/cli",
+  "version": "3.6.0",
+  "license": "MIT",
+  "exports": "./main.ts",
+  "tasks": {
+    "npm": "deno run --allow-read --allow-write --allow-run npm.ts"
+  },
+  "publish": {
+    "exclude": [
+      "./**/*_test.ts",
+      "./npm.ts",
+      "./npm/"
+    ]
+  }
+}

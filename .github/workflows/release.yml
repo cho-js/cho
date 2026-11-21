@@ -8,6 +8,12 @@
 #
 # `deno publish` from the workspace root publishes every package whose version
 # is not on JSR yet, and skips the others.
+#
+# The CLI is published a second time, to npm: `npm install --global` needs a
+# JavaScript package with a `bin` entry, which JSR does not make. `cli/npm.ts`
+# builds it. npm takes the identity of this workflow (trusted publishing, with
+# the same `id-token` permission as JSR), or the NPM_TOKEN secret when there is
+# one. A version that is already on npm is skipped, as on JSR.
 name: Release
 
 on:
@@ -56,3 +62,20 @@ jobs:
 
       - name: Publish to JSR
         run: deno publish
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish the CLI to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          deno task --cwd cli npm
+          version=$(node -p "require('./cli/npm/package.json').version")
+          if npm view "@chojs/cli@$version" version > /dev/null 2>&1; then
+            echo "@chojs/cli@$version is already on npm"
+          else
+            npm publish ./cli/npm
+          fi
