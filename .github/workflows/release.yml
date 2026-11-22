@@ -16,6 +16,16 @@
 # read. The package names this repository and this file as its trusted
 # publisher, on npmjs.com. A version that is already on npm is skipped, as on
 # JSR.
+#
+# On npm the version is staged, not published: `npm stage publish` sends it to
+# npm, where it waits. A maintainer approves it, with a second factor, and only
+# then it is public:
+#
+#     npm stage list @chojs/cli
+#     npm stage approve <stage-id>
+#
+# or on npmjs.com, in "Staged Packages" of the package. So a release is not
+# done when this workflow is green: the approval is a step by hand.
 name: Release
 
 on:
@@ -67,18 +77,27 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24" # trusted publishing needs npm 11.5.1 or later
+          node-version: "24" # `npm stage` needs npm 11.15.0 or later
           registry-url: https://registry.npmjs.org
           package-manager-cache: false # no cache in a release
 
-      # No token: `npm publish` authenticates with the OIDC identity of this
-      # workflow. `npm view` reads a public package, and needs none.
-      - name: Publish the CLI to npm
+      - name: Build the npm package of the CLI
+        run: deno task --cwd cli npm
+
+      # No token: `npm stage publish` authenticates with the OIDC identity of
+      # this workflow. `npm view` reads a public package, and needs none.
+      #
+      # The command packs the folder it runs in. A version that is published is
+      # skipped. A version that already waits for an approval is not seen by
+      # `npm view`, and npm refuses to stage it twice: when this step runs
+      # again for it, it fails, and there is nothing to do but approve it.
+      - name: Stage the CLI on npm
+        working-directory: cli/npm
         run: |
-          deno task --cwd cli npm
-          version=$(node -p "require('./cli/npm/package.json').version")
+          version=$(node -p "require('./package.json').version")
           if npm view "@chojs/cli@$version" version > /dev/null 2>&1; then
             echo "@chojs/cli@$version is already on npm"
           else
-            npm publish ./cli/npm
+            npm stage publish --access public --provenance
+            echo "@chojs/cli@$version is staged: approve it with npm stage approve"
           fi

@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://chojs.io/" target="_blank"><img src="./assets/cho-logo.svg" width="120" alt="Nest Logo" /></a>
+  <a href="https://chojs.io/" target="_blank"><img src="./assets/cho-logo.svg" width="120" alt="Cho Logo" /></a>
 </p>
 
 <p align="center">
