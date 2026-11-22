@@ -165,8 +165,8 @@ The npm package is built in [`npm/`](./npm.ts), a folder that is not kept in
 git. A release publishes both, and CI runs the dry run of both:
 
 ```sh
-deno task --cwd cli npm           # builds cli/npm/
-npm publish --dry-run ./cli/npm   # packs it and checks it, sends nothing
+deno task --cwd cli npm        # builds cli/npm/
+npm pack --dry-run ./cli/npm   # packs it and lists its files, sends nothing
 ```
 
 The [specification](./specs.md) says how the tool is built and released.

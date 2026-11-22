@@ -609,10 +609,10 @@ release pull request (`release-please-config.json`).
 
 Both run in CI, on every pull request and every push to `main`:
 
-| Registry | Job    | Command                           |
-| -------- | ------ | --------------------------------- |
-| JSR      | `deno` | `deno publish --dry-run`          |
-| npm      | `node` | `npm publish --dry-run ./cli/npm` |
+| Registry | Job    | Command                        |
+| -------- | ------ | ------------------------------ |
+| JSR      | `deno` | `deno publish --dry-run`       |
+| npm      | `node` | `npm pack --dry-run ./cli/npm` |
 
 The job of npm builds the package first, and runs the file a user would get:
 `node cli/npm/cho.js --help`, and a `cho new` with every answer as a flag, no
@@ -622,29 +622,56 @@ A dry run packs the package, checks its manifest and lists its files, and sends
 nothing. It does not check that the workflow may publish: that is known when a
 release runs.
 
+The one of npm is `npm pack`, not `npm publish --dry-run`: the second asks the
+registry, and fails for a version that is already there. The version of the
+repository is the one on npm from a release until the next release pull request
+is merged, so that dry run would fail on every pull request in between.
+
 ### 7.2 The release
 
 `release.yml`, when a release pull request is merged:
 
 1. `deno publish`: every package whose version is not on JSR yet, the tool
    included.
-2. `deno task --cwd cli npm`, and `npm publish ./cli/npm`. A version that is
-   already on npm is skipped, as on JSR: the job can run again.
+2. `deno task --cwd cli npm`, and `npm stage publish`, in `cli/npm`. A version
+   that is already on npm is skipped, as on JSR.
+3. By hand: a maintainer approves the staged version, and only then it is on
+   npm.
 
-JSR is first: when npm fails, running the job again publishes what is missing.
+JSR is first: when npm fails, running the job again sends what is missing.
+
+**The version is staged, not published.** `npm stage publish` sends the package
+to npm, where it waits, and is not public. The workflow cannot approve it: an
+approval asks for a second factor.
+
+```sh
+npm stage list @chojs/cli      # what waits, with the id of each
+npm stage approve <stage-id>   # asks for the second factor, then publishes
+npm stage reject <stage-id>    # or drops it
+```
+
+The same is done on npmjs.com, in "Staged Packages" of the package.
+
+- **A release is not done when the workflow is green.** Until the approval, JSR
+  has the new version of the tool and npm has the one before.
+- **A version is staged once.** A version that waits is not seen by `npm view`,
+  so the check before the step does not skip it, and npm refuses it. When the
+  job runs again for it, the step fails: approve what waits, or reject it and
+  run the job again.
 
 npm accepts the workflow by **trusted publishing** (OIDC): there is no npm
 token, and the workflow reads none.
 
 - The package names, on npmjs.com, who may publish it: the organization
   (`cho-js`), the repository (`cho`) and the file of the workflow
-  (`release.yml`). Every field is case-sensitive, and `npm publish` is among the
-  actions it allows.
+  (`release.yml`). Every field is case-sensitive. `npm stage publish` is always
+  among the actions it allows; `npm publish` does not have to be.
 - The workflow has the `id-token: write` permission, which JSR uses too, and
-  runs on a runner of GitHub. npm 11.5.1 or later is needed: Node.js 24 has it.
+  runs on a runner of GitHub. `npm stage` needs npm 11.15.0 or later: Node.js 24
+  has it.
 - `repository.url` of the package is the repository of CHO: npm compares it with
   the workflow that publishes.
-- npm adds the provenance of the package itself.
+- The package is staged with its provenance (`--provenance`).
 
 ## 8. Runtime support
 
