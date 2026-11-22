@@ -151,6 +151,10 @@ class UsersController {
 A `security` names the schemes of the `securitySchemes` option. A name that is
 not there throws, when `openApi` is called.
 
+`@Doc` takes a `description` on a controller and on a feature too. It is kept on
+`app.graph`, and is not in the document: OpenAPI describes a tag, and the
+[`tags` option](#options) does that.
+
 ## Schemas
 
 A validator of `@chojs/web` is a [Standard Schema](https://standardschema.dev/),

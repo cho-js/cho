@@ -523,6 +523,12 @@ class UsersController {
 request is handled. `@chojs/web` checks its shape, a list of objects of lists of
 strings, and does not know the schemes: what generates the document does.
 
+`@chojs/web` keeps what is declared, and writes no document: what a document
+holds of it is up to what generates the document. The `description` of a
+controller or of a feature is on the graph, and `@chojs/openapi` does not write
+it: it writes the one of a handler, and describes a tag with its `tags` option
+(`extras/openapi/specs.md`, section 2.2).
+
 An unknown option throws when the decorator is called, like the options of
 `@Module` and `@Controller`. A class or a method has one `@Doc`.
 

@@ -303,6 +303,11 @@ class UsersController {
 `security` documents what a middleware enforces: `@chojs/web` checks its shape,
 and nothing more.
 
+`@chojs/web` keeps what is declared, and writes no document. What a document
+holds is up to the package that makes it: `@chojs/openapi` writes the
+`description` of a handler, and not the one of a controller or of a feature. A
+tag is described by its `tags` option.
+
 ### Responses
 
 What a handler returns is the response.
