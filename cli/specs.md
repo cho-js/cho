@@ -609,10 +609,10 @@ release pull request (`release-please-config.json`).
 
 Both run in CI, on every pull request and every push to `main`:
 
-| Registry | Job    | Command                           |
-| -------- | ------ | --------------------------------- |
-| JSR      | `deno` | `deno publish --dry-run`          |
-| npm      | `node` | `npm publish --dry-run ./cli/npm` |
+| Registry | Job    | Command                        |
+| -------- | ------ | ------------------------------ |
+| JSR      | `deno` | `deno publish --dry-run`       |
+| npm      | `node` | `npm pack --dry-run ./cli/npm` |
 
 The job of npm builds the package first, and runs the file a user would get:
 `node cli/npm/cho.js --help`, and a `cho new` with every answer as a flag, no
@@ -621,6 +621,11 @@ git and no installation, whose files are checked.
 A dry run packs the package, checks its manifest and lists its files, and sends
 nothing. It does not check that the workflow may publish: that is known when a
 release runs.
+
+The one of npm is `npm pack`, not `npm publish --dry-run`: the second asks the
+registry, and fails for a version that is already there. The version of the
+repository is the one on npm from a release until the next release pull request
+is merged, so that dry run would fail on every pull request in between.
 
 ### 7.2 The release
 

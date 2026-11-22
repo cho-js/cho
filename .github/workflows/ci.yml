@@ -62,7 +62,10 @@ jobs:
           test -f "$folder/shop/cho.json"
           test -f "$folder/shop/.npmrc"
           test -f "$folder/shop/apps/api/main.ts"
-          npm publish --dry-run ./cli/npm
+          # packs the package and lists its files, and asks npm nothing:
+          # `npm publish --dry-run` fails when the version is already on npm,
+          # which it is from a release to the next
+          npm pack --dry-run ./cli/npm
 
   kafka:
     # The Kafka adapter against a real broker, on the runtime its client
