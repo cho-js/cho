@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.1](https://github.com/cho-js/cho/compare/web-v3.7.0...web-v3.7.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* issue [#36](https://github.com/cho-js/cho/issues/36), handle url encoded params in url ([#38](https://github.com/cho-js/cho/issues/38)) ([d192b51](https://github.com/cho-js/cho/commit/d192b51c3596a0da33a2822c549476b8ff1cd7f0))
+
 ## [3.7.0](https://github.com/cho-js/cho/compare/web-v3.6.0...web-v3.7.0) (2026-11-21)
 
 
