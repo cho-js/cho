@@ -26,6 +26,7 @@ import {
   Options,
   Post,
 } from "./decorators.ts";
+import { isHttpError } from "./http-error.ts";
 import type { Route } from "./linker.ts";
 import { Body, Param, Query } from "./args.ts";
 import { ChoLinker, ChoRouter } from "./router.ts";
@@ -144,8 +145,39 @@ suite("ChoLinker.link", () => {
     assert.deepEqual(await params("/users/a%2Fb"), { id: "a/b" });
     assert.equal(await params("/users/"), 404);
     assert.equal(await params("/users/1/2"), 404);
-    // a parameter that cannot be decoded is passed as it was sent
-    assert.deepEqual(await params("/users/%E0%A4%A"), { id: "%E0%A4%A" });
+  });
+
+  it("answers 400 to a parameter that cannot be decoded, and does not run the route", async () => {
+    let calls = 0;
+    const linked = new ChoLinker().link([{
+      ...echo("GET", "/users/:id"),
+      handle: (_req, params) => {
+        calls++;
+        return Promise.resolve(Response.json({ params }));
+      },
+    }]);
+    // an encoded `%` is a value like any other
+    const encoded = await send(linked, "/users/%25");
+    assert.deepEqual(await encoded.json(), { params: { id: "%" } });
+    assert.equal(calls, 1);
+    // a `%` alone, two characters that are not hexadecimal, a sequence of
+    // UTF-8 that is cut, and a byte that is not UTF-8
+    for (const id of ["%", "%zz", "%E0%A4%A", "%FF", "a%2"]) {
+      const response = await send(linked, `/users/${id}`);
+      assert.equal(response.status, 400, id);
+      assert.deepEqual(await response.json(), {
+        error: 'The path parameter "id" cannot be decoded',
+      }, id);
+    }
+    assert.equal(calls, 1);
+    // a path no route matches is not decoded: it is not found
+    assert.equal((await send(linked, "/nope/%")).status, 404);
+  });
+
+  it("answers 400 to a HEAD request the same way, without a body", async () => {
+    const linked = new ChoLinker().link([echo("GET", "/users/:id")]);
+    const response = await send(linked, "/users/%", "HEAD");
+    assert.deepEqual([response.status, response.body], [400, null]);
   });
 
   it("matches the other characters of a path literally", async () => {
@@ -201,6 +233,11 @@ suite("ChoLinker.link", () => {
     });
     assert.equal(router.match("DELETE", "/users/42"), undefined);
     assert.equal(router.match("GET", "/nope"), undefined);
+    // a parameter that cannot be decoded is an error, not a match
+    assert.throws(
+      () => router.match("GET", "/users/%"),
+      (error) => isHttpError(error) && error.status === 400,
+    );
   });
 
   it("answers 404 when no route matches, or what notFound answers", async () => {
@@ -494,6 +531,20 @@ suite("ChoLinker, the middlewares of the router", () => {
     await send(linked, "/users/a%20b");
     await send(linked, "/nope");
     assert.deepEqual(params, [{ id: "a b" }, {}]);
+  });
+
+  it("wrap the 400 of a parameter that cannot be decoded, with no parameters", async () => {
+    const seen: string[] = [];
+    const params: unknown[] = [];
+    const linked = new ChoLinker({
+      middlewares: [record(seen, "a"), (ctx, next) => {
+        params.push(ctx.params);
+        return next();
+      }],
+    }).link([echo("GET", "/users/:id")]);
+    assert.equal((await send(linked, "/users/%")).status, 400);
+    assert.deepEqual(seen, ["a in /users/%", "a out 400"]);
+    assert.deepEqual(params, [{}]);
   });
 
   it("can answer by themselves, and change the response", async () => {

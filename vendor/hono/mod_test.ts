@@ -111,6 +111,14 @@ describe("HonoLinker.link", () => {
     });
   });
 
+  it("passes a parameter Hono cannot decode as it was sent", async () => {
+    // Hono's own behavior, which the README states: the built-in router and
+    // Fastify answer 400
+    const linked = new HonoLinker().link([echo("GET", "/users/:id")]);
+    const response = await send(linked, "/users/%E0%A4%A");
+    assert.deepEqual((await response.json()).params, { id: "%E0%A4%A" });
+  });
+
   it("matches routes in declaration order", async () => {
     const named = (path: string, name: string): Route => ({
       ...echo("GET", path),
