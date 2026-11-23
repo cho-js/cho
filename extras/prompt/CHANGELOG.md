@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.1](https://github.com/cho-js/cho/compare/prompt-v3.7.0...prompt-v3.7.1) (2026-11-23)
+
+
+### Miscellaneous Chores
+
+* **prompt:** Synchronize cho versions
+
 ## [3.7.0](https://github.com/cho-js/cho/compare/prompt-v3.6.0...prompt-v3.7.0) (2026-11-21)
 
 

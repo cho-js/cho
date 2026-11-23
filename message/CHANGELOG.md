@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.1](https://github.com/cho-js/cho/compare/message-v3.7.0...message-v3.7.1) (2026-11-23)
+
+
+### Miscellaneous Chores
+
+* **message:** Synchronize cho versions
+
 ## [3.7.0](https://github.com/cho-js/cho/compare/message-v3.6.0...message-v3.7.0) (2026-11-21)
 
 
