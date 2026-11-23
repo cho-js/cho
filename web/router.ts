@@ -9,7 +9,7 @@
  */
 
 import { web_error } from "./errors.ts";
-import { isHttpError } from "./http-error.ts";
+import { HttpError, isHttpError } from "./http-error.ts";
 import { describe } from "@chojs/core/utils";
 import { compose, type Endpoint } from "./compose.ts";
 import { type ChoWebContext, create_context } from "./context.ts";
@@ -41,6 +41,12 @@ export type ChoLinkerOptions = {
 /** What a request matched: a route, or the `GET` route that answers a `HEAD`. */
 type Found = ChoMatch & { readonly head_from_get: boolean };
 
+/**
+ * What the router found for a request: a route, nothing, or the error of a
+ * path whose parameter cannot be decoded.
+ */
+type Outcome = Found | HttpError | undefined;
+
 /** A route a {@link ChoRouter} matched, and the parameters of the match. */
 export type ChoMatch = {
   /** The route. */
@@ -67,12 +73,27 @@ function pattern_pathname(path: string): string {
     .join("/");
 }
 
-/** Decode a path parameter; one that is not valid stays as it was sent. */
-function decode_parameter(value: string): string {
+/**
+ * Decode a path parameter.
+ *
+ * A value that is not valid percent-encoding (`%`, `%zz`, `%E0%A4%A`) is
+ * refused, and not passed as it was sent: the handler could not tell it from
+ * the same text sent encoded (`%25` is `%` too).
+ *
+ * @param name The name of the parameter, for the message of the error.
+ * @param value The parameter, as it is in the path.
+ * @returns The decoded parameter.
+ * @throws {HttpError} `400`, when the value cannot be decoded.
+ */
+function decode_parameter(name: string, value: string): string {
   try {
     return decodeURIComponent(value);
-  } catch {
-    return value;
+  } catch (cause) {
+    throw new HttpError(
+      400,
+      `The path parameter "${name}" cannot be decoded`,
+      { cause },
+    );
   }
 }
 
@@ -100,7 +121,7 @@ export class ChoRouter {
   /** Runs the middlewares of the router around a request, when it has some. */
   readonly #run: Endpoint | undefined;
   /** What each request matched, for the end of the middleware chain. */
-  readonly #found = new WeakMap<ChoWebContext, Found | undefined>();
+  readonly #found = new WeakMap<ChoWebContext, Outcome>();
 
   /**
    * Create a router.
@@ -168,6 +189,8 @@ export class ChoRouter {
    * @param method The HTTP method, upper case.
    * @param pathname The path of the request, as in `URL.pathname`.
    * @returns The route and the decoded path parameters, or `undefined`.
+   * @throws {HttpError} `400`, when a parameter of the route that matches is
+   *   not valid percent-encoding (`/users/%`).
    */
   match(method: string, pathname: string): ChoMatch | undefined {
     for (const { route, pattern } of this.#table.get(method) ?? []) {
@@ -175,7 +198,7 @@ export class ChoRouter {
       if (groups) {
         const params: Record<string, string> = {};
         for (const [name, value] of Object.entries(groups)) {
-          params[name] = decode_parameter(value ?? "");
+          params[name] = decode_parameter(name, value ?? "");
         }
         return { route, params };
       }
@@ -190,6 +213,8 @@ export class ChoRouter {
    * - A `HEAD` request without a `HEAD` route is answered by the `GET` route
    *   of the path, without the body.
    * - A request no route matches is answered by the `notFound` option.
+   * - A request with a path parameter that cannot be decoded (`/users/%`) is
+   *   answered `400`, and its route does not run.
    * - A route or a middleware of the router that rejects is logged with
    *   `console.error`, and answered with `500`.
    * - An `HttpError` thrown by a middleware of the router, or by `notFound`,
@@ -200,19 +225,14 @@ export class ChoRouter {
    * @returns The response.
    */
   readonly fetch = async (req: Request): Promise<Response> => {
-    const { pathname } = new URL(req.url);
-    let found: Found | undefined;
-    const exact = this.match(req.method, pathname);
-    if (exact) {
-      found = { ...exact, head_from_get: false };
-    } else if (req.method === "HEAD") {
-      const get = this.match("GET", pathname);
-      found = get && { ...get, head_from_get: true };
-    }
+    const found = this.#find(req.method, new URL(req.url).pathname);
     if (!this.#run) {
       return await this.#answer(req, found);
     }
-    const ctx = create_context(req, found?.params ?? {});
+    const ctx = create_context(
+      req,
+      isHttpError(found) ? {} : found?.params ?? {},
+    );
     this.#found.set(ctx, found);
     try {
       return await this.#run(ctx);
@@ -220,6 +240,29 @@ export class ChoRouter {
       return this.#failed(req, error);
     }
   };
+
+  /**
+   * Find what answers a request: its route, or for a `HEAD` request without a
+   * `HEAD` route, the `GET` route of the path.
+   *
+   * The error of a path that cannot be decoded is returned, not thrown: the
+   * middlewares of the router run around its answer, as around any other.
+   */
+  #find(method: string, pathname: string): Outcome {
+    try {
+      const exact = this.match(method, pathname);
+      if (exact) {
+        return { ...exact, head_from_get: false };
+      }
+      const get = method === "HEAD" ? this.match("GET", pathname) : undefined;
+      return get && { ...get, head_from_get: true };
+    } catch (error) {
+      if (isHttpError(error)) {
+        return error;
+      }
+      throw error;
+    }
+  }
 
   /**
    * Answer a request that failed outside a route: in a middleware of the
@@ -235,15 +278,21 @@ export class ChoRouter {
     return new Response("Internal Server Error", { status: 500 });
   }
 
-  /** Answer a request with the route it matched, or as not found. */
+  /**
+   * Answer a request with the route it matched, as not found, or with the
+   * error of a path that cannot be decoded.
+   */
   async #answer(
     req: Request,
-    found: Found | undefined,
+    found: Outcome,
     state?: Map<PropertyKey, unknown>,
   ): Promise<Response> {
     try {
       if (!found) {
         return await this.#not_found(req);
+      }
+      if (isHttpError(found)) {
+        return this.#failed(req, found);
       }
       const response = await found.route.handle(
         req,
@@ -270,6 +319,8 @@ export class ChoRouter {
  * the same on every adapter.
  *
  * - Routes are matched in declaration order.
+ * - A path parameter is percent-decoded. One that cannot be decoded
+ *   (`/users/%`) is answered `400`, and the route does not run.
  * - A `HEAD` request runs the `@Head` handler of the route; without one, the
  *   `@Get` handler answers it, without the body.
  * - A route that fails without a `@Catch` handler is logged with

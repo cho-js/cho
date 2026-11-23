@@ -1020,7 +1020,7 @@ There is no runtime context on this router: `ctx.native` is `undefined`.
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | Matching order     | Routes are matched in declaration order: declare static routes before parameter routes (`@Get("me")` before `@Get(":id")`)                    |
 | Paths              | Matched as written: case and a trailing slash count. A parameter matches one segment, never an empty one                                      |
-| Path parameters    | Percent-decoded. One that cannot be decoded is passed as it was sent                                                                          |
+| Path parameters    | Percent-decoded. One that cannot be decoded (`/users/%`) is answered `400`, and the route does not run                                        |
 | `HEAD` requests    | Run the `@Head` handler of the route. Without one, the `@Get` handler answers, without the body                                               |
 | Unhandled errors   | A route that fails with no `@Catch` and no `onError` is logged with `console.error`, and answered with `500`                                  |
 | Unmatched requests | Answered by the `notFound` option; `404` by default, also when the path exists under another method                                           |

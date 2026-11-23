@@ -1408,6 +1408,7 @@ method and path.
 | When two routes match         | the first declared                                                           | the first declared                               | the static one                                                                               |
 | `HEAD` without `@Head`        | `@Get`, without the body                                                     | `@Get`, without the body                         | `@Get`, without the body                                                                     |
 | No route matches              | the `notFound` option; `404`                                                 | `notFound` of the Hono application               | the not-found handler of the Fastify application                                             |
+| An undecodable path parameter | `400`; the route does not run                                                | passed as it was sent                            | `400`, by Fastify                                                                            |
 | A route rejects               | logged with `console.error`; `500`                                           | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`                                          |
 | A route throws an `HttpError` | answered by the route (section 5.1)                                          | answered by the route                            | answered by the route                                                                        |
 | An event stream (`@Sse`)      | streamed by the server that runs `app.handler`                               | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end                             |
@@ -1778,7 +1779,11 @@ the validation middleware, when it is on the route (section 3.2).
 - **The built-in router** (`web/router.ts`) makes one `URLPattern` for each
   route, and calls the `route.handle` of the first route whose method and
   pattern match, with the `Request` and the decoded parameters. A mounted route
-  is one more pattern, at the end.
+  is one more pattern, at the end. A parameter that is not valid
+  percent-encoding (`%`, `%zz`, a sequence of UTF-8 that is cut) is not passed
+  as it was sent, where a handler could not tell `%` from `%25`: `match` throws
+  an `HttpError` of `400`, and `fetch` answers with it, inside the middlewares
+  of the router, with no parameters in their context.
 - **The Fastify adapter** registers the routes as one Fastify plugin, in which
   Fastify parses no body. It builds a standard `Request` from Fastify's (its
   body is the raw stream), calls `route.handle` with it, Fastify's decoded
