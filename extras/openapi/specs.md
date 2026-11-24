@@ -1,9 +1,8 @@
 # @chojs/openapi
 
-> **Status: implemented.** `../../tmp/tasks.md` lists what was done and what is
-> left. Section 10 lists every decision this document makes, with the
-> alternative that was not chosen, and section 12 what it changed in the other
-> packages.
+> **Status: implemented.** Section 10 lists every decision this document makes,
+> with the alternative that was not chosen, section 11 what is left out, and
+> section 12 what it changed in the other packages.
 
 The documentation of an HTTP application, from what the application already
 declares. `@chojs/openapi` reads the graph of a `@chojs/web` application, makes
@@ -574,8 +573,9 @@ The page needs a browser that can reach the CDN, or the `assets` option.
   that is created. It is the only way the two routes are added.
 - **Every adapter gains `mount()`**: the built-in router, `@chojs/vendor-hono`
   and `@chojs/vendor-fastify`. It is a required member of `Linked`.
-- **`@chojs/core`: nothing.** Modules are still not configured (`core/specs.md`,
-  section 2.4): the package declares no module.
+- **`@chojs/core`: nothing.** The package declares no module, so an application
+  has none of it to configure (`core/specs.md`, section 2.4): it gives `openApi`
+  its options.
 - **The workspace**: `./extras/openapi` joins the `workspace` of the root
   `deno.json`, the release configuration with the linked versions, and the
   tables of the root `README.md` and of `extras/README.md`. The package has to

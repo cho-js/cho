@@ -1050,8 +1050,10 @@ Debug logging is enabled with `CHO_DEBUG=1`, or with `CHO_DEBUGLOG=cho:web`.
 - [`@chojs/vendor-hono`](../vendor/hono/README.md): the Hono adapter.
 - [`@chojs/vendor-fastify`](../vendor/fastify/README.md): the Fastify adapter,
   for Node.js.
-- Examples: [`hello-world-http.ts`](../examples/hello-world-http.ts), and
-  [`sse-http.ts`](../examples/sse-http.ts) for server-sent events.
+- Examples: [`hello-world-http.ts`](../examples/hello-world-http.ts),
+  [`sse-http.ts`](../examples/sse-http.ts) for server-sent events,
+  [`ws-chat.ts`](../examples/ws-chat.ts) for WebSockets, and
+  [`worker`](../examples/worker) for a Cloudflare Worker.
 
 ## License
 

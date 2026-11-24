@@ -162,7 +162,8 @@ from the same source and with the same version:
 | npm      | `@chojs/cli` | One JavaScript file, with the framework in it: no dependency |
 
 The npm package is built in [`npm/`](./npm.ts), a folder that is not kept in
-git. A release publishes both, and CI runs the dry run of both:
+git. A release publishes the one of JSR, and sends the one of npm to wait there
+for the approval of a maintainer. CI runs the dry run of both:
 
 ```sh
 deno task --cwd cli npm        # builds cli/npm/

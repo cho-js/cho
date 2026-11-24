@@ -75,7 +75,7 @@ One yes: it belongs here. Two noes: it does not.
 2. Add `./extras/<name>` to the `workspace` of the root `deno.json`.
 3. Add the package to `release-please-config.json`, in the `packages` and in the
    linked versions, and to `.release-please-manifest.json`.
-4. Add it to the tables of the root `README.md`, and to the table below.
+4. Add it to the table of the root `README.md`, and to the table below.
 5. Create the package on JSR, in the `@chojs` scope, before the next release:
    the release publishes every package of the workspace.
 

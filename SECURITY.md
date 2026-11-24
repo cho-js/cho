@@ -9,9 +9,9 @@ Security fixes are released for the latest major version of every CHO package.
 | 3.x     | Yes       |
 | < 3.0   | No        |
 
-The policy covers the packages of this repository: `@chojs/core`,
-`@chojs/command`, `@chojs/web`, `@chojs/vendor-cho`, `@chojs/vendor-hono` and
-`@chojs/vendor-fastify`.
+The policy covers every package of this repository: the `@chojs` packages on
+[JSR](https://jsr.io/@chojs), and `@chojs/cli` on npm. The root
+[README](./README.md#packages) lists them.
 
 ## Reporting a Vulnerability
 
@@ -49,6 +49,7 @@ vulnerability publicly.
 
 ## Scope
 
-A vulnerability in a dependency (Hono, Fastify, or a runtime) should be reported
-to that project. Report it here when CHO uses the dependency in a way that makes
-the problem worse, or when a CHO release must be updated to pick up the fix.
+A vulnerability in a dependency (Hono, Fastify, the client library of a broker,
+or a runtime) should be reported to that project. Report it here when CHO uses
+the dependency in a way that makes the problem worse, or when a CHO release must
+be updated to pick up the fix.
