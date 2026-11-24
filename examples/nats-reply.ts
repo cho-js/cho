@@ -29,6 +29,8 @@ import {
   type ChoValidator,
   contract,
   Controller,
+  engine,
+  env,
   isChoError,
   isReplyError,
   Middlewares,
@@ -37,7 +39,6 @@ import {
   Subscribe,
   validate,
 } from "@chojs/message";
-import { engine, env } from "@chojs/core/utils";
 import { NatsLinker } from "@chojs/vendor-nats";
 
 // The transport of the runtime: Deno has its own, on JSR; the one of

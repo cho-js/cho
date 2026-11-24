@@ -13,6 +13,8 @@ import {
   type ChoWebContext,
   type ChoWebSocket,
   Controller,
+  engine,
+  env,
   Get,
   HttpError,
   Injectable,
@@ -21,6 +23,7 @@ import {
   Param,
   Post,
   Query,
+  setEnv,
   Sse,
   validate,
   Ws,
@@ -39,7 +42,6 @@ import {
   timeout,
 } from "@chojs/vendor-cho";
 import { openApi } from "@chojs/openapi";
-import { engine, env, set_env } from "@chojs/core/utils";
 
 const Order = {
   parse(value: unknown) {
@@ -161,9 +163,9 @@ export default {
       );
       check("env() without process", env("CHO_NOTHING") === undefined);
       // The bindings of the Worker, as the environment of the application.
-      set_env(bindings as Record<string, string>);
+      setEnv(bindings as Record<string, string>);
       check(
-        "set_env() gives the bindings to env()",
+        "setEnv() gives the bindings to env()",
         env("GREETING") === "hello from a binding",
         String(env("GREETING")),
       );

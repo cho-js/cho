@@ -56,6 +56,17 @@ export {
   token,
   type WithDependencies,
 } from "@chojs/core/di";
+// What an application reads its environment with, on every runtime: the
+// names are those of a public API, and are the same in every CHO module.
+export {
+  engine,
+  type EngineType,
+  env,
+  envBool,
+  envNum,
+  type EnvSource,
+  setEnv,
+} from "@chojs/core/utils";
 export { ChoCommand, type ChoCommandOptions } from "./command.ts";
 export type { ChoArgs, CommandFlags, ParserOptions } from "./args.ts";
 export type { ChoCommandContext } from "./context.ts";

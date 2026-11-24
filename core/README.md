@@ -306,13 +306,19 @@ Every code is listed with its mistake in the
 | `@chojs/core/utils`            | Runtime helpers: `env`, `set_env`, `engine`, `debuglog`, `compose`, `describe`                    |
 | `@chojs/core/utils/test_utils` | Test helpers: apply decorators as function calls, capture console output                          |
 
+`env`, `engine`, and `setEnv`, `envNum` and `envBool` (the public names of
+`set_env`, `env_num` and `env_bool`) are for applications: each CHO module
+exports them again, so an application reads its environment without this
+package.
+
 ## Runtime support
 
 Deno, Node.js, Bun and Cloudflare Workers: the tests run on the four. The
 package itself contains no decorator syntax and no runtime-specific API. On a
 Worker, which has no `process`, give the environment with `set_env()` of
-`@chojs/core/utils`. Debug logging is enabled with `CHO_DEBUG=1`, or per context
-with `CHO_DEBUGLOG=cho:di`.
+`@chojs/core/utils`: an application calls it as `setEnv()`, from the CHO module
+it uses. Debug logging is enabled with `CHO_DEBUG=1`, or per context with
+`CHO_DEBUGLOG=cho:di`.
 
 ## Documentation
 

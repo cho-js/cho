@@ -5,7 +5,16 @@
  * @module
  */
 
-export { env, env_bool, env_num, type EnvSource, set_env } from "./env.ts";
+export {
+  env,
+  env_bool,
+  env_num,
+  envBool,
+  envNum,
+  type EnvSource,
+  set_env,
+  setEnv,
+} from "./env.ts";
 export { engine, type EngineType } from "./engine.ts";
 export {
   compose,
