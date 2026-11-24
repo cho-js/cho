@@ -81,8 +81,6 @@ export function is_node_rt(): boolean {
  *
  * @example
  * ```ts
- * import { engine } from "@chojs/core/utils";
- *
  * if (engine() === "deno") {
  *   // ...
  * }

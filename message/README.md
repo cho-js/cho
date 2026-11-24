@@ -38,6 +38,7 @@ a route.
   - [Error handling](#error-handling)
   - [Starting and stopping](#starting-and-stopping)
   - [Delivering a message by hand](#delivering-a-message-by-hand)
+  - [The environment](#the-environment)
   - [With a web application](#with-a-web-application)
   - [Testing](#testing)
 - [Options](#options)
@@ -673,6 +674,34 @@ handler returned one, and rejects, with the error, when it failed. It is how an
 application is [tested](#testing), and how messages that arrive another way are
 handled: a broker that pushes its messages over HTTP is served by a web handler
 that calls `app.handle`.
+
+### The environment
+
+An application reads its environment with `env`, and not with `process.env`: it
+reads the same way on every runtime.
+
+```ts
+import { env, envBool, envNum, Injectable } from "@chojs/message";
+
+@Injectable()
+class Config {
+  readonly databaseUrl = env("DATABASE_URL") ?? "postgres://localhost/shop";
+  readonly retries = env("RETRIES") ? envNum("RETRIES") : 3;
+  readonly verbose = envBool("VERBOSE");
+}
+```
+
+| Function         | Gives                                                                        |
+| ---------------- | ---------------------------------------------------------------------------- |
+| `env(key)`       | The variable, or `undefined` when it is not set                              |
+| `envNum(key)`    | The variable as a number: `NaN` when it is not set, or is not a number       |
+| `envBool(key)`   | `true` for `1`, `true`, `yes` and `on`, in any case; `false` otherwise       |
+| `setEnv(source)` | Says where to read from first: a record of variables, or a function          |
+| `engine()`       | The runtime: `"deno"`, `"node"`, `"bun"`, `"workerd"`, `"edge"`, `"unknown"` |
+
+Variables are read from `process.env`. A runtime without `process`, such as
+Cloudflare Workers, gives its environment with `setEnv`, before the application
+is created.
 
 ### With a web application
 

@@ -809,6 +809,12 @@ Runtime helpers that work on every runtime:
   Cloudflare Workers `env`) or a function; only string values count. It applies
   to the whole program, and is needed on runtimes without `process`. Call it at
   startup: `debuglog()` reads the environment when a logger is created.
+- `setEnv(source)`, `envBool(key)`, `envNum(key)`: `set_env`, `env_bool` and
+  `env_num` under the names of a public API. With `env` and `engine`, whose
+  names fit both conventions, they are **for applications**: `@chojs/web`,
+  `@chojs/command` and `@chojs/message` export the five, so an application reads
+  its environment without importing `@chojs/core`. Like `ChoError` and
+  `isChoError` (section 3.1), they keep their behavior between versions.
 - `engine()`: the runtime the code runs on: `"deno"`, `"node"`, `"bun"`,
   `"workerd"` (Cloudflare Workers), `"edge"` (edge runtimes, such as Vercel Edge
   Functions) or `"unknown"` (type `EngineType`).

@@ -7,7 +7,16 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { env, env_bool, env_num, type EnvSource, set_env } from "./env.ts";
+import {
+  env,
+  env_bool,
+  env_num,
+  envBool,
+  envNum,
+  type EnvSource,
+  set_env,
+  setEnv,
+} from "./env.ts";
 import { with_env } from "./test_utils.ts";
 
 /** Run `fn` with `globalThis.process` replaced, then restore it. */
@@ -155,5 +164,44 @@ describe("set_env", () => {
       set_env(undefined);
       assert.equal(env(KEY), undefined);
     });
+  });
+});
+
+describe("the names of the public API", () => {
+  it("setEnv gives the source env reads first, and takes it back", () => {
+    with_env({ [KEY]: "from process" }, () => {
+      setEnv({ [KEY]: "from the source" });
+      try {
+        assert.equal(env(KEY), "from the source");
+      } finally {
+        setEnv(undefined);
+      }
+      assert.equal(env(KEY), "from process");
+    });
+  });
+
+  it("setEnv takes a function", () => {
+    setEnv((key) => (key === KEY ? "42" : undefined));
+    try {
+      assert.equal(env(KEY), "42");
+      assert.equal(envNum(KEY), 42);
+    } finally {
+      setEnv(undefined);
+    }
+  });
+
+  it("envBool reads what env_bool reads", () => {
+    for (const value of ["1", "true", "YES", "on"]) {
+      with_env({ [KEY]: value }, () => assert.equal(envBool(KEY), true));
+    }
+    for (const value of ["0", "false", "", undefined]) {
+      with_env({ [KEY]: value }, () => assert.equal(envBool(KEY), false));
+    }
+  });
+
+  it("envNum reads what env_num reads", () => {
+    with_env({ [KEY]: "8080" }, () => assert.equal(envNum(KEY), 8080));
+    with_env({ [KEY]: undefined }, () => assert.ok(Number.isNaN(envNum(KEY))));
+    with_env({ [KEY]: "abc" }, () => assert.ok(Number.isNaN(envNum(KEY))));
   });
 });

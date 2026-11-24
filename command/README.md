@@ -19,6 +19,7 @@ the command line, runs the right one and returns the exit code.
   - [The command context](#the-command-context)
   - [Middlewares](#middlewares)
   - [Errors and exit codes](#errors-and-exit-codes)
+  - [The environment](#the-environment)
   - [Dependency injection and cleanup](#dependency-injection-and-cleanup)
   - [Testing](#testing)
 - [Options](#options)
@@ -224,6 +225,32 @@ printed as `Error: <message>`.
 @Controller()
 class FileSystem {}
 ```
+
+### The environment
+
+An application reads its environment with `env`, and not with `process.env`: it
+reads the same way on every runtime.
+
+```ts
+import { env, envBool, envNum, Injectable } from "@chojs/command";
+
+@Injectable()
+class Config {
+  readonly databaseUrl = env("DATABASE_URL") ?? "postgres://localhost/shop";
+  readonly retries = env("RETRIES") ? envNum("RETRIES") : 3;
+  readonly verbose = envBool("VERBOSE");
+}
+```
+
+| Function         | Gives                                                                        |
+| ---------------- | ---------------------------------------------------------------------------- |
+| `env(key)`       | The variable, or `undefined` when it is not set                              |
+| `envNum(key)`    | The variable as a number: `NaN` when it is not set, or is not a number       |
+| `envBool(key)`   | `true` for `1`, `true`, `yes` and `on`, in any case; `false` otherwise       |
+| `setEnv(source)` | Says where to read from first: a record of variables, or a function          |
+| `engine()`       | The runtime: `"deno"`, `"node"`, `"bun"`, `"workerd"`, `"edge"`, `"unknown"` |
+
+Variables are read from `process.env`, or from what `setEnv` was given.
 
 ### Dependency injection and cleanup
 

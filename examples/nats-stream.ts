@@ -27,10 +27,11 @@ import {
   ChoMessage,
   type ChoMessageContext,
   Controller,
+  engine,
+  env,
   Module,
   Subscribe,
 } from "@chojs/message";
-import { engine, env } from "@chojs/core/utils";
 import { NatsLinker, type NatsStreamNative } from "@chojs/vendor-nats";
 
 // The transport and the JetStream client of the runtime: Deno has its own,

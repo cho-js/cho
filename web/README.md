@@ -29,6 +29,7 @@ call.
   - [Errors of the framework](#errors-of-the-framework)
   - [Serving](#serving)
   - [Cloudflare Workers](#cloudflare-workers)
+  - [The environment](#the-environment)
   - [Dependency injection and shutdown](#dependency-injection-and-shutdown)
   - [Mounting a route](#mounting-a-route)
   - [Testing](#testing)
@@ -812,8 +813,16 @@ export default { fetch: app.handler };
     },
   };
   ```
-- **The environment.** A Worker has no `process`: give `set_env()` of
-  `@chojs/core/utils` what `CHO_DEBUG` and the others are read from.
+- **The environment.** A Worker has no `process`: give its bindings to
+  [`setEnv`](#the-environment), before the application is created. `env`, and
+  `CHO_DEBUG` with it, are then read from them:
+
+  ```ts
+  import { setEnv } from "@chojs/web";
+  import { env as bindings } from "cloudflare:workers";
+
+  setEnv(bindings);
+  ```
 - **Keep the names.** A minified bundle renames classes and functions, and CHO
   puts their names in error messages, in logs and in the tags of an OpenAPI
   document: set `keep_names = true` in `wrangler.toml` (the default of
@@ -821,6 +830,34 @@ export default { fetch: app.handler };
 - The packages need no `nodejs_compat` flag.
 
 [`examples/worker`](../examples/worker) is a Worker to run with wrangler.
+
+### The environment
+
+An application reads its environment with `env`, and not with `process.env`: it
+reads the same way on every runtime.
+
+```ts
+import { env, envBool, envNum, Injectable } from "@chojs/web";
+
+@Injectable()
+class Config {
+  readonly databaseUrl = env("DATABASE_URL") ?? "postgres://localhost/shop";
+  readonly retries = env("RETRIES") ? envNum("RETRIES") : 3;
+  readonly verbose = envBool("VERBOSE");
+}
+```
+
+| Function         | Gives                                                                        |
+| ---------------- | ---------------------------------------------------------------------------- |
+| `env(key)`       | The variable, or `undefined` when it is not set                              |
+| `envNum(key)`    | The variable as a number: `NaN` when it is not set, or is not a number       |
+| `envBool(key)`   | `true` for `1`, `true`, `yes` and `on`, in any case; `false` otherwise       |
+| `setEnv(source)` | Says where to read from first: a record of variables, or a function          |
+| `engine()`       | The runtime: `"deno"`, `"node"`, `"bun"`, `"workerd"`, `"edge"`, `"unknown"` |
+
+Variables are read from `process.env`. A runtime without `process`, such as
+[Cloudflare Workers](#cloudflare-workers), gives its environment with `setEnv`,
+before the application is created.
 
 ### Dependency injection and shutdown
 

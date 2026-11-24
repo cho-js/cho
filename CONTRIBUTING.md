@@ -172,8 +172,9 @@ The name of a function says who it is for.
 - **`@chojs/core` is internal**, for now: every function and method in it is
   `snake_case`, and carries no compatibility promise. Applications get what they
   need from it through `@chojs/command`, `@chojs/web` and `@chojs/message`,
-  which re-export it. Some internal functions are still called by applications
-  (`set_env`, on a runtime without `process`); they keep their internal name.
+  which re-export it. What an application calls has a public name there: the
+  core's `set_env`, `env_num` and `env_bool` are also `setEnv`, `envNum` and
+  `envBool`, which the three packages export.
 - **A single word fits both conventions** (`provider`, `token`, `env`,
   `compose`, `describe`, `debuglog`), so a function can move between the two
   audiences without a rename.

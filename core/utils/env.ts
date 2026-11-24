@@ -6,6 +6,10 @@
  * `process` (Cloudflare Workers, browsers) pass their environment with
  * `set_env`. A variable that cannot be read is treated as not set.
  *
+ * {@link setEnv}, {@link envBool} and {@link envNum} are `set_env`, `env_bool`
+ * and `env_num` under the names of a public API. With {@link env}, they are
+ * what a CHO module gives an application to read its environment with.
+ *
  * @module
  */
 
@@ -113,4 +117,63 @@ export function env_bool(key: string): boolean {
  */
 export function env_num(key: string): number {
   return Number(env(key));
+}
+
+/**
+ * Give the environment to read from, before `process.env`.
+ *
+ * A runtime without `process`, such as Cloudflare Workers, has no environment
+ * to read: give it here. It applies to the whole program, until it is given
+ * again. Call it first, before the application is created: debug logging
+ * reads the environment then.
+ *
+ * @param source The environment: a record of variables, or a function that
+ *   returns the value of one. `undefined` reads `process.env` only.
+ *
+ * @example Cloudflare Workers
+ * ```ts
+ * import { env as bindings } from "cloudflare:workers";
+ *
+ * setEnv(bindings);
+ * ```
+ *
+ * @example A function
+ * ```ts
+ * setEnv((key) => config.get(key));
+ * ```
+ */
+export function setEnv(source: EnvSource | undefined): void {
+  set_env(source);
+}
+
+/**
+ * Read an environment variable as a boolean: `1`, `true`, `yes` and `on`, in
+ * any case, are `true`. Anything else, or no value, is `false`.
+ *
+ * @example
+ * ```ts
+ * const verbose = envBool("VERBOSE");
+ * ```
+ *
+ * @param key The name of the variable.
+ * @returns Whether the variable is set to a true value.
+ */
+export function envBool(key: string): boolean {
+  return env_bool(key);
+}
+
+/**
+ * Read an environment variable as a number.
+ *
+ * @example
+ * ```ts
+ * const port = env("PORT") ? envNum("PORT") : 3000;
+ * ```
+ *
+ * @param key The name of the variable.
+ * @returns The value as a number: `NaN` when the variable is not set, or is
+ *   not a number.
+ */
+export function envNum(key: string): number {
+  return env_num(key);
 }

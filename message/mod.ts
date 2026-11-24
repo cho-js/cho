@@ -49,6 +49,17 @@
  * @module
  */
 
+// What an application reads its environment with, on every runtime: the
+// names are those of a public API, and are the same in every CHO module.
+export {
+  engine,
+  type EngineType,
+  env,
+  envBool,
+  envNum,
+  type EnvSource,
+  setEnv,
+} from "@chojs/core/utils";
 // What an application needs from the core, so that it only imports
 // `@chojs/message`: the `@Injectable` decorator, and `token` and `provider`
 // to declare values that are not classes (and the `overrides` of tests).

@@ -469,7 +469,13 @@ const app = ChoCommand.create(App, {
 An unknown action is not an error of a command: it is reported by the
 application (section 4.2) and no error handler runs.
 
-### 4.5 Debug logging
+### 4.5 The environment, and debug logging
+
+**The environment.** `@chojs/command` gives an application what it reads its
+environment with: `env`, `envNum`, `envBool`, `setEnv` and `engine`. They are
+the core's (`core/specs.md`, section 3.3), under the names of a public API, and
+the same in every CHO module. Variables are read from the source given to
+`setEnv`, then from `process.env`.
 
 `ChoCommand` logs to the `cho:command` debug context, on stderr. It is off by
 default; enable it with `CHO_DEBUGLOG=cho:command`, `CHO_DEBUGLOG=cho:*` or
@@ -573,6 +579,7 @@ Run 'fs <command> --help' for help on a command.
 | `Controller`, `Module` (the core's, with no extra option)                                                       | function        | 2.1      |
 | `Injectable`, `token`, `provider` (re-exported from `@chojs/core`)                                              | function        | 2.1      |
 | `configure`, `ConfigureOptions` (re-exported, see core, section 2.4)                                            | function, type  | 1        |
+| `env`, `envNum`, `envBool`, `setEnv`, `engine`, `EnvSource`, `EngineType` (re-exported, see core, section 3.3)  | function, type  | 4.5      |
 | `ControllerOptions`, `ModuleOptions`, `InjectableOptions`, `InjectionToken`, `Provider` (re-exported, see core) | type            | 2.1      |
 | `ChoError`, `isChoError` (re-exported from `@chojs/core`)                                                       | class, function | 7        |
 | `ChoCommandErrorCode`, `ChoCoreErrorCode`                                                                       | type            | 7        |
