@@ -4,12 +4,13 @@
 [![JSR score](https://jsr.io/badges/@chojs/vendor-cho/score)](https://jsr.io/@chojs/vendor-cho)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-The middlewares of the built-in router of [`@chojs/web`](../../web/README.md).
+Middlewares for [`@chojs/web`](../../web/README.md) applications.
 
-The built-in router has no HTTP library underneath, so nothing brings the
-middlewares an application usually takes from one. This package has them,
-written as CHO middlewares: functions `(ctx, next)` on the standard `Request`
-and `Response`, with no dependency.
+`@chojs/web` has a router built in, with no HTTP library underneath, so nothing
+brings the middlewares an application usually takes from one. This package has
+them, written as CHO middlewares: functions `(ctx, next)` on the standard
+`Request` and `Response`, with no dependency. They run on every adapter: the
+built-in router, Hono and Fastify.
 
 | Middleware                        | For                                                   |
 | --------------------------------- | ----------------------------------------------------- |
@@ -54,14 +55,15 @@ bunx jsr add @chojs/web @chojs/vendor-cho        # Bun
 
 ## Where a middleware goes
 
-**On the router**, to cover every request, the ones no route matches included:
+**On the application**, to cover every request, the ones no route matches
+included:
 
 ```ts
-import { ChoLinker, ChoWeb } from "@chojs/web";
+import { ChoWeb } from "@chojs/web";
 import { cors } from "@chojs/vendor-cho";
 
 const app = await ChoWeb.create(App, {
-  linker: new ChoLinker({ middlewares: [cors()] }),
+  middlewares: [cors()],
 });
 ```
 
@@ -82,14 +84,14 @@ class PublicController {
 }
 ```
 
-They are plain CHO middlewares, so they also run on the Hono and Fastify
-adapters when they are declared with `@Middlewares`.
+They are plain CHO middlewares: both ways work on every adapter. The tests of
+the Hono and of the Fastify adapters run them for an application.
 
 The order matters, as for any middleware: the first one is the outermost. A
-usual order on the router:
+usual order for an application:
 
 ```ts
-new ChoLinker({
+const app = await ChoWeb.create(App, {
   middlewares: [
     logger(), //                     sees every request, and its final status
     requestId(),
@@ -101,8 +103,9 @@ new ChoLinker({
 });
 ```
 
-What a middleware of the router puts in `ctx.state` (the request id, the user of
-an authentication) is there for the middlewares and the handler of the route.
+What a middleware of the application puts in `ctx.state` (the request id, the
+user of an authentication) is there for the middlewares and the handler of the
+route.
 
 ## `cors`
 
@@ -141,11 +144,12 @@ What it does:
 - `Vary: Origin` is added whenever the answer depends on the origin of the
   request, so that caches keep the answers apart.
 
-**Put it on the router.** A browser sends a preflight request to the path of the
-real request, with the method `OPTIONS`. A middleware declared with
+**Put it on the application.** A browser sends a preflight request to the path
+of the real request, with the method `OPTIONS`. A middleware declared with
 `@Middlewares` only runs for a request that matches a route, so there it answers
-preflight requests only where an `@Options` route exists. On the router
-(`new ChoLinker({ middlewares: [cors()] })`) it answers them for every path.
+preflight requests only where an `@Options` route exists. On the application
+(`ChoWeb.create(App, { middlewares: [cors()] })`) it answers them for every
+path.
 
 ## `bodyLimit`
 
@@ -348,8 +352,8 @@ with the standard `Request`, `Response` and `Headers`.
 
 ## Documentation
 
-- [`@chojs/web`](../../web/README.md): the web package, its
-  [built-in router](../../web/README.md#the-built-in-router) and its
+- [`@chojs/web`](../../web/README.md): the web package, the
+  [middlewares of an application](../../web/README.md#middlewares) and its
   [specification](../../web/specs.md).
 
 ## License

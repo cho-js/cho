@@ -53,11 +53,11 @@ function default_format({ method, path, status, ms }: LoggerEntry): string {
  *
  * @example
  * ```ts
- * import { ChoLinker, ChoWeb } from "@chojs/web";
+ * import { ChoWeb } from "@chojs/web";
  * import { logger } from "@chojs/vendor-cho";
  *
  * const app = await ChoWeb.create(AppModule, {
- *   linker: new ChoLinker({ middlewares: [logger()] }),
+ *   middlewares: [logger()],
  * });
  * // GET /users/42 200 3ms
  * ```

@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import {
   Args,
   Body,
-  ChoLinker,
   ChoWeb,
   type ChoWebContext,
   type ChoWebSocket,
@@ -67,16 +66,14 @@ routed("the middlewares, together on the built-in router", () => {
     class App {}
     Module({ controllers: [Users] })(App);
     return await ChoWeb.create(App, {
-      linker: new ChoLinker({
-        middlewares: [
-          vendor.logger({ log: (line) => lines.push(line) }),
-          vendor.requestId(),
-          vendor.cors({ origin: "https://example.com" }),
-          vendor.secureHeaders(),
-          vendor.bodyLimit({ maxSize: 20 }),
-          vendor.timeout({ ms: 1000 }),
-        ],
-      }),
+      middlewares: [
+        vendor.logger({ log: (line) => lines.push(line) }),
+        vendor.requestId(),
+        vendor.cors({ origin: "https://example.com" }),
+        vendor.secureHeaders(),
+        vendor.bodyLimit({ maxSize: 20 }),
+        vendor.timeout({ ms: 1000 }),
+      ],
     });
   }
 
@@ -162,18 +159,16 @@ routed("the middlewares, together on the built-in router", () => {
     class App {}
     Module({ controllers: [Chat] })(App);
     const app = await ChoWeb.create(App, {
-      linker: new ChoLinker({
-        middlewares: [
-          vendor.logger({ log: (line) => lines.push(line) }),
-          vendor.requestId(),
-          vendor.cors({ origin: "https://example.com" }),
-          vendor.secureHeaders(),
-          vendor.compress({ threshold: 0 }),
-          vendor.etag(),
-          vendor.bodyLimit({ maxSize: 20 }),
-          vendor.timeout({ ms: 1000 }),
-        ],
-      }),
+      middlewares: [
+        vendor.logger({ log: (line) => lines.push(line) }),
+        vendor.requestId(),
+        vendor.cors({ origin: "https://example.com" }),
+        vendor.secureHeaders(),
+        vendor.compress({ threshold: 0 }),
+        vendor.etag(),
+        vendor.bodyLimit({ maxSize: 20 }),
+        vendor.timeout({ ms: 1000 }),
+      ],
     });
     const asking = (headers: Record<string, string> = {}) =>
       new Request("http://localhost/chat/live", {
@@ -248,18 +243,16 @@ routed("the middlewares, together on the built-in router", () => {
     class App {}
     Module({ controllers: [Feed] })(App);
     const app = await ChoWeb.create(App, {
-      linker: new ChoLinker({
-        middlewares: [
-          vendor.logger({ log: (line) => lines.push(line) }),
-          vendor.requestId(),
-          vendor.cors({ origin: "https://example.com" }),
-          vendor.secureHeaders(),
-          vendor.compress({ threshold: 0 }),
-          vendor.etag(),
-          vendor.bodyLimit({ maxSize: 20 }),
-          vendor.timeout({ ms: 1000 }),
-        ],
-      }),
+      middlewares: [
+        vendor.logger({ log: (line) => lines.push(line) }),
+        vendor.requestId(),
+        vendor.cors({ origin: "https://example.com" }),
+        vendor.secureHeaders(),
+        vendor.compress({ threshold: 0 }),
+        vendor.etag(),
+        vendor.bodyLimit({ maxSize: 20 }),
+        vendor.timeout({ ms: 1000 }),
+      ],
     });
 
     const response = await send(app, "/feed/events", {

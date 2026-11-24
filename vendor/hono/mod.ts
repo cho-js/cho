@@ -22,7 +22,7 @@
 import { hono_error } from "./errors.ts";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import type { ChoWebContext, ChoWebMiddlewareFn, ChoWebNext } from "@chojs/web";
-import type { Linked, Linker, Route } from "@chojs/web/linker";
+import type { Linked, Linker, LinkOptions, Route } from "@chojs/web/linker";
 
 // The `@chojs/web` types this module refers to. (`Hono` and
 // `MiddlewareHandler` are types of the `hono` package: import them from
@@ -33,8 +33,23 @@ export type {
   ChoWebNext,
   Linked,
   Linker,
+  LinkOptions,
   Route,
 };
+
+/**
+ * The context the middlewares of the application ran with, for each Hono
+ * context: the route of the request is given its request and its state.
+ */
+const AROUND = new WeakMap<Context, ChoWebContext>();
+
+/** Answer a Hono request with a route. */
+function answer(route: Route, c: Context): Promise<Response> {
+  const ctx = AROUND.get(c);
+  // A middleware of the application can have replaced the request, and the
+  // handlers of the route see its state.
+  return route.handle(ctx?.req ?? c.req.raw, c.req.param(), c, ctx?.state);
+}
 
 /**
  * A Hono application linked by {@link HonoLinker}.
@@ -83,22 +98,20 @@ export class HonoLinked implements Linked<Hono> {
         "GET",
         route.path,
         (ctx, next) =>
-          ctx.req.raw.method === "HEAD"
-            ? route.handle(ctx.req.raw, ctx.req.param(), ctx)
-            : next(),
+          ctx.req.raw.method === "HEAD" ? answer(route, ctx) : next(),
       );
     } else if (route.method === "GET") {
       app.on("GET", route.path, (ctx) => {
         const head = ctx.req.raw.method === "HEAD"
           ? this.#heads.get(route.path)
           : undefined;
-        return (head ?? route).handle(ctx.req.raw, ctx.req.param(), ctx);
+        return answer(head ?? route, ctx);
       });
     } else {
       app.on(
         route.method,
         route.path,
-        (ctx) => route.handle(ctx.req.raw, ctx.req.param(), ctx),
+        (ctx) => answer(route, ctx),
       );
     }
   }
@@ -126,9 +139,14 @@ export class HonoLinked implements Linked<Hono> {
  *   handler, which logs the error and answers `500` (see `app.onError`).
  * - A route mounted on the application (`app.mount`) is registered after the
  *   others, until Hono answers its first request: after it, Hono throws.
- * - Hono middlewares (`cors()`, `logger()`, ...) are not CHO middlewares. To
- *   use them, add them to a Hono application and give it to the linker: the
- *   routes are registered after them, so they wrap every route.
+ * - The middlewares of the application (the `middlewares` option of
+ *   `ChoWeb.create`) run in one Hono middleware, registered before the
+ *   routes: around every request, also one no route matches. Hono has not
+ *   matched a route yet, so their `ctx.params` is empty; `ctx.native` is
+ *   Hono's `Context`.
+ * - Hono middlewares (`cors()`, `logger()`, ...) are not CHO middlewares.
+ *   `fromHono` makes one a CHO middleware, for `@Middlewares` and for the
+ *   `middlewares` option of `ChoWeb.create`.
  *
  * @example
  * ```ts
@@ -139,14 +157,14 @@ export class HonoLinked implements Linked<Hono> {
  * Deno.serve(app.handler);
  * ```
  *
- * @example With Hono middlewares
+ * @example With middlewares for every request
  * ```ts
- * import { Hono } from "hono";
  * import { cors } from "hono/cors";
  *
- * const hono = new Hono();
- * hono.use(cors());
- * const app = await ChoWeb.create(AppModule, { linker: new HonoLinker(hono) });
+ * const app = await ChoWeb.create(AppModule, {
+ *   linker: new HonoLinker(),
+ *   middlewares: [fromHono(cors())],
+ * });
  * ```
  */
 export class HonoLinker implements Linker<Hono> {
@@ -159,8 +177,8 @@ export class HonoLinker implements Linker<Hono> {
    * Create a linker.
    *
    * @param app The Hono application to register the routes on. Default: a new
-   *   one. Give your own to add Hono middlewares, an error handler or a
-   *   not-found handler first. Use a linker for one application only.
+   *   one. Give your own to set an error handler or a not-found handler, or
+   *   to add routes of its own. Use a linker for one application only.
    */
   constructor(app: Hono = new Hono()) {
     this.#app = app;
@@ -170,11 +188,13 @@ export class HonoLinker implements Linker<Hono> {
    * Register routes on the linker's Hono application.
    *
    * @param routes The routes of the application.
+   * @param options What `@chojs/web` gives with the routes: `around`, which
+   *   runs the middlewares of the application.
    * @returns The linked Hono application.
    * @throws {ChoError} When the linker was already used: its Hono application
    *   holds the routes of the first application.
    */
-  link(routes: readonly Route[]): HonoLinked {
+  link(routes: readonly Route[], { around }: LinkOptions = {}): HonoLinked {
     // A second application would add its routes to the first one's.
     if (this.#linked) {
       throw hono_error(
@@ -183,6 +203,29 @@ export class HonoLinker implements Linker<Hono> {
       );
     }
     this.#linked = true;
+    // Before the routes: it wraps each of them, and Hono's not-found answer.
+    if (around) {
+      this.#app.use(async (c, next) => {
+        const response = await around(c.req.raw, async (ctx) => {
+          AROUND.set(c, ctx);
+          await next();
+          // The answer of the route, of Hono's error handler or of its
+          // not-found handler.
+          return c.res;
+        }, c);
+        // A middleware answered without `next()`: the context has no
+        // response yet, and Hono takes the one that is returned.
+        if (!c.finalized) {
+          return response;
+        }
+        // A middleware replaced the response. Without a response first:
+        // Hono's setter would copy the headers of the one it has.
+        if (response !== c.res) {
+          c.res = undefined;
+          c.res = response;
+        }
+      });
+    }
     const linked = new HonoLinked(this.#app);
     // The HEAD routes first: Hono answers a HEAD request by running the GET
     // routes, and a GET route that matches the same request, with another
@@ -232,8 +275,9 @@ function hono_context(ctx: ChoWebContext): Context {
  * another adapter the middleware throws.
  *
  * A middleware that must also cover the requests no route matches (CORS
- * preflight requests of paths without an `OPTIONS` route, say) belongs on the
- * Hono application given to the linker instead (`hono.use(cors())`).
+ * preflight requests of paths without an `OPTIONS` route, say) is given to
+ * the `middlewares` option of `ChoWeb.create`: `fromHono(cors())` works
+ * there too.
  *
  * @param middleware The Hono middleware.
  * @returns A CHO middleware function.

@@ -189,6 +189,12 @@ export class AppRef {
    * of the handlers that no `@Catch` handler covers.
    */
   readonly errorHandler: ErrorHandlerRef;
+  /**
+   * The middlewares of the application (the `middlewares` option of
+   * `ChoMessage.create`), created and in order; empty when it has none. They
+   * are the first of the chain of every handler.
+   */
+  readonly middlewares: ChoMessageMiddlewareFn[];
   /** The features of the application. */
   readonly features: FeatureRef[];
 
@@ -197,10 +203,16 @@ export class AppRef {
    *
    * @param topic The global topic prefix.
    * @param errorHandler The error handler of the application, or `null`.
+   * @param middlewares The middlewares of the application. Default: none.
    */
-  constructor(topic: string, errorHandler: ErrorHandlerRef = null) {
+  constructor(
+    topic: string,
+    errorHandler: ErrorHandlerRef = null,
+    middlewares: ChoMessageMiddlewareFn[] = [],
+  ) {
     this.topic = topic;
     this.errorHandler = errorHandler;
+    this.middlewares = middlewares;
     this.features = [];
   }
 }

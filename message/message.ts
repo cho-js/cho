@@ -22,7 +22,7 @@ import { build_message_graph } from "./build-graph.ts";
 import type { AppRef } from "./graph.ts";
 import type { Delivery, Linked, Linker, Reply, Route } from "./linker.ts";
 import { compile_routes } from "./routes.ts";
-import type { ChoMessageErrorHandler } from "./types.ts";
+import type { ChoMessageErrorHandler, ChoMessageMiddleware } from "./types.ts";
 
 /**
  * Options of {@link ChoMessage.create}. Every option is optional.
@@ -73,6 +73,33 @@ export type ChoMessageOptions<T = unknown> = {
    * ```
    */
   onError?: ChoMessageErrorHandler;
+  /**
+   * The middlewares of the application: they run for **every** message, in
+   * order, before the middlewares of its feature, of its controller and of
+   * its handler. Like `@Middlewares`, it takes functions `(ctx, next)`, and
+   * classes with a `handle(ctx, next)` method, created by the injector in
+   * the scope of the root module. They are middlewares like the others: an
+   * error they throw goes to the error handlers, and one that returns
+   * without calling `next()` skips the handler.
+   *
+   * `validate()` is not one of them: it covers the handlers under it, and is
+   * declared with `@Middlewares`. Giving it here throws.
+   *
+   * Default: none.
+   *
+   * @example
+   * ```ts
+   * const app = await ChoMessage.create(AppModule, {
+   *   linker,
+   *   middlewares: [async (ctx, next) => {
+   *     const start = performance.now();
+   *     await next();
+   *     console.log(ctx.topic, `${Math.round(performance.now() - start)}ms`);
+   *   }],
+   * });
+   * ```
+   */
+  middlewares?: readonly ChoMessageMiddleware[];
   /**
    * Providers that replace the declared providers of the same token, for
    * tests (see `InjectorOptions.overrides` of `@chojs/core`). Default: none.
@@ -251,6 +278,7 @@ export class ChoMessage<T = unknown> {
     try {
       assert_known_options("ChoMessage.create()", options, [
         "linker",
+        "middlewares",
         "onError",
         "overrides",
         "prefix",
@@ -346,6 +374,7 @@ export class ChoMessage<T = unknown> {
       }
       assert_known_options("ChoMessage.from()", options, [
         "linker",
+        "middlewares",
         "onError",
         "prefix",
       ]);
@@ -377,6 +406,7 @@ export class ChoMessage<T = unknown> {
       injector,
       options.prefix ?? "",
       options.onError,
+      options.middlewares,
     );
     const routes = compile_routes(graph, log);
     if (log.enabled) {

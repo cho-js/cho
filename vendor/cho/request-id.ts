@@ -40,11 +40,11 @@ const SAFE_ID = /^[\w\-.=+/:]{1,255}$/;
  *
  * @example
  * ```ts
- * import { ChoLinker, ChoWeb, type ChoWebContext } from "@chojs/web";
+ * import { ChoWeb, type ChoWebContext } from "@chojs/web";
  * import { REQUEST_ID, requestId } from "@chojs/vendor-cho";
  *
  * const app = await ChoWeb.create(AppModule, {
- *   linker: new ChoLinker({ middlewares: [requestId()] }),
+ *   middlewares: [requestId()],
  * });
  *
  * // in a handler

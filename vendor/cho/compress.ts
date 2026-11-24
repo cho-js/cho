@@ -60,11 +60,11 @@ function pick_encoding(accept: string | null): "gzip" | "deflate" | undefined {
  *
  * @example
  * ```ts
- * import { ChoLinker, ChoWeb } from "@chojs/web";
+ * import { ChoWeb } from "@chojs/web";
  * import { compress } from "@chojs/vendor-cho";
  *
  * const app = await ChoWeb.create(AppModule, {
- *   linker: new ChoLinker({ middlewares: [compress()] }),
+ *   middlewares: [compress()],
  * });
  * ```
  */

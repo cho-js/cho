@@ -1,10 +1,11 @@
 /**
- * @chojs/vendor-cho — the middlewares of the built-in router of `@chojs/web`.
+ * @chojs/vendor-cho — middlewares for `@chojs/web` applications.
  *
- * The built-in router has no HTTP library underneath, so nothing brings the
- * middlewares an application usually takes from one. This package has them,
- * written as CHO middlewares: functions `(ctx, next)` on the standard
- * `Request` and `Response`, with no dependency.
+ * `@chojs/web` has a router built in, with no HTTP library underneath, so
+ * nothing brings the middlewares an application usually takes from one. This
+ * package has them, written as CHO middlewares: functions `(ctx, next)` on
+ * the standard `Request` and `Response`, with no dependency. They run on
+ * every adapter.
  *
  * | Middleware              | For                                               |
  * | ----------------------- | ------------------------------------------------- |
@@ -20,22 +21,20 @@
  * | {@link compress}        | Compressing the body of a response                |
  *
  * A middleware goes on the routes it should cover, with `@Middlewares`, or on
- * the router, to cover every request:
+ * the application, to cover every request:
  *
  * @example
  * ```ts
- * import { ChoLinker, ChoWeb } from "@chojs/web";
+ * import { ChoWeb } from "@chojs/web";
  * import { bodyLimit, cors, logger, secureHeaders } from "@chojs/vendor-cho";
  *
  * const app = await ChoWeb.create(AppModule, {
- *   linker: new ChoLinker({
- *     middlewares: [
- *       logger(),
- *       cors({ origin: "https://example.com" }),
- *       secureHeaders(),
- *       bodyLimit({ maxSize: 1024 * 1024 }),
- *     ],
- *   }),
+ *   middlewares: [
+ *     logger(),
+ *     cors({ origin: "https://example.com" }),
+ *     secureHeaders(),
+ *     bodyLimit({ maxSize: 1024 * 1024 }),
+ *   ],
  * });
  * ```
  *

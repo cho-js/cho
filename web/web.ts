@@ -17,10 +17,10 @@ import { Injector } from "@chojs/core/di";
 import { assert_known_options } from "@chojs/core/di";
 import { debuglog, describe } from "@chojs/core/utils";
 import { build_http_graph } from "./build-graph.ts";
-import { compose } from "./compose.ts";
+import { around, compose } from "./compose.ts";
 import type { ChoWebContext } from "./context.ts";
 import type { AppRef } from "./graph.ts";
-import type { Linked, Linker, Route } from "./linker.ts";
+import type { Linked, Linker, LinkOptions, Route } from "./linker.ts";
 import { ChoLinker, type ChoRouter } from "./router.ts";
 import { normalize_route } from "./path.ts";
 import { to_response } from "./response.ts";
@@ -33,9 +33,23 @@ import {
 } from "./socket.ts";
 import type {
   ChoWebErrorHandler,
+  ChoWebMiddleware,
   ChoWebMiddlewareFn,
   ChoWebUpgrade,
 } from "./types.ts";
+
+/**
+ * What a linker is given with the routes of an application: `around`, which
+ * runs the middlewares of the application, when it has some.
+ *
+ * @param graph The HTTP graph of the application.
+ * @returns The options of `Linker.link`.
+ */
+function link_options(graph: AppRef): LinkOptions {
+  return graph.middlewares.length === 0
+    ? {}
+    : { around: around(graph.middlewares) };
+}
 
 /** The HTTP methods a mounted route can answer. */
 const MOUNT_METHODS = [
@@ -120,6 +134,37 @@ export type ChoWebOptions<T = unknown> = {
    * ```
    */
   onError?: ChoWebErrorHandler;
+  /**
+   * The middlewares of the application: they run for **every** request, in
+   * order, around what answers it. That is the route, with its own
+   * middlewares and its error handlers, or the not-found answer of a request
+   * no route matches: what a CORS middleware needs, to answer the preflight
+   * requests of every path. A route {@link ChoWeb.mount} added is covered
+   * too.
+   *
+   * Like `@Middlewares`, it takes functions `(ctx, next)`, and classes with a
+   * `handle(ctx, next)` method, created by the injector in the scope of the
+   * root module. They are the outermost: `next()` resolves with the response
+   * as it is sent, after the error handlers.
+   *
+   * - `ctx.state` is the one the route sees: what such a middleware sets (a
+   *   request id, the authenticated user) reaches its middlewares and its
+   *   handler. `validate()` given here covers every handler.
+   * - `ctx.params` and `ctx.native` are what the adapter knows before it
+   *   runs the route: see its documentation.
+   *
+   * Default: none.
+   *
+   * @example
+   * ```ts
+   * import { cors, logger } from "@chojs/vendor-cho";
+   *
+   * const app = await ChoWeb.create(AppModule, {
+   *   middlewares: [logger(), cors(), validate()],
+   * });
+   * ```
+   */
+  middlewares?: readonly ChoWebMiddleware[];
   /**
    * Providers that replace the declared providers of the same token, for
    * tests (see `InjectorOptions.overrides` of `@chojs/core`). Default: none.
@@ -312,6 +357,7 @@ export class ChoWeb<T = unknown> {
         inj,
         options.prefix ?? "",
         options.onError,
+        options.middlewares,
       );
       const routes = compile_routes(graph, log);
       if (log.enabled) {
@@ -319,7 +365,12 @@ export class ChoWeb<T = unknown> {
           log(`${route.method} ${route.path} -> ${route.name}`);
         }
       }
-      const web = new ChoWeb(linker.link(routes), graph, routes, inj);
+      const web = new ChoWeb(
+        linker.link(routes, link_options(graph)),
+        graph,
+        routes,
+        inj,
+      );
       done(`application ${describe(app)} created`);
       return web;
     } catch (error) {

@@ -173,7 +173,7 @@ describe("ChoMessage.create", () => {
       {
         code: "CHO_CORE_UNKNOWN_OPTION",
         message:
-          'ChoMessage.create(): unknown option "linkers". Known options: linker, onError, overrides, prefix',
+          'ChoMessage.create(): unknown option "linkers". Known options: linker, middlewares, onError, overrides, prefix',
       },
     );
   });
@@ -568,7 +568,7 @@ describe("ChoMessage.from", () => {
       {
         code: "CHO_CORE_UNKNOWN_OPTION",
         message:
-          'ChoMessage.from(): unknown option "overrides". Known options: linker, onError, prefix',
+          'ChoMessage.from(): unknown option "overrides". Known options: linker, middlewares, onError, prefix',
       },
     );
   });

@@ -9,7 +9,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ChoLinker,
   ChoWeb,
   type ChoWebContext,
   Controller,
@@ -331,9 +330,7 @@ routed("cors, in an application", () => {
 
   it("covers every request on the router, preflight requests of any path included", async () => {
     const app = await ChoWeb.create(app_module(), {
-      linker: new ChoLinker({
-        middlewares: [cors({ origin: ORIGIN, credentials: true })],
-      }),
+      middlewares: [cors({ origin: ORIGIN, credentials: true })],
     });
     for (const path of ["/users", "/other"]) {
       const real = await send(app, path, { headers: { origin: ORIGIN } });

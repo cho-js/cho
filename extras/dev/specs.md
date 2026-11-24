@@ -164,6 +164,12 @@ package marked. `ChoDevEndpoint` is a node of the model, with:
 | `errorHandler` | The name of the nearest handler: its own, its controller's, its module's |
 | `mounted`      | Whether it is a route that was mounted on the application                |
 
+The `middlewares` of an endpoint are the ones `@Middlewares` declares. The
+middlewares of an application (the `middlewares` option of `ChoWeb.create` and
+of `ChoMessage.create`) are not in the list: they are not declared on a class,
+and what the application holds of them is functions, which mostly have no name.
+They are on its graph: `app.graph.middlewares`.
+
 ### 3.1 How the records are read
 
 The records of the three packages are found by their keys, which are global

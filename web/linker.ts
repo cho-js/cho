@@ -14,6 +14,8 @@
  * @module
  */
 
+import type { ChoWebContext } from "./context.ts";
+
 /** A route of the application, ready to register on an HTTP runtime. */
 export type Route = {
   /** The HTTP method, upper case, such as `"GET"`. */
@@ -40,7 +42,7 @@ export type Route = {
    * @param native The runtime's own request context, if any; handlers see it
    *   as `ctx.native`.
    * @param state The state of the request, when something ran for it before
-   *   the route (the middlewares of the built-in router): handlers see it as
+   *   the route (the middlewares of the application): handlers see it as
    *   `ctx.state`. Default: a new, empty one.
    * @returns The response. It rejects when the route fails and has no error
    *   handler, or when its error handler fails: the runtime answers `500`.
@@ -51,6 +53,58 @@ export type Route = {
     native?: unknown,
     state?: Map<PropertyKey, unknown>,
   ): Promise<Response>;
+};
+
+/**
+ * Runs the middlewares of the application around what answers a request.
+ * `@chojs/web` makes it, and a linker calls it for **every** request: one a
+ * route matches, and one no route matches.
+ *
+ * It creates the context of the request, and runs the middlewares, in order,
+ * around `answer`. `answer` receives that context: a middleware may have
+ * replaced the request, and the state is the one the route must have. So a
+ * route is given both: `route.handle(ctx.req, params, native, ctx.state)`.
+ *
+ * @param req The request.
+ * @param answer What answers the request, when the middlewares let it: the
+ *   route, or the not-found answer of the runtime.
+ * @param native The runtime's own request context, if any; the middlewares
+ *   see it as `ctx.native`.
+ * @param params The path parameters of the route that matched, where the
+ *   runtime knows them before the middlewares run; the middlewares see them
+ *   as `ctx.params`. Default: none.
+ * @returns The response. It rejects when a middleware fails, or when `answer`
+ *   rejects and no middleware answered in its place.
+ *
+ * @example
+ * ```ts
+ * const handle = (route: Route, req: Request, params: Params) =>
+ *   around
+ *     ? around(
+ *       req,
+ *       (ctx) => route.handle(ctx.req, params, undefined, ctx.state),
+ *       undefined,
+ *       params,
+ *     )
+ *     : route.handle(req, params);
+ * ```
+ */
+export type Around = (
+  req: Request,
+  answer: (ctx: ChoWebContext) => Promise<Response>,
+  native?: unknown,
+  params?: Readonly<Record<string, string>>,
+) => Promise<Response>;
+
+/** What `@chojs/web` gives a {@link Linker} with the routes. */
+export type LinkOptions = {
+  /**
+   * Runs the middlewares of the application (the `middlewares` option of
+   * `ChoWeb.create`) around what answers a request. It is there when the
+   * application has some: the linker then calls it for every request, the
+   * ones no route matches included. Without it, nothing changes.
+   */
+  readonly around?: Around;
 };
 
 /**
@@ -107,11 +161,15 @@ export interface Linked<T> {
  * @example
  * ```ts
  * class MyLinker implements Linker<MyServer> {
- *   link(routes: readonly Route[]): Linked<MyServer> {
+ *   link(routes: readonly Route[], { around }: LinkOptions): Linked<MyServer> {
  *     const server = new MyServer();
+ *     // The middlewares of the application, around every request.
+ *     if (around) {
+ *       server.use((req, next) => around(req, (ctx) => next(ctx.req, ctx.state)));
+ *     }
  *     const mount = (route: Route) =>
- *       server.on(route.method, route.path, (req, params) =>
- *         route.handle(req, params));
+ *       server.on(route.method, route.path, (req, params, state) =>
+ *         route.handle(req, params, undefined, state));
  *     routes.forEach(mount);
  *     return { instance: server, handler: (req) => server.fetch(req), mount };
  *   }
@@ -125,7 +183,10 @@ export interface Linker<T> {
    * Register the routes on a new application object of the runtime.
    *
    * @param routes The routes of the application, in declaration order.
+   * @param options What comes with the routes: `around`, which runs the
+   *   middlewares of the application. A linker that leaves it out runs none
+   *   of them.
    * @returns The linked application.
    */
-  link(routes: readonly Route[]): Linked<T>;
+  link(routes: readonly Route[], options: LinkOptions): Linked<T>;
 }

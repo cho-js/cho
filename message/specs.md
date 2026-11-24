@@ -717,6 +717,24 @@ class OrdersController {
 A message runs the feature's middlewares, then the controller's, then the
 handler's, each in declaration order.
 
+**The middlewares of the application.** The `middlewares` option of
+`ChoMessage.create`, and of `ChoMessage.from`, takes what `@Middlewares` takes,
+for the whole application: they run for every message, in order, before the
+feature's.
+
+- **They are the first of the chain of every handler**, and middlewares like the
+  others: they share the context of the message, one that returns without
+  calling `next()` skips the handler, and an error one throws goes to the error
+  handlers (section 5). There is no answer to wrap, as in `@chojs/web`: nothing
+  runs outside the chain.
+- **A class is created by the injector, in the scope of the root module.**
+- **`@chojs/message` runs them itself**: an adapter knows nothing of them, and
+  `app.handle` (section 6.3) runs them too.
+- **`validate()` is not one of them.** It covers the handlers under it (section
+  3.5), and is declared with `@Middlewares`. Given here, it would be taken and
+  validate nothing: `create` rejects it (`CHO_MESSAGE_INVALID_ARGUMENT`).
+- They are on the graph: `app.graph.middlewares`, created and in order.
+
 **A middleware cannot hide the failure of the rest of the chain.** When `next()`
 rejects, the message failed, even when the middleware catches the error: it can
 look at it, log it, and throw another one in its place, but not make the message
@@ -877,12 +895,13 @@ was created until then is disposed.
 
 It does not connect to the broker: `start()` does.
 
-| Option      | Default | Use                                                                |
-| ----------- | ------- | ------------------------------------------------------------------ |
-| `linker`    | none    | the broker adapter. Without one, only `handle()` delivers messages |
-| `prefix`    | `""`    | the global prefix of every topic (section 2.2)                     |
-| `onError`   | none    | the application's error handler (section 5)                        |
-| `overrides` | none    | providers that replace declared ones, for tests                    |
+| Option        | Default | Use                                                                |
+| ------------- | ------- | ------------------------------------------------------------------ |
+| `linker`      | none    | the broker adapter. Without one, only `handle()` delivers messages |
+| `prefix`      | `""`    | the global prefix of every topic (section 2.2)                     |
+| `onError`     | none    | the application's error handler (section 5)                        |
+| `middlewares` | none    | the middlewares of the application (section 4)                     |
+| `overrides`   | none    | providers that replace declared ones, for tests                    |
 
 There is no default linker: there is no broker to choose for an application.
 Without one, `app.linked.instance` is `undefined`. An option that is not in the
@@ -1404,6 +1423,7 @@ application meets it.
 | `@Args` on a static, private or symbol-named method                                                            | `CHO_CORE_INVALID_TARGET`         | `@Args() cannot decorate static method <name>: only public, non-static methods with a string name are supported`                                                               |
 | `Value`, `Key` or `Header` is given what it does not take                                                      | `CHO_MESSAGE_INVALID_ARGUMENT`    | `Value(): expected a key (a string) or a validator (a Standard Schema, or an object with a parse method), got <v>` (or `… a validator is the last argument, got <v> after it`) |
 | `validate()` is given options that are not an object, or an `onInvalid` that is not a function                 | `CHO_MESSAGE_INVALID_ARGUMENT`    | `validate(): "onInvalid" is a function, got <v>`                                                                                                                               |
+| The `middlewares` of `ChoMessage.create` or `from` are not an array, or hold a `validate()`                    | `CHO_MESSAGE_INVALID_ARGUMENT`    | `ChoMessage: validate() is not a middleware of an application: it covers the handlers under it. …` (or `ChoMessage: "middlewares" must be an array, got <v>`)                  |
 | An unknown option of `validate()`                                                                              | `CHO_CORE_UNKNOWN_OPTION`         | `validate(): unknown option "invalid". Known options: onInvalid`                                                                                                               |
 | `contract()` is given options that are not an object, or what is not a validator                               | `CHO_MESSAGE_INVALID_CONTRACT`    | `contract(): "reply" is a validator (a Standard Schema, or an object with a parse method), got <v>`                                                                            |
 | The topic of a contract is missing, empty or not valid                                                         | `CHO_MESSAGE_INVALID_TOPIC`       | `Invalid topic of contract(): it is empty. A contract has the whole topic of its message`                                                                                      |
@@ -1414,22 +1434,22 @@ application meets it.
 **Rejected by `ChoMessage.create` and `ChoMessage.from`**: any module graph
 error of the core (`core/specs.md`, section 2.8), and:
 
-| Mistake                                                     | Code                             | Message                                                                                                                                                                  |
-| ----------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A topic is not a string                                     | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic of <where>: expected a string, got <v>`                                                                                                                   |
-| A topic breaks a rule (section 2.3)                         | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: <reason>`                                                                                                                           |
-| A wildcard in a topic (`*`, `>`, `#`)                       | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: "<segment>" has a "*": wildcards are not part of the topic syntax`                                                                  |
-| A segment with another character                            | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: "<segment>" is not a valid segment: write letters, digits, "_" and "-"`                                                             |
-| A leading or trailing `.`, or an empty segment              | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: it must not start or end with "."` (and `… it must not contain an empty segment ("..")`)                                            |
-| A handler with no level at all                              | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic of <Controller.method>: it is empty. Give @Subscribe(), its controller or its module a topic`                                                             |
-| Two handlers with the same topic                            | `CHO_MESSAGE_DUPLICATE_TOPIC`    | `Duplicate topic "<topic>": declared by <Controller.method> and <Controller.method>`                                                                                     |
-| `onError` is not a function or a class                      | `CHO_CORE_INVALID_ERROR_HANDLER` | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                                                                       |
-| A middleware class has no `handle` method                   | `CHO_CORE_INVALID_MIDDLEWARE`    | `Middleware class <Name> must implement 'handle' method.`                                                                                                                |
-| A middleware class cannot be created                        | `CHO_MESSAGE_CREATE_FAILED`      | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                                                                              |
-| An error handler class cannot be created                    | `CHO_MESSAGE_CREATE_FAILED`      | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                                                                 |
-| `overrides` given to `from`, or any unknown option          | `CHO_CORE_UNKNOWN_OPTION`        | `ChoMessage.from(): unknown option "overrides". Known options: linker, onError, prefix` (and `ChoMessage.create(): … Known options: linker, onError, overrides, prefix`) |
-| What `from` is given is not an injector                     | `CHO_MESSAGE_INVALID_INJECTOR`   | `ChoMessage.from(): expected an injector, got <v>`                                                                                                                       |
-| `from` on a disposed injector, with a controller to resolve | `CHO_CORE_DISPOSED`              | `The injector is disposed`                                                                                                                                               |
+| Mistake                                                     | Code                             | Message                                                                                                                                                                               |
+| ----------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A topic is not a string                                     | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic of <where>: expected a string, got <v>`                                                                                                                                |
+| A topic breaks a rule (section 2.3)                         | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: <reason>`                                                                                                                                        |
+| A wildcard in a topic (`*`, `>`, `#`)                       | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: "<segment>" has a "*": wildcards are not part of the topic syntax`                                                                               |
+| A segment with another character                            | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: "<segment>" is not a valid segment: write letters, digits, "_" and "-"`                                                                          |
+| A leading or trailing `.`, or an empty segment              | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic "<topic>" of <where>: it must not start or end with "."` (and `… it must not contain an empty segment ("..")`)                                                         |
+| A handler with no level at all                              | `CHO_MESSAGE_INVALID_TOPIC`      | `Invalid topic of <Controller.method>: it is empty. Give @Subscribe(), its controller or its module a topic`                                                                          |
+| Two handlers with the same topic                            | `CHO_MESSAGE_DUPLICATE_TOPIC`    | `Duplicate topic "<topic>": declared by <Controller.method> and <Controller.method>`                                                                                                  |
+| `onError` is not a function or a class                      | `CHO_CORE_INVALID_ERROR_HANDLER` | `Invalid error handler <v>: must be a function or a class with a 'handle' method.`                                                                                                    |
+| A middleware class has no `handle` method                   | `CHO_CORE_INVALID_MIDDLEWARE`    | `Middleware class <Name> must implement 'handle' method.`                                                                                                                             |
+| A middleware class cannot be created                        | `CHO_MESSAGE_CREATE_FAILED`      | `Failed to create middleware <Name> in module <Module>`, with the injector's error as cause                                                                                           |
+| An error handler class cannot be created                    | `CHO_MESSAGE_CREATE_FAILED`      | `Failed to create error handler <Name> in module <Module>`, with `cause`                                                                                                              |
+| `overrides` given to `from`, or any unknown option          | `CHO_CORE_UNKNOWN_OPTION`        | `ChoMessage.from(): unknown option "overrides". Known options: linker, middlewares, onError, prefix` (and `ChoMessage.create(): … Known options: linker, onError, overrides, prefix`) |
+| What `from` is given is not an injector                     | `CHO_MESSAGE_INVALID_INJECTOR`   | `ChoMessage.from(): expected an injector, got <v>`                                                                                                                                    |
+| `from` on a disposed injector, with a controller to resolve | `CHO_CORE_DISPOSED`              | `The injector is disposed`                                                                                                                                                            |
 
 `<where>` names the declaration: `the global prefix`, `feature <Module>`,
 `controller <Controller>` or `method <name> of controller <Controller>`.

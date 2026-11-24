@@ -40,13 +40,11 @@ export type BodyLimitOptions = {
  *
  * @example
  * ```ts
- * import { ChoLinker, ChoWeb } from "@chojs/web";
+ * import { ChoWeb } from "@chojs/web";
  * import { bodyLimit } from "@chojs/vendor-cho";
  *
  * const app = await ChoWeb.create(AppModule, {
- *   linker: new ChoLinker({
- *     middlewares: [bodyLimit({ maxSize: 1024 * 1024 })], // 1 MB
- *   }),
+ *   middlewares: [bodyLimit({ maxSize: 1024 * 1024 })], // 1 MB
  * });
  * ```
  *

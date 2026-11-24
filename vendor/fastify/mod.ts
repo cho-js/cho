@@ -31,7 +31,13 @@ import Fastify, {
   type HTTPMethods,
 } from "fastify";
 import type { ChoWebContext, ChoWebMiddlewareFn, ChoWebNext } from "@chojs/web";
-import type { Linked, Linker, Route } from "@chojs/web/linker";
+import type {
+  Around,
+  Linked,
+  Linker,
+  LinkOptions,
+  Route,
+} from "@chojs/web/linker";
 
 // The `@chojs/web` types this module refers to. (`FastifyInstance`,
 // `FastifyRequest` and `FastifyReply` are types of the `fastify` package:
@@ -42,6 +48,7 @@ export type {
   ChoWebNext,
   Linked,
   Linker,
+  LinkOptions,
   Route,
 };
 
@@ -117,8 +124,28 @@ function to_request(request: FastifyRequest, reply: FastifyReply): Request {
   } as RequestInit);
 }
 
-/** Answer a Fastify request with a route. */
-function answer(route: Route, bodiless: boolean) {
+/** Send a response with a Fastify reply, without its body when asked. */
+function send(
+  reply: FastifyReply,
+  response: Response,
+  bodiless: boolean,
+): FastifyReply {
+  // A Fastify hook (`fromFastify`) answered: the response is Fastify's.
+  if (ANSWERED.has(reply)) {
+    return reply;
+  }
+  return reply.send(
+    bodiless && response.body !== null
+      ? new Response(null, response)
+      : response,
+  );
+}
+
+/**
+ * Answer a Fastify request with a route, inside the middlewares of the
+ * application when it has some.
+ */
+function answer(route: Route, bodiless: boolean, around: Around | undefined) {
   return async (
     request: FastifyRequest,
     reply: FastifyReply,
@@ -131,20 +158,42 @@ function answer(route: Route, bodiless: boolean) {
       return reply;
     }
     const native: FastifyNative = { request, reply };
-    const response = await route.handle(
+    const req = to_request(request, reply);
+    const response = around
+      // The request and the state are the context's: a middleware can have
+      // replaced the first, and the handlers of the route see the second.
+      ? await around(
+        req,
+        (ctx) => route.handle(ctx.req, params, native, ctx.state),
+        native,
+        params,
+      )
+      : await route.handle(req, params, native);
+    return send(reply, response, bodiless);
+  };
+}
+
+/**
+ * Answer a request no route matches, inside the middlewares of the
+ * application: `404`, with the body of Fastify's own answer.
+ */
+function not_found(around: Around) {
+  return async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<FastifyReply> => {
+    const native: FastifyNative = { request, reply };
+    const response = await around(
       to_request(request, reply),
-      params,
+      () =>
+        Promise.resolve(Response.json({
+          message: `Route ${request.method}:${request.url} not found`,
+          error: "Not Found",
+          statusCode: 404,
+        }, { status: 404 })),
       native,
     );
-    // A Fastify hook (`fromFastify`) answered: the response is Fastify's.
-    if (ANSWERED.has(reply)) {
-      return reply;
-    }
-    return reply.send(
-      bodiless && response.body !== null
-        ? new Response(null, response)
-        : response,
-    );
+    return send(reply, response, request.method === "HEAD");
   };
 }
 
@@ -173,6 +222,8 @@ export class FastifyLinked implements Linked<FastifyInstance> {
 
   /** The routes to register when Fastify loads its plugins. */
   readonly #routes: Route[] = [];
+  /** Runs the middlewares of the application, when it has some. */
+  readonly #around: Around | undefined;
   /** Whether the plugin of the routes was given to Fastify. */
   #registered = false;
   /** Whether Fastify loaded the plugin: the routes are registered. */
@@ -206,19 +257,42 @@ export class FastifyLinked implements Linked<FastifyInstance> {
       );
     }
     this.#routes.push(route);
+    this.#register();
+  }
+
+  /**
+   * Give Fastify the plugin of the routes, once. Fastify loads it when it
+   * gets ready: the routes are those mounted until then.
+   */
+  #register(): void {
     if (this.#registered) {
       return;
     }
     this.#registered = true;
+    const around = this.#around;
     // In a plugin, so that what is set here stays here: Fastify parses no
-    // body for these routes, and leaves the stream to the `Request`. Fastify
-    // loads it when it gets ready: the routes are those mounted until then.
+    // body for these routes, and leaves the stream to the `Request`.
     this.instance.register((scope, _options, done) => {
       this.#loaded = true;
       scope.removeAllContentTypeParsers();
       scope.addContentTypeParser("*", (_request, _payload, parsed) => {
         parsed(null);
       });
+      // The middlewares of the application also run for a request no route
+      // matches. Fastify has no hook that wraps a request and gets its
+      // response: the adapter answers such a request itself.
+      if (around) {
+        try {
+          scope.setNotFoundHandler(not_found(around));
+        } catch (cause) {
+          done(fastify_error(
+            "CHO_FASTIFY_NOT_FOUND_SET",
+            "FastifyLinker: the application has middlewares (the middlewares option of ChoWeb.create), which also run for a request no route matches: the adapter answers such a request, and the Fastify application cannot have a not-found handler of its own. Remove its setNotFoundHandler(), or answer in a middleware of the application",
+            { cause },
+          ));
+          return;
+        }
+      }
       // A HEAD request is answered by the HEAD route of the path or, without
       // one, by its GET route, without the body. Fastify's own HEAD routes
       // are turned off: they do not take a `Response`.
@@ -231,10 +305,14 @@ export class FastifyLinked implements Linked<FastifyInstance> {
           method: route.method as HTTPMethods,
           url,
           exposeHeadRoute: false,
-          handler: answer(route, false),
+          handler: answer(route, false, around),
         });
         if (route.method === "GET" && !with_head.has(route.path)) {
-          scope.route({ method: "HEAD", url, handler: answer(route, true) });
+          scope.route({
+            method: "HEAD",
+            url,
+            handler: answer(route, true, around),
+          });
         }
       }
       done();
@@ -245,9 +323,16 @@ export class FastifyLinked implements Linked<FastifyInstance> {
    * Wrap a Fastify application.
    *
    * @param instance The Fastify application.
+   * @param around Runs the middlewares of the application around what
+   *   answers a request: what `@chojs/web` gives a linker. Default: none.
    */
-  constructor(instance: FastifyInstance) {
+  constructor(instance: FastifyInstance, around?: Around) {
     this.instance = instance;
+    this.#around = around;
+    // Also for an application that has no route: its middlewares answer.
+    if (around) {
+      this.#register();
+    }
     this.handler = async (req) => {
       const payload = req.body === null
         ? undefined
@@ -300,6 +385,11 @@ export class FastifyLinked implements Linked<FastifyInstance> {
  *   not-found handler (see `setNotFoundHandler`).
  * - A route mounted on the application (`app.mount`) is taken until the
  *   Fastify application is ready, and not after.
+ * - The middlewares of the application (the `middlewares` option of
+ *   `ChoWeb.create`) run around every route, with its parameters, and around
+ *   the answer to a request no route matches. Fastify has no hook for the
+ *   second: the adapter sets the not-found handler of the Fastify
+ *   application, which then cannot have one of its own.
  * - Fastify plugins and hooks are not CHO middlewares. To use them, add them
  *   to a Fastify application and give it to the linker: they apply to every
  *   route.
@@ -347,11 +437,13 @@ export class FastifyLinker implements Linker<FastifyInstance> {
    * Register routes on the linker's Fastify application.
    *
    * @param routes The routes of the application.
+   * @param options What `@chojs/web` gives with the routes: `around`, which
+   *   runs the middlewares of the application.
    * @returns The linked Fastify application.
    * @throws {ChoError} When the linker was already used: its Fastify application
    *   holds the routes of the first application.
    */
-  link(routes: readonly Route[]): FastifyLinked {
+  link(routes: readonly Route[], { around }: LinkOptions = {}): FastifyLinked {
     // A second application would add its routes to the first one's.
     if (this.#linked) {
       throw fastify_error(
@@ -361,7 +453,7 @@ export class FastifyLinker implements Linker<FastifyInstance> {
     }
     this.#linked = true;
 
-    const linked = new FastifyLinked(this.#app);
+    const linked = new FastifyLinked(this.#app, around);
     for (const route of routes) {
       linked.mount(route);
     }

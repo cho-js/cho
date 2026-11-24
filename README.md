@@ -17,6 +17,11 @@ CHO is an enterprise ready decorator-based framework for building modular applic
 uses modern JavaScript decorators to provide a clean
 and efficient way to define the structure of an application.
 
+## Features
+
+- **Portable**: CHO applications can run on multiple JavaScript runtimes, including Node.js, Deno, Bun, and Cloudflare Workers.
+- **Dependency Injection**: CHO provides a powerful dependency injection system that allows developers to easily manage dependencies and promote code reusability.
+
 ### Portability
 
 CHO applications can run on multiple JavaScript runtimes, including **Node.js**, **Deno**, **Bun**, and **Cloudflare Workers**. This allows developers to write code once and deploy it anywhere, without worrying about runtime-specific issues.

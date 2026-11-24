@@ -115,7 +115,8 @@ export class MethodRef extends NodeRef {
   readonly args: readonly ChoWebArg[];
   /**
    * Whether the validation middleware (`validate()`) covers the handler: it
-   * is among the middlewares of its feature, of its controller or its own.
+   * is among the middlewares of the application, of its feature, of its
+   * controller or its own.
    */
   readonly validated: boolean;
   /**
@@ -235,6 +236,12 @@ export class AppRef {
    * routes that no `@Catch` handler covers.
    */
   readonly errorHandler: ErrorHandlerRef;
+  /**
+   * The middlewares of the application (the `middlewares` option of
+   * `ChoWeb.create`), created and in order; empty when it has none. They run
+   * around every request, the ones no route matches included.
+   */
+  readonly middlewares: ChoWebMiddlewareFn[];
   /** The features of the application. */
   readonly features: FeatureRef[];
 
@@ -243,10 +250,16 @@ export class AppRef {
    *
    * @param route The global route prefix.
    * @param errorHandler The error handler of the application, or `null`.
+   * @param middlewares The middlewares of the application. Default: none.
    */
-  constructor(route: string, errorHandler: ErrorHandlerRef = null) {
+  constructor(
+    route: string,
+    errorHandler: ErrorHandlerRef = null,
+    middlewares: ChoWebMiddlewareFn[] = [],
+  ) {
     this.route = route;
     this.errorHandler = errorHandler;
+    this.middlewares = middlewares;
     this.features = [];
   }
 }

@@ -59,19 +59,17 @@ export type SecureHeadersOptions = Readonly<Record<string, string | false>>;
  *
  * @example
  * ```ts
- * import { ChoLinker, ChoWeb } from "@chojs/web";
+ * import { ChoWeb } from "@chojs/web";
  * import { secureHeaders } from "@chojs/vendor-cho";
  *
  * const app = await ChoWeb.create(AppModule, {
- *   linker: new ChoLinker({
- *     middlewares: [
- *       secureHeaders({
- *         "content-security-policy": "default-src 'self'",
- *         "x-frame-options": "DENY",
- *         "strict-transport-security": false, // not behind HTTPS yet
- *       }),
- *     ],
- *   }),
+ *   middlewares: [
+ *     secureHeaders({
+ *       "content-security-policy": "default-src 'self'",
+ *       "x-frame-options": "DENY",
+ *       "strict-transport-security": false, // not behind HTTPS yet
+ *     }),
+ *   ],
  * });
  * ```
  */

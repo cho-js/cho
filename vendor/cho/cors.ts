@@ -90,8 +90,8 @@ function assert_strings(name: string, value: unknown): void {
  * the real request, with the method `OPTIONS`. A middleware of
  * `@Middlewares` only runs for a request that matches a route, so it answers
  * a preflight request only where there is an `@Options` route. To cover every
- * path, give the middleware to the router: `new ChoLinker({ middlewares:
- * [cors()] })`.
+ * path, give the middleware to the application: `ChoWeb.create(AppModule, {
+ * middlewares: [cors()] })`.
  *
  * @param options The origins, methods and headers to allow. Default: any
  *   origin, without credentials.
@@ -100,19 +100,17 @@ function assert_strings(name: string, value: unknown): void {
  *
  * @example On every request
  * ```ts
- * import { ChoLinker, ChoWeb } from "@chojs/web";
+ * import { ChoWeb } from "@chojs/web";
  * import { cors } from "@chojs/vendor-cho";
  *
  * const app = await ChoWeb.create(AppModule, {
- *   linker: new ChoLinker({
- *     middlewares: [
- *       cors({
- *         origin: ["https://example.com", "https://admin.example.com"],
- *         credentials: true,
- *         maxAge: 600,
- *       }),
- *     ],
- *   }),
+ *   middlewares: [
+ *     cors({
+ *       origin: ["https://example.com", "https://admin.example.com"],
+ *       credentials: true,
+ *       maxAge: 600,
+ *     }),
+ *   ],
  * });
  * ```
  *

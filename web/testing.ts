@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { Linked, Linker, Route } from "./linker.ts";
+import type { Linked, Linker, LinkOptions, Route } from "./linker.ts";
 
 /**
  * Match a path against a route path.
@@ -38,33 +38,54 @@ function match(
 /**
  * Links routes to a plain `fetch`-style handler: the first route that matches
  * the method and the path answers; no match answers `404`; a route that
- * rejects answers `500`, with the error in `errors`.
+ * rejects answers `500`, with the error in `errors`. The middlewares of the
+ * application run around each of these answers.
  */
 export class TestLinker implements Linker<readonly Route[]> {
   /** The errors of the routes that rejected, in order. */
   readonly errors: unknown[] = [];
 
-  link(declared: readonly Route[]): Linked<readonly Route[]> {
+  link(
+    declared: readonly Route[],
+    { around }: LinkOptions = {},
+  ): Linked<readonly Route[]> {
     const routes = [...declared];
+    /** Answer a request with the first route that matches, or `404`. */
+    const answer = async (
+      req: Request,
+      state?: Map<PropertyKey, unknown>,
+    ): Promise<Response> => {
+      const path = new URL(req.url).pathname;
+      for (const route of routes) {
+        const params = route.method === req.method
+          ? match(route.path, path)
+          : undefined;
+        if (params) {
+          try {
+            return await route.handle(req, params, undefined, state);
+          } catch (error) {
+            this.errors.push(error);
+            return new Response("Internal Server Error", { status: 500 });
+          }
+        }
+      }
+      return new Response("Not Found", { status: 404 });
+    };
     return {
       instance: routes,
       mount: (route) => void routes.push(route),
+      // The middlewares of the application, around every request. One that
+      // fails is answered as a route that rejects is.
       handler: async (req) => {
-        const path = new URL(req.url).pathname;
-        for (const route of routes) {
-          const params = route.method === req.method
-            ? match(route.path, path)
-            : undefined;
-          if (params) {
-            try {
-              return await route.handle(req, params);
-            } catch (error) {
-              this.errors.push(error);
-              return new Response("Internal Server Error", { status: 500 });
-            }
-          }
+        if (!around) {
+          return await answer(req);
         }
-        return new Response("Not Found", { status: 404 });
+        try {
+          return await around(req, (ctx) => answer(ctx.req, ctx.state));
+        } catch (error) {
+          this.errors.push(error);
+          return new Response("Internal Server Error", { status: 500 });
+        }
       },
     };
   }

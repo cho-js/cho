@@ -52,8 +52,8 @@ export function assert_no_duplicate_topics(routes: readonly Route[]): void {
  *
  * - the topic joins the global prefix and the feature's, the controller's and
  *   the handler's topics, with `.`;
- * - the chain is the feature's, the controller's, then the handler's
- *   middlewares, then the handler. What the handler returns is the reply of
+ * - the chain is the application's, the feature's, the controller's, then the
+ *   handler's middlewares, then the handler. What the handler returns is the reply of
  *   the message (see `to_reply`): the route resolves with it;
  * - an error thrown anywhere in the chain goes to the nearest error handler
  *   (the handler's, the controller's, the feature's, then the application's),
@@ -98,6 +98,7 @@ export function compile_routes(
           feature.errorHandler ?? graph.errorHandler;
         const run = compose(
           [
+            ...graph.middlewares,
             ...feature.middlewares,
             ...controller.middlewares,
             ...method.middlewares,

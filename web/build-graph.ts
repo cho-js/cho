@@ -25,7 +25,7 @@ import {
   MethodRef,
   type SocketRef,
 } from "./graph.ts";
-import { evaluate_args } from "./args.ts";
+import { evaluate_args, InvalidArgument } from "./args.ts";
 import {
   doc_of,
   handler_args,
@@ -42,7 +42,7 @@ import type {
   ChoWebHandler,
   ChoWebMiddlewareFn,
 } from "./types.ts";
-import { is_validation } from "./validate.ts";
+import { answer_invalid, is_validation } from "./validate.ts";
 
 /**
  * The route of a feature module or a controller: `""` when it declares none.
@@ -229,6 +229,8 @@ function create_middleware_factory(
  * @param on_error The error handler of the application, if any: a function,
  *   or a class with a `handle` method, created by the injector in the scope
  *   of the root module.
+ * @param middlewares The middlewares of the application, if any: functions,
+ *   or classes with a `handle` method, created the same way.
  * @returns The HTTP graph.
  * @throws {ChoError} When a route is invalid, or when a middleware or an error
  *   handler is invalid or cannot be created.
@@ -240,15 +242,31 @@ function create_middleware_factory(
  * @param args The arguments of the handler (`@Args`).
  * @returns The method itself when it has no arguments. Otherwise a function
  *   that evaluates them, and calls the method with their values and then the
- *   context.
+ *   context. For a validated request with an argument that is not valid, the
+ *   method is not called: the function resolves with the response that
+ *   answers the request.
  */
 function create_handler(
   method: (...args: unknown[]) => unknown,
   args: readonly ChoWebArg[],
 ): ChoWebHandler {
-  return args.length === 0
-    ? method
-    : async (ctx) => method(...await evaluate_args(args, ctx), ctx);
+  if (args.length === 0) {
+    return method;
+  }
+  return async (ctx) => {
+    let values: unknown[];
+    try {
+      values = await evaluate_args(args, ctx);
+    } catch (error) {
+      // Answered here, at the end of the chain: the validation middleware
+      // only marked the request, from wherever it is declared.
+      if (error instanceof InvalidArgument) {
+        return answer_invalid(error, ctx);
+      }
+      throw error;
+    }
+    return method(...values, ctx);
+  };
 }
 
 /**
@@ -291,13 +309,23 @@ export async function build_http_graph(
   injector: Injector,
   prefix: string,
   on_error?: unknown,
+  middlewares: unknown = [],
 ): Promise<AppRef> {
   const route = normalize_route(prefix, "the global prefix");
-  // A handler class is created in the scope of the root module.
+  if (!Array.isArray(middlewares)) {
+    throw web_error(
+      "CHO_WEB_INVALID_OPTION",
+      `ChoWeb.create(): "middlewares" must be an array, got ${
+        describe(middlewares)
+      }`,
+    );
+  }
+  // A class of the application is created in the scope of the root module.
   const root = injector.graph.root.ctr;
   const graph = new AppRef(
     route,
     await error_handler_factory(root, injector)(on_error),
+    await create_middleware_factory(root, injector)(middlewares),
   );
 
   for (const mdl of injector.modules()) {
@@ -378,6 +406,7 @@ export async function build_http_graph(
             args,
             doc_of(m.meta),
             [
+              ...graph.middlewares,
               ...feature.middlewares,
               ...controller.middlewares,
               ...middlewares,

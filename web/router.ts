@@ -10,11 +10,7 @@
 
 import { web_error } from "./errors.ts";
 import { HttpError, isHttpError } from "./http-error.ts";
-import { describe } from "@chojs/core/utils";
-import { compose, type Endpoint } from "./compose.ts";
-import { type ChoWebContext, create_context } from "./context.ts";
-import type { Linked, Linker, Route } from "./linker.ts";
-import type { ChoWebMiddlewareFn } from "./types.ts";
+import type { Around, Linked, Linker, LinkOptions, Route } from "./linker.ts";
 
 /** The options of a {@link ChoLinker}. */
 export type ChoLinkerOptions = {
@@ -23,19 +19,6 @@ export type ChoLinkerOptions = {
    * `Not Found`.
    */
   readonly notFound?: (req: Request) => Response | Promise<Response>;
-  /**
-   * The middlewares of the router: functions `(ctx, next)` that run for
-   * **every** request, in order, around the route that answers it. Unlike the
-   * middlewares of `@Middlewares`, they also run for a request no route
-   * matches, which is what a CORS middleware needs to answer the preflight
-   * requests of every path. Default: none.
-   *
-   * They have a context of their own for each request: `params` are those of
-   * the matched route (empty when there is none). Its `state` is the one the
-   * middlewares and the handler of the route see, so what a middleware of the
-   * router sets (the authenticated user, a request id) reaches them.
-   */
-  readonly middlewares?: readonly ChoWebMiddlewareFn[];
 };
 
 /** What a request matched: a route, or the `GET` route that answers a `HEAD`. */
@@ -118,20 +101,33 @@ export class ChoRouter {
   readonly #table = new Map<string, { route: Route; pattern: URLPattern }[]>();
   /** Answers a request no route matches. */
   readonly #not_found: (req: Request) => Response | Promise<Response>;
-  /** Runs the middlewares of the router around a request, when it has some. */
-  readonly #run: Endpoint | undefined;
-  /** What each request matched, for the end of the middleware chain. */
-  readonly #found = new WeakMap<ChoWebContext, Outcome>();
+  /** Runs the middlewares of the application, when it has some. */
+  readonly #around: Around | undefined;
 
   /**
    * Create a router.
    *
    * @param routes The routes of the application.
    * @param options The options of the linker.
+   * @param around Runs the middlewares of the application around what
+   *   answers a request: what `@chojs/web` gives a linker. Default: none.
    * @throws {ChoError} When the runtime has no URL Pattern API.
-   * @throws {ChoError} When a middleware of the router is not a function.
+   * @throws {ChoError} When the options have `middlewares`: they are an
+   *   option of `ChoWeb.create`.
    */
-  constructor(routes: readonly Route[], options: ChoLinkerOptions = {}) {
+  constructor(
+    routes: readonly Route[],
+    options: ChoLinkerOptions = {},
+    around?: Around,
+  ) {
+    // It was an option of the router: without this, it would be ignored, and
+    // the application would run with no middleware and nothing to say so.
+    if ("middlewares" in options) {
+      throw web_error(
+        "CHO_WEB_INVALID_OPTION",
+        'ChoLinker: "middlewares" is not an option of the router: give the middlewares of the application to ChoWeb.create(App, { middlewares })',
+      );
+    }
     if (typeof URLPattern !== "function") {
       throw web_error(
         "CHO_WEB_NO_URL_PATTERN",
@@ -141,23 +137,7 @@ export class ChoRouter {
     this.routes = this.#routes = [];
     this.#not_found = options.notFound ??
       (() => new Response("Not Found", { status: 404 }));
-    const middlewares = options.middlewares ?? [];
-    middlewares.forEach((middleware, index) => {
-      if (typeof middleware !== "function") {
-        throw web_error(
-          "CHO_WEB_INVALID_MIDDLEWARE",
-          `ChoLinker: middleware ${index + 1} must be a function, got ${
-            describe(middleware)
-          }`,
-        );
-      }
-    });
-    this.#run = middlewares.length === 0 ? undefined : compose(
-      middlewares,
-      // The request and the state are the context's: a middleware can have
-      // replaced the first, and the handlers of the route see the second.
-      (ctx) => this.#answer(ctx.req, this.#found.get(ctx), ctx.state),
-    );
+    this.#around = around;
     for (const route of routes) {
       this.mount(route);
     }
@@ -209,33 +189,36 @@ export class ChoRouter {
   /**
    * The request handler: a `fetch`-style function.
    *
-   * - The middlewares of the router, if any, run around everything below.
+   * - The middlewares of the application, if any, run around everything
+   *   below. Their context has the parameters of the route that matched.
    * - A `HEAD` request without a `HEAD` route is answered by the `GET` route
    *   of the path, without the body.
    * - A request no route matches is answered by the `notFound` option.
    * - A request with a path parameter that cannot be decoded (`/users/%`) is
    *   answered `400`, and its route does not run.
-   * - A route or a middleware of the router that rejects is logged with
+   * - A route or a middleware of the application that rejects is logged with
    *   `console.error`, and answered with `500`.
-   * - An `HttpError` thrown by a middleware of the router, or by `notFound`,
-   *   is answered as a route answers it: with its status. One thrown in a
-   *   route never gets here: the route answers it.
+   * - An `HttpError` thrown by a middleware of the application, or by
+   *   `notFound`, is answered as a route answers it: with its status. One
+   *   thrown in a route never gets here: the route answers it.
    *
    * @param req The request.
    * @returns The response.
    */
   readonly fetch = async (req: Request): Promise<Response> => {
     const found = this.#find(req.method, new URL(req.url).pathname);
-    if (!this.#run) {
+    if (!this.#around) {
       return await this.#answer(req, found);
     }
-    const ctx = create_context(
-      req,
-      isHttpError(found) ? {} : found?.params ?? {},
-    );
-    this.#found.set(ctx, found);
     try {
-      return await this.#run(ctx);
+      return await this.#around(
+        req,
+        // The request and the state are the context's: a middleware can have
+        // replaced the first, and the handlers of the route see the second.
+        (ctx) => this.#answer(ctx.req, found, ctx.state),
+        undefined,
+        isHttpError(found) ? {} : found?.params ?? {},
+      );
     } catch (error) {
       return this.#failed(req, error);
     }
@@ -246,7 +229,8 @@ export class ChoRouter {
    * `HEAD` route, the `GET` route of the path.
    *
    * The error of a path that cannot be decoded is returned, not thrown: the
-   * middlewares of the router run around its answer, as around any other.
+   * middlewares of the application run around its answer, as around any
+   * other.
    */
   #find(method: string, pathname: string): Outcome {
     try {
@@ -266,7 +250,7 @@ export class ChoRouter {
 
   /**
    * Answer a request that failed outside a route: in a middleware of the
-   * router, or in `notFound`. An `HttpError` is its own answer; anything else
+   * application, or in `notFound`. An `HttpError` is its own answer; anything else
    * is logged, and answered `500`.
    */
   #failed(req: Request, error: unknown): Response {
@@ -346,13 +330,6 @@ export class ChoRouter {
  *   notFound: () => Response.json({ error: "not found" }, { status: 404 }),
  * });
  * ```
- *
- * @example With middlewares that run for every request
- * ```ts
- * import { cors } from "@chojs/vendor-cho";
- *
- * const linker = new ChoLinker({ middlewares: [cors()] });
- * ```
  */
 export class ChoLinker implements Linker<ChoRouter> {
   /** The options given to each router. */
@@ -371,11 +348,13 @@ export class ChoLinker implements Linker<ChoRouter> {
    * Create a router for routes.
    *
    * @param routes The routes of the application.
+   * @param options What `@chojs/web` gives with the routes: `around`, which
+   *   runs the middlewares of the application.
    * @returns The router, and its `fetch` as the request handler.
    * @throws {ChoError} When the runtime has no URL Pattern API.
    */
-  link(routes: readonly Route[]): Linked<ChoRouter> {
-    const instance = new ChoRouter(routes, this.#options);
+  link(routes: readonly Route[], options: LinkOptions = {}): Linked<ChoRouter> {
+    const instance = new ChoRouter(routes, this.#options, options.around);
     return {
       instance,
       handler: instance.fetch,

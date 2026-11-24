@@ -199,8 +199,8 @@ they are, and `@chojs/web` depends on none of them. An object with a
 `parse(value)` method that returns the value, or throws, is a validator too.
 
 Validators are run by one middleware, `validate()`, on a handler, a controller
-or a feature module. What a validator gives is what the handler receives, so it
-can convert too:
+or a feature module, or for the [whole application](#middlewares). What a
+validator gives is what the handler receives, so it can convert too:
 
 ```ts
 import { z } from "zod";
@@ -219,9 +219,9 @@ class UsersController {
 }
 ```
 
-A request that is not valid never reaches the handler. The middleware answers
-`400` with `error`, `source`, `key` and `issues`, or with what its `onInvalid`
-option returns:
+A request that is not valid never reaches the handler. It is answered `400`,
+with `error`, `source`, `key` and `issues`, or with what the `onInvalid` option
+of the middleware returns:
 
 ```ts
 validate({
@@ -238,6 +238,11 @@ validate({
   error handler, and answers `500` by default.
 - **Asynchronous checks need no wrapper.** A validator that gives a promise is
   awaited.
+
+- **Wherever it is declared, it works the same.** The middleware only marks the
+  request: the arguments are validated at the end of the chain, just before the
+  handler. The nearest `validate()` decides how a request that is not valid is
+  answered.
 
 Without the middleware, validators are not run: the handler receives the values
 as they are. Enable `CHO_DEBUGLOG=cho:web` to see which handlers have a
@@ -575,12 +580,37 @@ A middleware can also be a class with a `handle(ctx, next)` method. It is
 created by the injector, so it can have dependencies; list it in the module's
 `providers`. Middlewares only run for the routes they apply to.
 
-The middlewares of the HTTP library of an adapter can be used too: each adapter
-has a function that makes one a CHO middleware, `fromHono(cors())` in
-`@chojs/vendor-hono` and `fromFastify(hook)` in `@chojs/vendor-fastify`. The
-built-in router has no HTTP library: its middlewares, such as `cors`, are in
-[`@chojs/vendor-cho`](../vendor/cho/README.md), and it can run them for every
-request (see [The built-in router](#the-built-in-router)).
+**For the whole application**, give the middlewares to `ChoWeb.create`. They run
+for **every** request, in order, on every adapter: around the route that
+answers, or around the not-found answer of a request no route matches. That is
+what a CORS middleware needs, to answer the preflight requests of every path.
+
+```ts
+import { ChoWeb, validate } from "@chojs/web";
+import { cors, logger } from "@chojs/vendor-cho";
+
+const app = await ChoWeb.create(App, {
+  middlewares: [logger(), cors(), validate()],
+});
+```
+
+- **They are the outermost.** `next()` resolves with the response as it is sent,
+  after the error handlers: a `404` of an `HttpError` gets its CORS headers. An
+  `HttpError` one of them throws is answered with its status.
+- **They share `ctx.state` with the route.** What one sets (a request id, the
+  authenticated user) reaches the middlewares and the handler of the route.
+- **A class is created in the scope of the root module**: list it in its
+  `providers`, or import a module that exports it.
+- **A route of `app.mount` is covered too.**
+- **`ctx.params` and `ctx.native` are what the adapter knows** before the route
+  runs: the "Behavior" table of each adapter says which.
+
+[`@chojs/vendor-cho`](../vendor/cho/README.md) has the middlewares an HTTP
+library would bring: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`,
+`requestId`, `etag`, `basicAuth`, `bearerAuth` and `compress`. The middlewares
+of the HTTP library of an adapter can be used too: each adapter has a function
+that makes one a CHO middleware, `fromHono(cors())` in `@chojs/vendor-hono` and
+`fromFastify(hook)` in `@chojs/vendor-fastify`.
 
 ### Error handling
 
@@ -920,9 +950,10 @@ await serve(app);
   application declares: a mounted route says its whole path.
 - **It is a route of the application**: it is added to `app.routes`, after the
   others. It is not in `app.graph`, which holds what is declared.
-- **Nothing of the application runs for it**: no middleware of a feature or of a
-  controller, and no `@Catch` handler. It has its own `middlewares`. When it
-  fails, the `onError` of `ChoWeb.create` answers, if there is one.
+- **Nothing of a feature or of a controller runs for it**: no middleware of
+  theirs, and no `@Catch` handler. It has its own `middlewares`, inside the
+  [middlewares of the application](#middlewares), which run for every request.
+  When it fails, the `onError` of `ChoWeb.create` answers, if there is one.
 - **It is the last route.** Where the first declared route wins (the built-in
   router, Hono), a declared route that matches the same path answers first: a
   `@Get(":slug")` at the root answers `/docs`.
@@ -950,12 +981,13 @@ assert.equal(response.status, 200);
 
 `ChoWeb.create(App, options)`:
 
-| Option      | Default                                | Use                                             |
-| ----------- | -------------------------------------- | ----------------------------------------------- |
-| `linker`    | `new ChoLinker()`, the built-in router | The runtime adapter, such as `new HonoLinker()` |
-| `prefix`    | `""`                                   | A route prefix for every route, such as `"api"` |
-| `onError`   | none                                   | The error handler for what no `@Catch` covers   |
-| `overrides` | none                                   | Providers that replace declared ones, for tests |
+| Option        | Default                                | Use                                             |
+| ------------- | -------------------------------------- | ----------------------------------------------- |
+| `linker`      | `new ChoLinker()`, the built-in router | The runtime adapter, such as `new HonoLinker()` |
+| `prefix`      | `""`                                   | A route prefix for every route, such as `"api"` |
+| `onError`     | none                                   | The error handler for what no `@Catch` covers   |
+| `middlewares` | none                                   | [Middlewares](#middlewares) for every request   |
+| `overrides`   | none                                   | Providers that replace declared ones, for tests |
 
 Without a `linker`, `ChoWeb.create(App)` uses the
 [built-in router](#the-built-in-router).
@@ -984,22 +1016,31 @@ ready to call, and registers them on its router. What it returns also has a
 plumbing, so an adapter is a few lines:
 
 ```ts
-import type { Linked, Linker, Route } from "@chojs/web/linker";
+import type { Linked, Linker, LinkOptions, Route } from "@chojs/web/linker";
 
 class MyLinker implements Linker<MyServer> {
-  link(routes: readonly Route[]): Linked<MyServer> {
+  link(routes: readonly Route[], { around }: LinkOptions): Linked<MyServer> {
     const server = new MyServer();
+    // The middlewares of the application, around every request.
+    if (around) {
+      server.use((req, next) => around(req, (ctx) => next(ctx.req, ctx.state)));
+    }
     const mount = (route: Route) =>
       server.on(
         route.method,
         route.path,
-        (req, params) => route.handle(req, params),
+        (req, params, state) => route.handle(req, params, undefined, state),
       );
     routes.forEach(mount);
     return { instance: server, handler: (req) => server.fetch(req), mount };
   }
 }
 ```
+
+`around` is there when the application has middlewares: it runs them around what
+answers a request. An adapter calls it for every request, also one no route
+matches, and gives the route the request and the state of the context it gets
+back. An adapter that leaves it out runs none of them.
 
 ## The built-in router
 
@@ -1030,41 +1071,24 @@ const linker = new ChoLinker({
 const app = await ChoWeb.create(App, { linker });
 ```
 
-The router takes middlewares of its own. Unlike the middlewares of
-`@Middlewares`, they run for **every** request, in order, the requests no route
-matches included:
-
-```ts
-import { ChoLinker, ChoWeb } from "@chojs/web";
-import { cors } from "@chojs/vendor-cho";
-
-const app = await ChoWeb.create(App, {
-  linker: new ChoLinker({ middlewares: [cors()] }),
-});
-```
-
-They are functions `(ctx, next)` like any CHO middleware. Their context has the
-`params` of the route that matched (empty when there is none), and its `state`
-is the one the middlewares and the handler of the route see: what a middleware
-of the router sets there (a request id, the authenticated user) reaches them.
-[`@chojs/vendor-cho`](../vendor/cho/README.md) has the middlewares an HTTP
-library would bring: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`,
-`requestId`, `etag`, `basicAuth`, `bearerAuth` and `compress`.
+The router has no middlewares of its own: the
+[middlewares of the application](#middlewares) are an option of `ChoWeb.create`,
+and run on every adapter. Giving `middlewares` to `new ChoLinker()` throws.
 
 There is no runtime context on this router: `ctx.native` is `undefined`.
 
-| Topic              | Behavior                                                                                                                                      |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Matching order     | Routes are matched in declaration order: declare static routes before parameter routes (`@Get("me")` before `@Get(":id")`)                    |
-| Paths              | Matched as written: case and a trailing slash count. A parameter matches one segment, never an empty one                                      |
-| Path parameters    | Percent-decoded. One that cannot be decoded (`/users/%`) is answered `400`, and the route does not run                                        |
-| `HEAD` requests    | Run the `@Head` handler of the route. Without one, the `@Get` handler answers, without the body                                               |
-| Unhandled errors   | A route that fails with no `@Catch` and no `onError` is logged with `console.error`, and answered with `500`                                  |
-| Unmatched requests | Answered by the `notFound` option; `404` by default, also when the path exists under another method                                           |
-| Middlewares        | The `middlewares` option: they wrap every request, the `notFound` answer included. A middleware that fails is logged, and answered with `500` |
-| HTTP methods       | Any method is matched as given                                                                                                                |
-| Mounted routes     | `app.mount` adds a route at any time, also after the router answered requests. It is matched after the others                                 |
-| Several apps       | A linker can be used for several applications: each `link()` makes a new router                                                               |
+| Topic              | Behavior                                                                                                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Matching order     | Routes are matched in declaration order: declare static routes before parameter routes (`@Get("me")` before `@Get(":id")`)                     |
+| Paths              | Matched as written: case and a trailing slash count. A parameter matches one segment, never an empty one                                       |
+| Path parameters    | Percent-decoded. One that cannot be decoded (`/users/%`) is answered `400`, and the route does not run                                         |
+| `HEAD` requests    | Run the `@Head` handler of the route. Without one, the `@Get` handler answers, without the body                                                |
+| Unhandled errors   | A route that fails with no `@Catch` and no `onError` is logged with `console.error`, and answered with `500`                                   |
+| Unmatched requests | Answered by the `notFound` option; `404` by default, also when the path exists under another method                                            |
+| Middlewares        | Those of the application wrap every request, `notFound` included, with the `params` of its route. One that fails is logged, and answered `500` |
+| HTTP methods       | Any method is matched as given                                                                                                                 |
+| Mounted routes     | `app.mount` adds a route at any time, also after the router answered requests. It is matched after the others                                  |
+| Several apps       | A linker can be used for several applications: each `link()` makes a new router                                                                |
 
 ## Runtime support
 

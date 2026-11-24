@@ -79,23 +79,36 @@ middlewares:
 A middleware made with `fromHono` only runs on this adapter: on another one it
 fails the request.
 
-**On every request**, unmatched ones included: add the middleware to a Hono
-application and give it to the linker. The routes are registered after it, so it
-wraps every route. This is the place for what must also answer requests no route
-matches, such as CORS preflight requests:
+**On every request**, unmatched ones included: give it to the `middlewares`
+option of `ChoWeb.create`, with `fromHono` too. This is the place for what must
+also answer requests no route matches, such as CORS preflight requests:
+
+```ts
+import { cors } from "hono/cors";
+import { ChoWeb } from "@chojs/web";
+import { fromHono, HonoLinker } from "@chojs/vendor-hono";
+
+const app = await ChoWeb.create(App, {
+  linker: new HonoLinker(),
+  middlewares: [fromHono(cors())],
+});
+```
+
+The middlewares of the application are CHO middlewares: the ones of
+[`@chojs/vendor-cho`](../cho/README.md), and your own, are given the same way.
+See [Middlewares](../../web/README.md#middlewares) in `@chojs/web`.
+
+To set Hono's own `onError` and `notFound` handlers, create the Hono application
+and give it to the linker:
 
 ```ts
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 
 const hono = new Hono();
-hono.use(cors());
 hono.notFound((c) => c.json({ error: "not found" }, 404));
 
 const app = await ChoWeb.create(App, { linker: new HonoLinker(hono) });
 ```
-
-The same Hono application takes your `onError` and `notFound` handlers.
 
 ## Reaching Hono from a handler
 
@@ -135,17 +148,18 @@ request: mount before the application serves.
 
 ## Behavior
 
-| Topic               | Behavior                                                                                                                                                                                                                     |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Matching order      | Routes are matched in declaration order: declare static routes before parameter routes (`@Get("me")` before `@Get(":id")`)                                                                                                   |
-| Path parameters     | Percent-decoded by Hono. One that cannot be decoded (`/users/%`) is passed as it was sent, where the built-in router and Fastify answer `400`                                                                                |
-| `HEAD` requests     | Run the `@Head` handler of the route, matched before the others. Without one, Hono answers from `@Get`, without the body                                                                                                     |
-| Unhandled errors    | A route that fails with no `@Catch` and no `onError` goes to Hono's error handler, which logs it and answers `500`                                                                                                           |
-| Unmatched requests  | Answered by Hono's `notFound`                                                                                                                                                                                                |
-| HTTP methods        | Any method is registered as given                                                                                                                                                                                            |
-| Mounted routes      | `app.mount` registers a route after the others, until the Hono application answers its first request: after it, Hono throws                                                                                                  |
-| One linker, one app | A second `link()` on the same linker throws: its Hono application already holds the routes of the first                                                                                                                      |
-| WebSockets          | A route marked with `@Ws` is a `GET` route of Hono. `@chojs/web` upgrades the connection, not Hono: serve the application as with any linker (`app.handler` on Deno and Cloudflare Workers, `serve(app)` on Bun and Node.js) |
+| Topic                   | Behavior                                                                                                                                                                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Matching order          | Routes are matched in declaration order: declare static routes before parameter routes (`@Get("me")` before `@Get(":id")`)                                                                                                                                                |
+| Path parameters         | Percent-decoded by Hono. One that cannot be decoded (`/users/%`) is passed as it was sent, where the built-in router and Fastify answer `400`                                                                                                                             |
+| `HEAD` requests         | Run the `@Head` handler of the route, matched before the others. Without one, Hono answers from `@Get`, without the body                                                                                                                                                  |
+| Unhandled errors        | A route that fails with no `@Catch` and no `onError` goes to Hono's error handler, which logs it and answers `500`                                                                                                                                                        |
+| Unmatched requests      | Answered by Hono's `notFound`                                                                                                                                                                                                                                             |
+| Application middlewares | The `middlewares` option of `ChoWeb.create` runs in one Hono middleware, registered before the routes: around every route, and around Hono's `notFound` and `onError`. Hono has not matched a route yet, so `ctx.params` is empty there; `ctx.native` is Hono's `Context` |
+| HTTP methods            | Any method is registered as given                                                                                                                                                                                                                                         |
+| Mounted routes          | `app.mount` registers a route after the others, until the Hono application answers its first request: after it, Hono throws                                                                                                                                               |
+| One linker, one app     | A second `link()` on the same linker throws: its Hono application already holds the routes of the first                                                                                                                                                                   |
+| WebSockets              | A route marked with `@Ws` is a `GET` route of Hono. `@chojs/web` upgrades the connection, not Hono: serve the application as with any linker (`app.handler` on Deno and Cloudflare Workers, `serve(app)` on Bun and Node.js)                                              |
 
 ## Errors
 

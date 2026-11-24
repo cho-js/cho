@@ -25,13 +25,18 @@ import type {
   ChoWebArgInfo,
   ChoWebArgSource,
   ChoWebInvalid,
+  ChoWebValidateOptions,
 } from "./types.ts";
 
 /** An object of strings: all the keys of a source. */
 type Strings = Readonly<Record<string, string>>;
 
-/** The requests the validation middleware covers. */
-const VALIDATED = new WeakSet<ChoWebContext>();
+/**
+ * Where the validation middleware leaves its options, in the state of a
+ * request. A registered symbol: it cannot be the key of an application, and
+ * two copies of the package share it.
+ */
+const VALIDATION: unique symbol = Symbol.for("chojs.web.validation");
 
 /** The text of the body of a request: it can be read once. */
 const BODY_TEXT = new WeakMap<ChoWebContext, Promise<string>>();
@@ -44,16 +49,38 @@ const BODY_FORM = new WeakMap<ChoWebContext, Promise<Strings>>();
  * Mark a request as covered by the validation middleware: the validators of
  * its arguments are run.
  *
+ * The mark is in the state of the request, which is one `Map` from the
+ * middlewares of the application to the handler: so the middleware covers a
+ * handler from wherever it is declared. The nearest one is the last to mark,
+ * and its options are the ones that count.
+ *
  * @param ctx The context of the request.
+ * @param options The options of the middleware. Default: none.
  */
-export function mark_validated(ctx: ChoWebContext): void {
-  VALIDATED.add(ctx);
+export function mark_validated(
+  ctx: ChoWebContext,
+  options: ChoWebValidateOptions = {},
+): void {
+  ctx.state.set(VALIDATION, options);
+}
+
+/**
+ * The options of the validation middleware that covers a request.
+ *
+ * @param ctx The context of the request.
+ * @returns The options, or `undefined` for a request no validation
+ *   middleware covers.
+ */
+export function validation_of(
+  ctx: ChoWebContext,
+): ChoWebValidateOptions | undefined {
+  return ctx.state.get(VALIDATION) as ChoWebValidateOptions | undefined;
 }
 
 /**
  * An argument of a validated request that is not valid. It is thrown by
- * {@link evaluate_args} and caught by the validation middleware; nothing else
- * sees it.
+ * {@link evaluate_args} and caught by what called it, which answers the
+ * request; nothing else sees it.
  */
 export class InvalidArgument extends Error {
   /** What failed, as given to `onInvalid`. */
@@ -100,7 +127,7 @@ export async function evaluate_args(
   args: readonly ChoWebArg[],
   ctx: ChoWebContext,
 ): Promise<unknown[]> {
-  const validated = VALIDATED.has(ctx);
+  const validated = validation_of(ctx) !== undefined;
   const values: unknown[] = [];
   for (const arg of args) {
     const info = arg.info;

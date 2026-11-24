@@ -230,6 +230,10 @@ A web adapter connects `@chojs/web` to an HTTP library. It lives in
 - It only matches requests to routes. Middlewares, error handling and the
   conversion of results belong to `@chojs/web`. An `HttpError` is answered by
   the route: an adapter does nothing for it.
+- It runs the middlewares of the application for every request, also one no
+  route matches: `link(routes, { around })` gives it a function that runs them
+  around what answers the request. Its README says what their `ctx.params` and
+  `ctx.native` are, and what a route that fails looks like to them.
 - It does not have to support every runtime, as long as its README says which
   ones it supports.
 - A module that needs settings declares a placeholder for them, a provider whose

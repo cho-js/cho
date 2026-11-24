@@ -62,7 +62,7 @@ await app.close();
 ## Using Fastify options, plugins and hooks
 
 Fastify plugins and hooks are written for Fastify's request and reply. There are
-two ways to use them.
+three ways to use them.
 
 **On every route:** create the Fastify application yourself, and give it to the
 linker. What you add to it applies to every route:
@@ -80,12 +80,29 @@ fastify.setNotFoundHandler((_request, reply) =>
 const app = await ChoWeb.create(App, { linker: new FastifyLinker(fastify) });
 ```
 
-The same Fastify application takes your `setErrorHandler`.
+The same Fastify application takes your `setErrorHandler`. It takes a
+`setNotFoundHandler` only when the application has no middlewares of its own
+(see [Behavior](#behavior)).
+
+**On every request**, with the `middlewares` option of `ChoWeb.create`: CHO
+middlewares, such as those of [`@chojs/vendor-cho`](../cho/README.md), and
+Fastify hooks made CHO middlewares with `fromFastify` (below). They run around
+every route, and around the answer to a request no route matches:
+
+```ts
+import { cors, logger } from "@chojs/vendor-cho";
+
+const app = await ChoWeb.create(App, {
+  linker: new FastifyLinker(),
+  middlewares: [logger(), cors()],
+});
+```
 
 **On a handler, a controller or a feature**, with `fromFastify`, which turns a
-Fastify hook into a CHO middleware for `@Middlewares`. A hook is what many
-plugins give to protect a route: `fastify.basicAuth`, `fastify.auth([...])`,
-`fastify.rateLimit()`, `fastify.csrfProtection`, or a function of your own.
+Fastify hook into a CHO middleware, for `@Middlewares` and for the `middlewares`
+option. A hook is what many plugins give to protect a route:
+`fastify.basicAuth`, `fastify.auth([...])`, `fastify.rateLimit()`,
+`fastify.csrfProtection`, or a function of your own.
 
 ```ts
 import Fastify from "fastify";
@@ -188,20 +205,21 @@ created is one of them. Once Fastify is ready, `app.mount` throws.
 
 ## Behavior
 
-| Topic               | Behavior                                                                                                                         |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Matching order      | Fastify's router decides: a static path wins over a parameter, wherever they are declared (`me` wins over `:id`)                 |
-| Paths               | Matched as written: case and a trailing slash count, unless the Fastify application is set otherwise                             |
-| Path parameters     | Percent-decoded. A parameter matches one segment, never an empty one. Fastify answers `400` to a path that cannot be decoded     |
-| Request body        | Not parsed by Fastify: `ctx.req` reads the stream                                                                                |
-| Client disconnects  | `ctx.req.signal` is aborted when the connection closes before the response is sent                                               |
-| `HEAD` requests     | Run the `@Head` handler of the route. Without one, the `@Get` handler answers, without the body                                  |
-| Unhandled errors    | A route that fails with no `@Catch` and no `onError` goes to Fastify's error handler: `500`, logged when the logger is enabled   |
-| Unmatched requests  | Answered by Fastify's not-found handler                                                                                          |
-| When routes exist   | Once the Fastify application is ready: `listen()`, `ready()` and `app.handler` wait for it                                       |
-| Mounted routes      | `app.mount` adds a route until the Fastify application is ready: after `listen()`, `ready()` or a first `app.handler`, it throws |
-| One linker, one app | A second `link()` on the same linker throws: its Fastify application already holds the routes of the first                       |
-| WebSockets          | Not upgraded: Fastify holds the server. A route marked with `@Ws` is refused when the application is created                     |
+| Topic                   | Behavior                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Matching order          | Fastify's router decides: a static path wins over a parameter, wherever they are declared (`me` wins over `:id`)                                                                                                                                                                                                                                                   |
+| Paths                   | Matched as written: case and a trailing slash count, unless the Fastify application is set otherwise                                                                                                                                                                                                                                                               |
+| Path parameters         | Percent-decoded. A parameter matches one segment, never an empty one. Fastify answers `400` to a path that cannot be decoded                                                                                                                                                                                                                                       |
+| Request body            | Not parsed by Fastify: `ctx.req` reads the stream                                                                                                                                                                                                                                                                                                                  |
+| Client disconnects      | `ctx.req.signal` is aborted when the connection closes before the response is sent                                                                                                                                                                                                                                                                                 |
+| `HEAD` requests         | Run the `@Head` handler of the route. Without one, the `@Get` handler answers, without the body                                                                                                                                                                                                                                                                    |
+| Unhandled errors        | A route that fails with no `@Catch` and no `onError` goes to Fastify's error handler: `500`, logged when the logger is enabled                                                                                                                                                                                                                                     |
+| Unmatched requests      | Answered by Fastify's not-found handler. With application middlewares, by the adapter: `404`, with the body Fastify gives by default                                                                                                                                                                                                                               |
+| Application middlewares | The `middlewares` option of `ChoWeb.create` runs around each route, with its parameters, and around the `404` of a request no route matches. Fastify has no hook that wraps a request: the adapter sets the not-found handler, so the Fastify application cannot have one of its own. A route that fails goes through them as an error, to Fastify's error handler |
+| When routes exist       | Once the Fastify application is ready: `listen()`, `ready()` and `app.handler` wait for it                                                                                                                                                                                                                                                                         |
+| Mounted routes          | `app.mount` adds a route until the Fastify application is ready: after `listen()`, `ready()` or a first `app.handler`, it throws                                                                                                                                                                                                                                   |
+| One linker, one app     | A second `link()` on the same linker throws: its Fastify application already holds the routes of the first                                                                                                                                                                                                                                                         |
+| WebSockets              | Not upgraded: Fastify holds the server. A route marked with `@Ws` is refused when the application is created                                                                                                                                                                                                                                                       |
 
 ## Errors
 
@@ -209,16 +227,19 @@ A mistake the adapter finds is a `ChoError` of `@chojs/web`: an `Error` with a
 stable `code`. Recognize it with `isChoError(error, code)`. The messages are for
 people, and can change.
 
-| Mistake                               | Code                         | Message                                                                                                                                   |
-| ------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `link()` is called twice              | `CHO_FASTIFY_ALREADY_LINKED` | `FastifyLinker.link() was already called: use one linker for one application`                                                             |
-| A route mounted once Fastify is ready | `CHO_FASTIFY_MOUNT_TOO_LATE` | `FastifyLinked.mount(): cannot add GET /b: the Fastify application is ready. Mount routes before listen(), ready() and the first request` |
-| `fromFastify` on another adapter      | `CHO_FASTIFY_WRONG_ADAPTER`  | `fromFastify(): a Fastify hook runs on the Fastify adapter only: create the application with a FastifyLinker`                             |
-| A hook that fails with no error       | `CHO_FASTIFY_HOOK_FAILED`    | `the hook rejected` (or `the hook threw`)                                                                                                 |
-| A route that upgrades to a WebSocket  | `CHO_FASTIFY_NO_SOCKET`      | `FastifyLinker cannot register ChatController.join (GET /chat/:room): the route upgrades its request to a WebSocket, …`                   |
+| Mistake                                                                     | Code                         | Message                                                                                                                                      |
+| --------------------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `link()` is called twice                                                    | `CHO_FASTIFY_ALREADY_LINKED` | `FastifyLinker.link() was already called: use one linker for one application`                                                                |
+| A route mounted once Fastify is ready                                       | `CHO_FASTIFY_MOUNT_TOO_LATE` | `FastifyLinked.mount(): cannot add GET /b: the Fastify application is ready. Mount routes before listen(), ready() and the first request`    |
+| `fromFastify` on another adapter                                            | `CHO_FASTIFY_WRONG_ADAPTER`  | `fromFastify(): a Fastify hook runs on the Fastify adapter only: create the application with a FastifyLinker`                                |
+| A hook that fails with no error                                             | `CHO_FASTIFY_HOOK_FAILED`    | `the hook rejected` (or `the hook threw`)                                                                                                    |
+| A route that upgrades to a WebSocket                                        | `CHO_FASTIFY_NO_SOCKET`      | `FastifyLinker cannot register ChatController.join (GET /chat/:room): the route upgrades its request to a WebSocket, …`                      |
+| Application middlewares, and a not-found handler of the Fastify application | `CHO_FASTIFY_NOT_FOUND_SET`  | `FastifyLinker: the application has middlewares (the middlewares option of ChoWeb.create), which also run for a request no route matches: …` |
 
-The last two fail the request: they go to the error handlers of the route. An
-error a hook fails with is passed on as it is.
+`CHO_FASTIFY_HOOK_FAILED` and `CHO_FASTIFY_WRONG_ADAPTER` fail the request: they
+go to the error handlers of the route. An error a hook fails with is passed on
+as it is. `CHO_FASTIFY_NOT_FOUND_SET` is what the Fastify application fails with
+when it gets ready: `listen()`, `ready()` and `app.handler` reject with it.
 
 An `HttpError` of `@chojs/web` is answered by the route, before Fastify sees an
 error.

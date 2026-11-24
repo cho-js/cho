@@ -579,6 +579,23 @@ class OrdersController {
 - A message runs the feature's middlewares, then the controller's, then the
   handler's, each in declaration order.
 
+**For the whole application**, give the middlewares to `ChoMessage.create`, or
+to `ChoMessage.from`. They run for every message, before the others:
+
+```ts
+const app = await ChoMessage.create(App, {
+  linker,
+  middlewares: [timing, Once],
+});
+```
+
+- They are middlewares like the others, the first of the chain of every handler:
+  an error one throws goes to the error handlers.
+- A class is created in the scope of the root module: list it in its
+  `providers`, or import a module that exports it.
+- [`validate()`](#validation) is not one of them: it covers the handlers under
+  it, and is declared with `@Middlewares`. Giving it here throws.
+
 ### Error handling
 
 `@Catch(handler)` applies to a feature module, a controller or a handler, and
@@ -785,12 +802,13 @@ await assert.rejects(client.request(GetPrice, { id: 0 }), { code: 404 });
 
 `ChoMessage.create(App, options)`:
 
-| Option      | Default | Use                                                                |
-| ----------- | ------- | ------------------------------------------------------------------ |
-| `linker`    | none    | The broker adapter. Without one, only `handle()` delivers messages |
-| `prefix`    | `""`    | A prefix for every topic, such as `"staging"`                      |
-| `onError`   | none    | The error handler for what no `@Catch` covers                      |
-| `overrides` | none    | Providers that replace declared ones, for tests                    |
+| Option        | Default | Use                                                                |
+| ------------- | ------- | ------------------------------------------------------------------ |
+| `linker`      | none    | The broker adapter. Without one, only `handle()` delivers messages |
+| `prefix`      | `""`    | A prefix for every topic, such as `"staging"`                      |
+| `onError`     | none    | The error handler for what no `@Catch` covers                      |
+| `middlewares` | none    | [Middlewares](#middlewares) for every message                      |
+| `overrides`   | none    | Providers that replace declared ones, for tests                    |
 
 `ChoMessage.from(injector, options)` takes the same, without `overrides`.
 

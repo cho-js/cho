@@ -590,7 +590,9 @@ describe("an HttpError, in every kind of route", () => {
 describe("an HttpError, with the built-in router", () => {
   /** An application with `GET /things/:id`, on the built-in router. */
   async function with_router(
-    options: ConstructorParameters<typeof ChoLinker>[0],
+    { middlewares = [], ...options }:
+      & NonNullable<ConstructorParameters<typeof ChoLinker>[0]>
+      & { middlewares?: ChoWebMiddlewareFn[] },
   ) {
     class Things {
       get() {
@@ -601,7 +603,10 @@ describe("an HttpError, with the built-in router", () => {
     Controller({ route: "things" })(Things);
     class App {}
     Module({ controllers: [Things] })(App);
-    return await ChoWeb.create(App, { linker: new ChoLinker(options) });
+    return await ChoWeb.create(App, {
+      linker: new ChoLinker(options),
+      middlewares,
+    });
   }
 
   it("is answered from a route", async () => {
@@ -630,7 +635,7 @@ describe("an HttpError, with the built-in router", () => {
     assert.deepEqual(output.error, []);
   });
 
-  it("is answered from a middleware of the router", async () => {
+  it("is answered from a middleware of the application", async () => {
     const app = await with_router({
       middlewares: [(ctx, next) => {
         if (!ctx.req.headers.has("authorization")) {

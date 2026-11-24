@@ -330,7 +330,8 @@ route**.
 **The validation middleware.** Validation is the work of one middleware,
 `validate()`. It is declared like any middleware, with `@Middlewares`, on a
 handler, on a controller or on a feature module, and covers the handlers under
-it. There is no application-wide setting for now.
+it, or given to the `middlewares` option of `ChoWeb.create` (section 4), where
+it covers every handler of the application.
 
 ```ts
 const UpdateUser = z.object({ name: z.string(), age: z.number().optional() });
@@ -353,13 +354,20 @@ With the middleware on the route:
   can also convert: `Param("id", z.coerce.number())` gives a number.
 - A validator can give a promise: it is awaited. A schema with asynchronous
   checks needs no wrapper.
-- When an argument is not valid, the handler is not called, and the middleware
-  answers. The same goes for a body that cannot be parsed.
+- When an argument is not valid, the handler is not called, and the request is
+  answered. The same goes for a body that cannot be parsed.
 - What the `validate` function of a Standard Schema throws is not a request that
   is not valid. It is an error like any other, given to the nearest error
   handler (section 5): `500` by default, and `onInvalid` is not called.
 - Wherever the middleware is declared, validation happens at the same moment:
-  after every middleware of the route, just before the handler.
+  after every middleware of the route, just before the handler. The middleware
+  only marks the request, in its state: the arguments are read, and validated,
+  at the end of the chain, where the request that is not valid is answered. So
+  the middlewares of the route see that answer as a response, and no error
+  handler is called for it.
+- When several cover a handler, the nearest one decides how a request that is
+  not valid is answered: the handler's, the controller's, the feature's, then
+  the application's.
 
 The answer to an invalid request is `400`, with a JSON body:
 
@@ -412,7 +420,8 @@ What failed is a `ChoWebInvalid`:
 A Standard Schema throws nothing for a value that is not valid, so `error` is
 not there for one.
 
-**Without the middleware** on the route, there is no validation:
+**Without the middleware** on the route or on the application, there is no
+validation:
 
 - validators are not run: the handler receives each value as its source gives
   it, not converted;
@@ -545,10 +554,10 @@ An unknown option throws when the decorator is called, like the options of
 `doc` is an empty object when there is no `@Doc`, and `args` an empty list when
 there is no `@Args`. `validated` on a `MethodRef` says whether the validation
 middleware covers the handler: whether it is among the middlewares of the
-feature, of the controller or of the handler. `sse` holds the options of `@Sse`
-(an empty object when it has none), and is `undefined` for a handler that is not
-an event stream. `handler` on a `MethodRef` is still called with the context
-alone: it evaluates the arguments itself.
+application, of the feature, of the controller or of the handler. `sse` holds
+the options of `@Sse` (an empty object when it has none), and is `undefined` for
+a handler that is not an event stream. `handler` on a `MethodRef` is still
+called with the context alone: it evaluates the arguments itself.
 
 ### 3.4 Server-sent events: `@Sse`
 
@@ -962,15 +971,43 @@ handler's, each in declaration order. Middlewares belong to their routes: they
 only run for a request that matches a route they apply to, never for another
 feature's or controller's routes, nor for a request that matches nothing.
 
+**The middlewares of the application.** The `middlewares` option of
+`ChoWeb.create` takes what `@Middlewares` takes, for the whole application:
+
+```ts
+const app = await ChoWeb.create(App, {
+  middlewares: [logger(), cors(), Auth, validate()],
+});
+```
+
+- **They run for every request**, in order, on every adapter: around the route
+  that answers it, and around the not-found answer of a request no route
+  matches. That is what a CORS middleware needs, to answer the preflight
+  requests of every path. A route `app.mount` added is covered too.
+- **They are the outermost.** They wrap the whole answer of a route: its own
+  middlewares, its handler and its error handlers. So `next()` resolves with the
+  response as it is sent: the one a `@Catch` handler made, or the answer of an
+  `HttpError` (section 5.1). The middlewares of a route, which are inside the
+  error handlers, see such an error pass through them.
+- **A class is created by the injector, in the scope of the root module**: it is
+  a provider of the root module, or exported by a module it imports. The
+  mistakes are those of a middleware class of a feature.
+- **Their context is not the one of the route**, and its state is. What one of
+  them sets in `ctx.state` (a request id, the authenticated user) is in the
+  state of the middlewares and of the handler of the route. Its `params` and its
+  `native` are what the adapter knows before the route runs, and its `req` is
+  the request the route then receives, also when a middleware replaced it.
+- **`validate()`** given here covers every handler (section 3.2).
+- They are on the graph: `app.graph.middlewares`, created and in order.
+
+The adapter runs them: section 7 says how each does, and what differs.
+
 Middlewares of the HTTP library (Hono's `cors()`, a Fastify hook, …) are not CHO
 middlewares. Each adapter has a function that makes one a CHO middleware, for
-`@Middlewares`: `fromHono(middleware)` and `fromFastify(hook)`. Such a
-middleware runs on its own adapter only; on another one it fails the request.
-What must wrap every request, unmatched ones included, goes on the library's own
-application, which the adapter takes (`new HonoLinker(hono)`). See
-`vendor/hono/README.md` and `vendor/fastify/README.md`. The built-in router has
-its own way: the `middlewares` option of `ChoLinker` (section 7), and the
-middlewares of `@chojs/vendor-cho`.
+`@Middlewares` and for the `middlewares` option: `fromHono(middleware)` and
+`fromFastify(hook)`. Such a middleware runs on its own adapter only; on another
+one it fails the request. See `vendor/hono/README.md` and
+`vendor/fastify/README.md`.
 
 A middleware that calls `next()` twice, returns something that is not a
 `Response`, or returns nothing without calling `next()`, makes the request fail
@@ -1146,6 +1183,7 @@ const app = await ChoWeb.create(App, {
   linker: new HonoLinker(), // optional: the runtime adapter (default below)
   prefix: "api", // optional: the global prefix (section 2.2)
   onError: (error, ctx) => new Response("oops", { status: 500 }), // optional: section 5
+  middlewares: [cors()], // optional: for every request (section 4)
 });
 app.handler; // (req: Request) => Promise<Response>
 app.linked.instance; // the runtime's own application (a Hono app)
@@ -1211,10 +1249,11 @@ mount(
   `cho:web` like the others.
 - **It is not in the graph.** `app.graph` is what the application declares. So
   no feature or controller middleware runs for it, and no `@Catch` handler of
-  the application answers for it: it has the `middlewares` it was given. When it
-  fails, the `onError` of `ChoWeb.create` answers, if there is one; without one,
-  an `HttpError` answers for itself (section 5.1) and the adapter answers `500`
-  for anything else, as for any route.
+  the application answers for it: it has the `middlewares` it was given, inside
+  the middlewares of the application (section 4), which run for every request.
+  When it fails, the `onError` of `ChoWeb.create` answers, if there is one;
+  without one, an `HttpError` answers for itself (section 5.1) and the adapter
+  answers `500` for anything else, as for any route.
 - **It is the last route.** Where the first declared route wins (the built-in
   router, Hono), a declared route that matches the same path answers first: a
   `@Get(":slug")` at the root answers `/docs`.
@@ -1405,58 +1444,96 @@ method and path.
 
 ## 7. Runtime adapters
 
-|                               | `ChoLinker` (built in)                                                       | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                                                      |
-| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| Linker                        | `new ChoLinker(options?)`                                                    | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                                                                |
-| Runs on                       | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4, Cloudflare Workers) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                                                                 |
-| `app.linked.instance`         | a `ChoRouter`                                                                | the `Hono` application                           | the Fastify application                                                                      |
-| Served with                   | `app.handler`                                                                | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()`                                   |
-| `ctx.native`                  | `undefined`                                                                  | Hono's `Context`                                 | `{ request, reply }` of Fastify                                                              |
-| When two routes match         | the first declared                                                           | the first declared                               | the static one                                                                               |
-| `HEAD` without `@Head`        | `@Get`, without the body                                                     | `@Get`, without the body                         | `@Get`, without the body                                                                     |
-| No route matches              | the `notFound` option; `404`                                                 | `notFound` of the Hono application               | the not-found handler of the Fastify application                                             |
-| An undecodable path parameter | `400`; the route does not run                                                | passed as it was sent                            | `400`, by Fastify                                                                            |
-| A route rejects               | logged with `console.error`; `500`                                           | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`                                          |
-| A route throws an `HttpError` | answered by the route (section 5.1)                                          | answered by the route                            | answered by the route                                                                        |
-| An event stream (`@Sse`)      | streamed by the server that runs `app.handler`                               | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end                             |
-| A WebSocket (`@Ws`)           | upgraded: `app.handler` on Deno and Workers, `serve(app)` on Bun and Node.js | the same: `@chojs/web` upgrades, not Hono        | not upgraded: the route is refused when the application is created (`CHO_FASTIFY_NO_SOCKET`) |
-| Its own middlewares           | `@chojs/vendor-cho` (`cors`)                                                 | `fromHono(middleware)`                           | `fromFastify(hook)`                                                                          |
-| A route mounted late          | accepted                                                                     | throws, after the first request                  | throws, once the application is ready                                                        |
+|                                           | `ChoLinker` (built in)                                                       | `@chojs/vendor-hono`                             | `@chojs/vendor-fastify`                                                                      |
+| ----------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| Linker                                    | `new ChoLinker(options?)`                                                    | `new HonoLinker(hono?)`                          | `new FastifyLinker(fastify?)`                                                                |
+| Runs on                                   | runtimes with `URLPattern` (Deno, Node.js 24, Bun 1.3.4, Cloudflare Workers) | Deno, Node.js, Bun, edge runtimes                | Node.js only                                                                                 |
+| `app.linked.instance`                     | a `ChoRouter`                                                                | the `Hono` application                           | the Fastify application                                                                      |
+| Served with                               | `app.handler`                                                                | `app.handler`                                    | `instance.listen()`; `app.handler` goes through `inject()`                                   |
+| `ctx.native`                              | `undefined`                                                                  | Hono's `Context`                                 | `{ request, reply }` of Fastify                                                              |
+| When two routes match                     | the first declared                                                           | the first declared                               | the static one                                                                               |
+| `HEAD` without `@Head`                    | `@Get`, without the body                                                     | `@Get`, without the body                         | `@Get`, without the body                                                                     |
+| No route matches                          | the `notFound` option; `404`                                                 | `notFound` of the Hono application               | the not-found handler of the Fastify application                                             |
+| An undecodable path parameter             | `400`; the route does not run                                                | passed as it was sent                            | `400`, by Fastify                                                                            |
+| A route rejects                           | logged with `console.error`; `500`                                           | `onError` of the Hono application; logged, `500` | the error handler of the Fastify application; `500`                                          |
+| A route throws an `HttpError`             | answered by the route (section 5.1)                                          | answered by the route                            | answered by the route                                                                        |
+| An event stream (`@Sse`)                  | streamed by the server that runs `app.handler`                               | streamed by the server that runs `app.handler`   | streamed by `instance.listen()`; `app.handler` waits for its end                             |
+| A WebSocket (`@Ws`)                       | upgraded: `app.handler` on Deno and Workers, `serve(app)` on Bun and Node.js | the same: `@chojs/web` upgrades, not Hono        | not upgraded: the route is refused when the application is created (`CHO_FASTIFY_NO_SOCKET`) |
+| Application middlewares: `ctx.params`     | those of the route that matched                                              | empty: no route is matched yet                   | those of the route that matched                                                              |
+| Application middlewares: no route matches | around the `notFound` option                                                 | around `notFound` of the Hono application        | around a `404` of the adapter: the Fastify application has no not-found handler of its own   |
+| Application middlewares: a route rejects  | they get the `500` response                                                  | they get the response of `onError`               | the error goes through them, to the error handler of Fastify                                 |
+| A middleware of the library               | none: `@chojs/vendor-cho` has CHO middlewares                                | `fromHono(middleware)`                           | `fromFastify(hook)`                                                                          |
+| A route mounted late                      | accepted                                                                     | throws, after the first request                  | throws, once the application is ready                                                        |
 
-**The middlewares of the built-in router.** `new ChoLinker({ middlewares })`
-takes functions `(ctx, next)`, as `@Middlewares` does. They are the router's:
+**The middlewares of the application** (section 4) are run by the adapter, for
+every request. `@chojs/web` creates them, and gives the linker one function with
+the routes, `around`, when the application has some:
 
-- they run for **every** request, in order, around the route that answers it,
-  and also around the `notFound` answer of a request no route matches. That is
-  what a CORS middleware needs, to answer the preflight requests of every path;
-- each request gives them a context of their own: `params` are those of the
-  route that matched (empty when there is none) and `native` is `undefined`. Its
-  `state` is shared with the route: what a middleware of the router sets there
-  is in the `state` of the route's middlewares and handler;
-- a middleware can replace the request (`ctx.req`), to limit or change how the
-  body is read: the route receives the one the context has;
-- a route that rejects reaches them as the `500` response;
-- one that fails (it throws, or breaks a rule of section 4) is logged with
-  `console.error`, and the request is answered `500`;
-- one that throws an `HttpError` (section 5.1) is answered with its status, as a
-  route is, and so is a `notFound` that throws one: nothing is logged;
-- one that is not a function makes `link()` throw
-  (`CHO_WEB_INVALID_MIDDLEWARE`):
-  `ChoLinker: middleware <n> must be a function, got <v>`.
+```ts
+type Around = (
+  req: Request,
+  answer: (ctx: ChoWebContext) => Promise<Response>,
+  native?: unknown,
+  params?: Readonly<Record<string, string>>,
+) => Promise<Response>;
+```
 
-`@chojs/vendor-cho` has middlewares written for it (`vendor/cho/README.md`):
-`cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId`, `etag`,
-`basicAuth`, `bearerAuth` and `compress`. None of them reads the body of an
-event stream (section 3.4): `etag` and `compress` pass a `text/event-stream`
-response on as it is. A route that upgrades to a WebSocket (section 3.5) passes
-through all of them: what they add to its answer goes with the `101`, apart from
-the headers that describe a body (`content-*`, `etag`), which a `101` has not.
-On the other adapters, what wraps every request goes on the library's own
-application.
+`around` creates the context of the request, and runs the middlewares, in order,
+around `answer`. The adapter calls it with what answers the request: the route,
+or its not-found answer.
 
-An adapter implements `Linker` (`@chojs/web/linker`): it receives the
-application's routes and returns a `Linked`. `@chojs/web` never imports an
-adapter: applications pass one to `ChoWeb.create`.
+- **`answer` receives the context the middlewares had.** A middleware can have
+  replaced the request (`ctx.req`), to limit or change how the body is read, and
+  the state is the one the route must have: the adapter gives the route both,
+  `route.handle(ctx.req, params, native, ctx.state)`.
+- **`native` and `params`** are what the adapter knows when it calls: they are
+  the `ctx.native` and the `ctx.params` of the middlewares. Hono runs a
+  middleware before it matches a route, so its `params` are empty.
+- **An `HttpError` a middleware throws** (section 5.1) is answered with its
+  status, on every adapter, and the middlewares before it get that response:
+  nothing is logged.
+- **A middleware that fails** (it throws, or breaks a rule of section 4) makes
+  `around` reject. The adapter answers as it does for a route that rejects: the
+  built-in router logs it and answers `500`, Hono and Fastify give it to their
+  error handler.
+- **A route that rejects** reaches the middlewares as the adapter has it: the
+  `500` response on the built-in router and on Hono, the error itself on
+  Fastify, which answers it after them.
+- **Without `around`**, the application has no middlewares, and an adapter does
+  what it did before: nothing is created for a request.
+
+| Adapter             | Where it calls `around`                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------- |
+| The built-in router | in `fetch`, once the route is found: around the route, or around `notFound`                                 |
+| Hono                | in one Hono middleware, registered before the routes: around the route, Hono's `notFound` and its `onError` |
+| Fastify             | in the handler of each route, and in a not-found handler the adapter sets                                   |
+
+Fastify has no hook that wraps a request and gets its response. So the adapter
+sets the not-found handler of the Fastify application, which answers `404` with
+the body Fastify gives by default. A Fastify application that set one of its own
+cannot have application middlewares: it fails when it gets ready
+(`CHO_FASTIFY_NOT_FOUND_SET`). Without application middlewares, the adapter sets
+nothing.
+
+The built-in router has no middlewares of its own. `new ChoLinker()` that is
+given `middlewares` throws (`CHO_WEB_INVALID_OPTION`), so that an application
+written for an earlier version does not run without them, and says where they
+moved.
+
+`@chojs/vendor-cho` has the middlewares an HTTP library would bring
+(`vendor/cho/README.md`): `cors`, `bodyLimit`, `secureHeaders`, `logger`,
+`timeout`, `requestId`, `etag`, `basicAuth`, `bearerAuth` and `compress`. They
+are CHO middlewares: they run on every adapter, for an application or for some
+of its routes. None of them reads the body of an event stream (section 3.4):
+`etag` and `compress` pass a `text/event-stream` response on as it is. A route
+that upgrades to a WebSocket (section 3.5) passes through all of them: what they
+add to its answer goes with the `101`, apart from the headers that describe a
+body (`content-*`, `etag`), which a `101` has not.
+
+An adapter implements `Linker` (`@chojs/web/linker`): `link(routes, options)`
+receives the application's routes, and `around` in its options, and returns a
+`Linked`. `@chojs/web` never imports an adapter: applications pass one to
+`ChoWeb.create`.
 
 | Member of `Linked` | What it is                                                     |
 | ------------------ | -------------------------------------------------------------- |
@@ -1484,10 +1561,10 @@ An adapter does no plumbing. Each `Route` is ready to call:
 adapter gives it the `Request`, the decoded path parameters of the match and,
 optionally, its own request context, which handlers see as `ctx.native`, and the
 state of the request, when something ran for it before the route (the
-middlewares of the built-in router): handlers see it as `ctx.state`. It rejects
-when the route fails without an error handler: the adapter answers `500`. It
-does not reject for an `HttpError` (section 5.1): the route resolves with its
-answer, so an adapter has nothing to do for one.
+middlewares of the application): handlers see it as `ctx.state`. It rejects when
+the route fails without an error handler: the adapter answers `500`. It does not
+reject for an `HttpError` (section 5.1): the route resolves with its answer, so
+an adapter has nothing to do for one.
 
 **A route that upgrades** (`socket: true`) is registered as any `GET` route, and
 an adapter has nothing to do for it either, as long as two things hold:
@@ -1506,13 +1583,17 @@ adapter does for now.
 
 ```ts
 class MyLinker implements Linker<MyServer> {
-  link(routes: readonly Route[]): Linked<MyServer> {
+  link(routes: readonly Route[], { around }: LinkOptions): Linked<MyServer> {
     const server = new MyServer();
+    // The middlewares of the application, around every request.
+    if (around) {
+      server.use((req, next) => around(req, (ctx) => next(ctx.req, ctx.state)));
+    }
     const mount = (route: Route) =>
       server.on(
         route.method,
         route.path,
-        (req, params) => route.handle(req, params),
+        (req, params, state) => route.handle(req, params, undefined, state),
       );
     routes.forEach(mount);
     return { instance: server, handler: (req) => server.fetch(req), mount };
@@ -1577,10 +1658,10 @@ compatibility date `2025-09-01` and, for the package itself, with no
 | Entry point             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@chojs/web`            | `ChoWeb`, `ChoWebOptions`, `ChoWebMountOptions`, `ChoWebMountMethod`, `ChoLinker`, `ChoRouter`, `ChoLinkerOptions`, `ChoMatch`, `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`, `Sse`, `Ws`, `WsOpen`, `WsMessage`, `WsClose`, `Middlewares`, `Catch`, `Args`, `Param`, `Query`, `Header`, `Body`, `Form`, `validate`, `Doc`, `HttpError`, `isHttpError`, `HttpErrorOptions`, `ChoError`, `isChoError` (the core's), `ChoWebErrorCode`, `ChoCoreErrorCode`, the types `ChoWebSseEvent`, `ChoWebSseOptions`, `ChoWebSseMethod`, `ChoWebSseResult`, `ChoWebSseDecorator`, `ChoWebSocket`, `ChoWebUpgrade`, `ChoWebSocketIo`, `ChoWebSocketEvents`, `ChoWebWsOpenDecorator`, `ChoWebWsMessageDecorator`, `ChoWebWsCloseDecorator`, `ChoWebWsEventDecorator`, `ChoWebArg`, `ChoWebArgInfo`, `ChoWebArgSource`, `ChoWebValidateOptions`, `ChoWebInvalid`, `ChoValidator`, `ChoParseValidator`, `ChoIssue`, `ChoInput`, `ChoOutput`, `StandardSchemaV1`, `StandardJSONSchemaV1`, `StandardTypedV1` (the core's), `ChoWebDoc`, `ChoWebDocResponse`, `ChoWebDocSecurity`, `ChoWebContext`, `ChoWebHandler`, `ChoWebNext`, `ChoWebMiddlewareFn`, `ChoWebMiddleware`, `ChoWebErrorHandlerFn`, `ChoWebErrorHandler`, `Module`, `Controller` (the core's, with the `route` option), `WebModuleOptions`, `WebControllerOptions`, and from the core `Injectable`, `token`, `provider`, `configure`, `InjectionToken`, `Provider` and the option types, and `env`, `envNum`, `envBool`, `setEnv`, `engine`, `EnvSource`, `EngineType` |
-| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `@chojs/web/linker`     | `Linker`, `Linked`, `Route`, `LinkOptions`, `Around`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `@chojs/web/graph`      | `AppRef`, `FeatureRef`, `ControllerRef`, `MethodRef`, `NodeRef`, `ErrorHandlerRef`, `SocketRef`, `SocketMethodRef`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `@chojs/web/serve`      | `serve`, `bunOptions`, `nodeUpgrade`, `ServeHandler`, `ServeApp`, `ServeOptions`, `SocketOptions`, `BunOptions`, `NodeUpgradeListener`, `ChoWebServer`, `EngineType`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `@chojs/vendor-cho`     | the middlewares of the built-in router: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `@chojs/vendor-cho`     | CHO middlewares, for an application or for its routes: `cors`, `bodyLimit`, `secureHeaders`, `logger`, `timeout`, `requestId` (and `REQUEST_ID`), `etag`, `basicAuth`, `bearerAuth`, `compress`, and their option types                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `@chojs/vendor-hono`    | `HonoLinker`, `HonoLinked`, `fromHono`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `@chojs/vendor-fastify` | `FastifyLinker`, `FastifyLinked`, `FastifyNative`, `FastifyHook`, `fromFastify`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
@@ -1683,15 +1764,16 @@ meets it. An `HttpError` (section 5.1) is not a `ChoError`, and has no code.
 
 **Thrown by the built-in router and by `serve`** (section 7):
 
-| Mistake                                                                                         | Code                         | Message                                                                                                                                     |
-| ----------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| The runtime has no URL Pattern API                                                              | `CHO_WEB_NO_URL_PATTERN`     | `ChoLinker needs the URL Pattern API (URLPattern), which this runtime does not have: give ChoWeb.create another linker, such as HonoLinker` |
-| A middleware of `ChoLinker` is not a function                                                   | `CHO_WEB_INVALID_MIDDLEWARE` | `ChoLinker: middleware <n> must be a function, got <v>`                                                                                     |
-| `serve`, `bunOptions` or `nodeUpgrade` is given something else than an application or a handler | `CHO_WEB_INVALID_HANDLER`    | `serve() expects an application, or a request handler such as app.handler`                                                                  |
-| A `closeTimeout` that is not a time                                                             | `CHO_WEB_INVALID_OPTION`     | `serve(): closeTimeout must be a whole number of milliseconds, got <v>`                                                                     |
-| A `maxPayload` that is not a size                                                               | `CHO_WEB_INVALID_OPTION`     | `serve(): maxPayload must be a positive whole number of bytes, got <v>`                                                                     |
-| `accept` of an upgrade is called twice                                                          | `CHO_WEB_INVALID_SOCKET`     | `The upgrade of <Controller.method> was already accepted: accept() is called once for a connection`                                         |
-| The runtime has no server `serve` knows                                                         | `CHO_WEB_NO_SERVER`          | `serve() has no server for this runtime (<runtime>): give app.handler to the runtime's own entry point`                                     |
+| Mistake                                                                                         | Code                      | Message                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| The runtime has no URL Pattern API                                                              | `CHO_WEB_NO_URL_PATTERN`  | `ChoLinker needs the URL Pattern API (URLPattern), which this runtime does not have: give ChoWeb.create another linker, such as HonoLinker` |
+| `middlewares` given to `ChoLinker`, where it was an option                                      | `CHO_WEB_INVALID_OPTION`  | `ChoLinker: "middlewares" is not an option of the router: give the middlewares of the application to ChoWeb.create(App, { middlewares })`   |
+| The `middlewares` of `ChoWeb.create` are not an array                                           | `CHO_WEB_INVALID_OPTION`  | `ChoWeb.create(): "middlewares" must be an array, got <v>`                                                                                  |
+| `serve`, `bunOptions` or `nodeUpgrade` is given something else than an application or a handler | `CHO_WEB_INVALID_HANDLER` | `serve() expects an application, or a request handler such as app.handler`                                                                  |
+| A `closeTimeout` that is not a time                                                             | `CHO_WEB_INVALID_OPTION`  | `serve(): closeTimeout must be a whole number of milliseconds, got <v>`                                                                     |
+| A `maxPayload` that is not a size                                                               | `CHO_WEB_INVALID_OPTION`  | `serve(): maxPayload must be a positive whole number of bytes, got <v>`                                                                     |
+| `accept` of an upgrade is called twice                                                          | `CHO_WEB_INVALID_SOCKET`  | `The upgrade of <Controller.method> was already accepted: accept() is called once for a connection`                                         |
+| The runtime has no server `serve` knows                                                         | `CHO_WEB_NO_SERVER`       | `serve() has no server for this runtime (<runtime>): give app.handler to the runtime's own entry point`                                     |
 
 **Failing a request** (given to the route's error handler, section 5):
 
@@ -1739,10 +1821,19 @@ the validation middleware, when it is on the route (section 3.2).
   once (`web/args.ts`). When the graph is built, a handler with arguments is
   wrapped in a function that evaluates them and calls it with the values and the
   context.
-- **Validation** (`web/validate.ts`). `validate()` is a middleware that marks
-  the request, calls `next()`, and answers when the evaluation of an argument
-  reports it invalid. The arguments of a marked request go through their
-  validators.
+- **Validation** (`web/validate.ts`). `validate()` is a middleware that leaves
+  its options in the state of the request, under a registered symbol
+  (`Symbol.for("chojs.web.validation")`), and calls `next()`. The function that
+  calls a handler with its arguments (`web/build-graph.ts`) finds them there:
+  the arguments of a marked request go through their validators, and for one
+  that is not valid the function answers, with `onInvalid` or `400`, in place of
+  the handler. Nothing is thrown through the chain, so the middleware covers a
+  handler from wherever it sits, the application included: the state is one
+  `Map` from the first middleware of the application to the handler.
+- **The middlewares of the application** (`web/compose.ts`). `around` composes
+  them, each one wrapped so that an `HttpError` it throws becomes its answer,
+  and runs them on a context made for the request. `ChoWeb.create` gives it to
+  `Linker.link` when the application has middlewares.
 - **Event streams** (`web/sse.ts`). `@Sse` writes the same record as `@Get`,
   with its method and its options. When the routes are compiled, the result of
   such a handler becomes the body of a `text/event-stream` response: a
@@ -1764,10 +1855,11 @@ the validation middleware, when it is on the route (section 3.2).
   answer is made in one place, `make_route`, for the declared routes and the
   mounted ones, on every adapter: the error that would leave the route (no error
   handler, one that returned nothing, or what one threw) is turned into
-  `error.toResponse()` when `isHttpError` says so. The built-in router does the
-  same for what runs outside a route: its own middlewares and `notFound`. The
-  class is recognized by a property of its prototype keyed by
-  `Symbol.for("cho.http_error")`, which two copies of the package share.
+  `error.toResponse()` when `isHttpError` says so. The same is done for what
+  runs outside a route: `around` for a middleware of the application, on every
+  adapter, and the built-in router for its `notFound`. The class is recognized
+  by a property of its prototype keyed by `Symbol.for("cho.http_error")`, which
+  two copies of the package share.
 - **Errors** (`web/errors.ts`). `web_error(code, message, options)` makes the
   `ChoError`s of this package, with a code of `ChoWebErrorCode`
   (`core/specs.md`, section 4.4). `web/errors_test.ts` checks the codes against
@@ -1782,7 +1874,10 @@ the validation middleware, when it is on the route (section 3.2).
   Hono's decoded parameters and Hono's context. Hono answers a `HEAD` request
   with its `GET` routes: a `HEAD` route is a `GET` route that only answers
   `HEAD` requests, and the `GET` route of a path looks, for each `HEAD` request,
-  for a `HEAD` route of that path, so that one mounted later still answers.
+  for a `HEAD` route of that path, so that one mounted later still answers. With
+  `around`, it registers one Hono middleware first, which calls it around Hono's
+  `next()` and keeps its context for the Hono context of the request: a route is
+  given the request and the state of that context.
 - **The built-in router** (`web/router.ts`) makes one `URLPattern` for each
   route, and calls the `route.handle` of the first route whose method and
   pattern match, with the `Request` and the decoded parameters. A mounted route
@@ -1790,14 +1885,17 @@ the validation middleware, when it is on the route (section 3.2).
   percent-encoding (`%`, `%zz`, a sequence of UTF-8 that is cut) is not passed
   as it was sent, where a handler could not tell `%` from `%25`: `match` throws
   an `HttpError` of `400`, and `fetch` answers with it, inside the middlewares
-  of the router, with no parameters in their context.
+  of the application, with no parameters in their context. The router calls
+  `around` once the route is found, so those middlewares have its parameters.
 - **The Fastify adapter** registers the routes as one Fastify plugin, in which
   Fastify parses no body. It builds a standard `Request` from Fastify's (its
   body is the raw stream), calls `route.handle` with it, Fastify's decoded
   parameters and Fastify's request and reply, and lets Fastify send the
   `Response`. The plugin runs when Fastify gets ready, and registers the routes
   the adapter holds then: those of `link()`, and those mounted since. That is
-  why a route is taken until Fastify is ready, and not after.
+  why a route is taken until Fastify is ready, and not after. With `around`, the
+  handler of each route calls it around `route.handle`, and the plugin sets a
+  not-found handler that calls it around a `404`.
 - **Sockets** (`web/socket.ts`). `@Ws` writes the record of `@Get`, with
   `socket: true`, and each event decorator writes its event under a key of its
   own (`Symbol.for("chojs.web.ws")`). When the graph is built, the rules of one

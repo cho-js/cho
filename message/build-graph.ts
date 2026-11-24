@@ -255,6 +255,9 @@ function create_middleware_factory(
  * @param on_error The error handler of the application, if any: a function,
  *   or a class with a `handle` method, created by the injector in the scope
  *   of the root module.
+ * @param middlewares The middlewares of the application, if any: functions,
+ *   or classes with a `handle` method, created the same way. The validation
+ *   middleware is not one of them: it covers handlers, not an application.
  * @returns The message graph.
  * @throws {ChoError} When a topic is invalid, or when a middleware or an error
  *   handler is invalid or cannot be created.
@@ -263,13 +266,31 @@ export async function build_message_graph(
   injector: Injector,
   prefix: unknown,
   on_error?: unknown,
+  middlewares: unknown = [],
 ): Promise<AppRef> {
   const topic = normalize_topic(prefix, "the global prefix");
-  // A handler class is created in the scope of the root module.
+  if (!Array.isArray(middlewares)) {
+    throw message_error(
+      "CHO_MESSAGE_INVALID_ARGUMENT",
+      `ChoMessage: "middlewares" must be an array, got ${
+        describe(middlewares)
+      }`,
+    );
+  }
+  // Left out here, it would be taken and validate nothing: the validation of
+  // a handler is decided by the middlewares of its route.
+  if (middlewares.some((middleware) => validation_of(middleware))) {
+    throw message_error(
+      "CHO_MESSAGE_INVALID_ARGUMENT",
+      "ChoMessage: validate() is not a middleware of an application: it covers the handlers under it. Declare it with @Middlewares(validate()), on a handler, a controller or a feature module",
+    );
+  }
+  // A class of the application is created in the scope of the root module.
   const root = injector.graph.root.ctr;
   const graph = new AppRef(
     topic,
     await error_handler_factory(root, injector)(on_error),
+    await create_middleware_factory(root, injector)(middlewares),
   );
 
   for (const mdl of injector.modules()) {
