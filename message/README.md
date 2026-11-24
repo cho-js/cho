@@ -1,5 +1,7 @@
 # @chojs/message
 
+[![JSR](https://jsr.io/badges/@chojs/message)](https://jsr.io/@chojs/message)
+[![JSR score](https://jsr.io/badges/@chojs/message/score)](https://jsr.io/@chojs/message)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 Applications that handle the messages of a broker, such as Kafka, built with

@@ -497,7 +497,8 @@ try {
 
 **The injector never disposes on its own.** When an application ends is not its
 decision: whatever runs the application calls `dispose()`. The CHO modules do it
-in their `close()` (`ChoWeb.close()`, `ChoCommand.close()`).
+in their `close()` (`ChoWeb.close()`, `ChoCommand.close()`,
+`ChoMessage.close()`).
 
 **Overrides, for tests.** `new Injector(App, { overrides })` replaces declared
 providers, wherever they are in the module graph, without changing any module:
@@ -894,10 +895,10 @@ creates nothing.
   concatenated, any other value replaces the previous one.
 - **Keys.** Everything the framework writes is stored under symbol keys,
   `Symbol.for("chojs.<package>.<key>")`, private to the package that writes them
-  (core's are in `di/keys.ts`; command and web have their own). User options are
-  stored next to them under their own string keys, so the two can never collide.
-  `Symbol.for` keeps the keys shared across copies of a package, like the record
-  itself.
+  (core's are in `di/keys.ts`; command, web and message have their own). User
+  options are stored next to them under their own string keys, so the two can
+  never collide. `Symbol.for` keeps the keys shared across copies of a package,
+  like the record itself.
 - The DI decorators validate their own arguments and write the injectable flag
   and the dependencies, plus the module flag and lists, or the controller flag,
   and any extra options.

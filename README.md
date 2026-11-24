@@ -100,14 +100,19 @@ Deno.exit(await app.run(Deno.args)); // greet hello --name you
 
 ## Getting started
 
-Pick the package for what you are building; it brings everything an application
-needs.
+Create a workspace with `cho`, the command-line tool of the framework. It asks
+what you are building, and writes a project that runs as it is:
 
 ```shell
 npm install --global @chojs/cli
+cho new shop
 ```
 
-Or add it to your project with:
+[`@chojs/cli`](./cli/README.md) has the installation on Deno and on Bun, and
+the options of `cho new`.
+
+Or pick the package for what you are building, and add it to a project of your
+own; it brings everything an application needs:
 
 ```sh
 # an HTTP application
@@ -119,6 +124,11 @@ bunx jsr add @chojs/web
 deno add jsr:@chojs/command
 npx jsr add @chojs/command
 bunx jsr add @chojs/command
+
+# an application that handles the messages of a broker
+deno add jsr:@chojs/message
+npx jsr add @chojs/message
+bunx jsr add @chojs/message
 ```
 
 `@chojs/web` has a router built in, on the standard URL Pattern API, so an HTTP
@@ -173,7 +183,6 @@ Contributions are welcome: see [CONTRIBUTING.md](./CONTRIBUTING.md) and the
 This project uses the TC39 stage 3 decorators proposal (JavaScript decorators).
 
 - [TC39 stage 3 proposal](https://github.com/tc39/proposal-decorators)
-- [TypeScript Decorators](https://www.typescriptlang.org/docs/handbook/decorators.html)
-- [decorators.deno.dev](https://decorators.deno.dev/)
+- [Decorators in TypeScript 5.0](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-0.html#decorators)
 
 # 蝶

@@ -72,7 +72,7 @@ Node.js and Bun are needed only to run the tests on those runtimes.
 | Deno    | 2.x            | Everything: checks, tests, publishing    |
 | Node.js | 24 or later    | Running the tests on Node.js, with `tsx` |
 | Bun     | 1.3.4 or later | Running the tests on Bun                 |
-| Docker  | any            | Running the tests on Cloudflare Workers  |
+| Docker  | any            | Tests on Workers, and against brokers    |
 
 ```sh
 git clone https://github.com/cho-js/cho.git
@@ -98,12 +98,16 @@ tests.
 | `vendor/nats/`    | `@chojs/vendor-nats`    | Message adapter on NATS, with replies                                      |
 | `extras/`         |                         | Modules built on the graph of an application ([rules](./extras/README.md)) |
 | `extras/openapi/` | `@chojs/openapi`        | The OpenAPI document of a web application, and its page                    |
+| `extras/dev/`     | `@chojs/dev`            | Development tools: the endpoints of an application, and its graph          |
+| `extras/prompt/`  | `@chojs/prompt`         | Questions in a terminal                                                    |
+| `cli/`            | `@chojs/cli`            | `cho`, the command-line tool of the framework                              |
 | `examples/`       |                         | Runnable examples                                                          |
+| `tools/`          |                         | What the tests need outside a test runner ([README](./tools/README.md))    |
 
-`core`, `command`, `web`, `message`, `vendor/kafka`, `vendor/nats` and
-`extras/openapi` each have a `specs.md`: the specification of the package, and
-the place to look for how something is meant to behave. A package that has work
-planned lists it in a `tmp/tasks.md`.
+Every package has a `specs.md`, apart from the three packages of `@chojs/web` in
+`vendor/` (`vendor/cho`, `vendor/hono` and `vendor/fastify`), which
+`web/specs.md` covers. It is the specification of the package, and the place to
+look for how something is meant to behave.
 
 ### Checks
 
@@ -117,7 +121,9 @@ deno task test              # tests on Deno
 deno task test-node         # tests on Node.js (needs tsx)
 deno task test-bun          # tests on Bun
 tools/workerd/docker.sh     # tests on Cloudflare Workers (workerd), in Docker
+tools/pty.sh                # the questions of cho new, in a real terminal
 deno publish --dry-run --allow-dirty   # what would be published to JSR
+deno task --cwd cli npm && npm pack --dry-run ./cli/npm   # and to npm
 ```
 
 `./test.sh` runs the tests on the three runtimes, one after the other. The
@@ -165,9 +171,9 @@ The name of a function says who it is for.
 
 - **`@chojs/core` is internal**, for now: every function and method in it is
   `snake_case`, and carries no compatibility promise. Applications get what they
-  need from it through `@chojs/command` and `@chojs/web`, which re-export it.
-  Some internal functions are still called by applications (`set_env`, on a
-  runtime without `process`); they keep their internal name.
+  need from it through `@chojs/command`, `@chojs/web` and `@chojs/message`,
+  which re-export it. Some internal functions are still called by applications
+  (`set_env`, on a runtime without `process`); they keep their internal name.
 - **A single word fits both conventions** (`provider`, `token`, `env`,
   `compose`, `describe`, `debuglog`), so a function can move between the two
   audiences without a rename.
@@ -233,6 +239,10 @@ A web adapter connects `@chojs/web` to an HTTP library. It lives in
   `release-please-config.json` and to `.release-please-manifest.json`, and list
   it in the root `README.md` and in `web/README.md`.
 
+A broker adapter does the same for `@chojs/message`: it implements `Linker` from
+`@chojs/message/linker`, and decides what its broker does with a message that
+failed. See [the message specification](./message/specs.md), section 7.
+
 ## Pull requests
 
 - Create a branch from `main`, and open the pull request against `main`.
@@ -266,8 +276,9 @@ not follow the convention is left out of the release.
 | `build`    | The build, the CI or the dependencies         | None    |
 | `chore`    | Anything else                                 | None    |
 
-- The scope is the package: `core`, `command`, `web`, `vendor-cho`,
-  `vendor-hono` or `vendor-fastify`.
+- The scope is the package: `core`, `command`, `web`, `message`, `cli`,
+  `vendor-cho`, `vendor-hono`, `vendor-fastify`, `vendor-kafka`, `vendor-nats`,
+  `openapi`, `dev` or `prompt`.
 - A breaking change has a `!` after the type or the scope, and is released as a
   major version.
 
@@ -287,3 +298,5 @@ the `version` of a `deno.json` or a `CHANGELOG.md` by hand.
    and the changelog of each package that changed.
 2. Merging that pull request tags a GitHub release for each package, and
    publishes it to [JSR](https://jsr.io/@chojs).
+3. The command-line tool is also sent to npm, where it waits: a maintainer
+   approves it there, and only then it is public (`cli/specs.md`, section 7.2).

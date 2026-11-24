@@ -529,5 +529,7 @@ NATS_URL=localhost:4222 bun test vendor/nats/nats_test.ts
   alternatives.
 - [`examples/nats-reply.ts`](../../examples/nats-reply.ts): a service that
   answers, and a request to it.
+- [`examples/nats-stream.ts`](../../examples/nats-stream.ts): messages that must
+  not be lost, on JetStream, with a dead-letter subject.
 - [nats.js](https://github.com/nats-io/nats.js): the client library, its
   transports and its options.

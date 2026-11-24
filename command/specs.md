@@ -19,8 +19,9 @@ There are two kinds of applications:
 
 Everything an application needs comes from `@chojs/command`: the command
 decorators, `ChoCommand`, `@Middlewares` and `@Catch`, and what it needs from
-the core: the DI decorators (`@Module`, `@Controller`, `@Injectable`), and
-`token` and `provider` to declare values that are not classes. `@Module` and
+the core: the DI decorators (`@Module`, `@Controller`, `@Injectable`), `token`
+and `provider` to declare values that are not classes, and `configure` to give a
+module of a library its settings (`core/specs.md`, section 2.4). `@Module` and
 `@Controller` are the core's, and accept only the core's options: any other
 option is rejected, by the types and when the class is defined.
 
@@ -571,6 +572,7 @@ Run 'fs <command> --help' for help on a command.
 | `ChoCommandErrorHandlerFn`, `ChoCommandErrorHandler`                                                            | type            | 4.4      |
 | `Controller`, `Module` (the core's, with no extra option)                                                       | function        | 2.1      |
 | `Injectable`, `token`, `provider` (re-exported from `@chojs/core`)                                              | function        | 2.1      |
+| `configure`, `ConfigureOptions` (re-exported, see core, section 2.4)                                            | function, type  | 1        |
 | `ControllerOptions`, `ModuleOptions`, `InjectableOptions`, `InjectionToken`, `Provider` (re-exported, see core) | type            | 2.1      |
 | `ChoError`, `isChoError` (re-exported from `@chojs/core`)                                                       | class, function | 7        |
 | `ChoCommandErrorCode`, `ChoCoreErrorCode`                                                                       | type            | 7        |

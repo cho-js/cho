@@ -8,8 +8,9 @@ The dependency injection engine of the [CHO](../README.md) framework:
 asynchronous, decorator-driven, and free of reflection.
 
 > **Building an application?** You do not need this package. Use
-> [`@chojs/web`](../web/README.md) for HTTP applications or
-> [`@chojs/command`](../command/README.md) for command-line applications: they
+> [`@chojs/web`](../web/README.md) for HTTP applications,
+> [`@chojs/command`](../command/README.md) for command-line applications or
+> [`@chojs/message`](../message/README.md) for the messages of a broker: they
 > re-export everything an application needs from the core.
 >
 > **This package is internal.** It is the foundation the CHO modules are built
@@ -133,7 +134,7 @@ class Db {
 ```
 
 The injector never disposes on its own. Whatever runs the application decides
-when: `ChoWeb.close()` and `ChoCommand.close()` call it.
+when: `ChoWeb.close()`, `ChoCommand.close()` and `ChoMessage.close()` call it.
 
 ## Configuring a module
 
@@ -300,7 +301,7 @@ Every code is listed with its mistake in the
 
 | Entry point                    | Contents                                                                                          |
 | ------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `@chojs/core`                  | The DI essentials: the decorators, `Injector`, `token`, `provider`; `ChoValidator` and its types  |
+| `@chojs/core`                  | The decorators, `Injector`, `token`, `provider`, `configure`; `ChoError`; the validator types     |
 | `@chojs/core/di`               | Everything above, plus the metadata and decorator helpers for CHO modules, and the graph builders |
 | `@chojs/core/utils`            | Runtime helpers: `env`, `set_env`, `engine`, `debuglog`, `compose`, `describe`                    |
 | `@chojs/core/utils/test_utils` | Test helpers: apply decorators as function calls, capture console output                          |
