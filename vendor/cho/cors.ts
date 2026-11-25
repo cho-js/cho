@@ -80,11 +80,13 @@ function assert_strings(name: string, value: unknown): void {
  *   itself, with what is allowed. The rest of the chain does not run.
  * - **Any other request** runs the rest of the chain, and the middleware adds
  *   the CORS headers to its response.
- * - A request without an `Origin` header is not a cross-origin request: it is
- *   left as it is. A request from an origin that is not allowed gets no CORS
- *   header, so the browser refuses to give its response to the page.
+ * - A request without an `Origin` header is not a cross-origin request: it
+ *   gets no CORS header. A request from an origin that is not allowed gets
+ *   none either, so the browser refuses to give its response to the page.
  * - `Vary: Origin` is added whenever the answer depends on the origin of the
- *   request, so that caches keep the answers apart.
+ *   request (`origin` is not `"*"`, or `credentials` is on), so that caches
+ *   keep the answers apart. It is added to every response then, the one to a
+ *   request without an `Origin` header included.
  *
  * **Where to put it.** A browser sends a preflight request to the path of
  * the real request, with the method `OPTIONS`. A middleware of
