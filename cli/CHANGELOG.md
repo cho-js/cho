@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.8.0](https://github.com/cho-js/cho/compare/cli-v3.7.1...cli-v3.8.0) (2026-11-25)
+
+
+### Features
+
+* extend the cli commands ([#44](https://github.com/cho-js/cho/issues/44)) ([71ae544](https://github.com/cho-js/cho/commit/71ae544b12ab848ab462878702cf89f897188e64))
+* generate command for cli ([#45](https://github.com/cho-js/cho/issues/45)) ([36ed1b2](https://github.com/cho-js/cho/commit/36ed1b29a06730ab266d37919901074358cd13e3))
+
 ## [3.7.1](https://github.com/cho-js/cho/compare/cli-v3.7.0...cli-v3.7.1) (2026-11-23)
 
 
