@@ -11,6 +11,7 @@ import type { Answers } from "./answers.ts";
 import {
   command_line,
   command_of,
+  needs_line,
   plan_workspace,
   project_files,
   run_command,
@@ -42,6 +43,10 @@ const json = (text: string | undefined) => JSON.parse(text ?? "null");
 /** The projects the commands are tested on. */
 const web = make_project({ type: "application", kind: "web" }, "apps/api");
 const cli = make_project({ type: "application", kind: "cli" }, "apps/tool");
+const worker = make_project(
+  { type: "application", kind: "message" },
+  "apps/worker",
+);
 const library = make_project({ type: "library" }, "libs/shared");
 
 describe("plan_workspace", () => {
@@ -98,6 +103,45 @@ describe("plan_workspace", () => {
     assert.deepEqual(json(tool["apps/tool/package.json"]).dependencies, {
       "@chojs/command": "npm:@jsr/chojs__command@^3.6.0",
     });
+  });
+
+  it("gives a message consumer its package, and the adapter of Kafka", () => {
+    const files = plan({ kind: "message", project: "worker" });
+    assert.deepEqual(json(files["apps/worker/package.json"]).dependencies, {
+      "@chojs/message": "npm:@jsr/chojs__message@^3.6.0",
+      "@chojs/vendor-kafka": "npm:@jsr/chojs__vendor-kafka@^3.6.0",
+    });
+    // the group of the application is its name, and so is its first topic
+    assert.ok(files["apps/worker/main.ts"]!.includes('groupId: "worker"'));
+    assert.match(
+      files["apps/worker/app.ts"]!,
+      /^@Controller\(\{ topic: "worker" \}\)$/m,
+    );
+  });
+
+  it("says in the README.md what a message consumer needs to run: Kafka", () => {
+    const readme = plan({ kind: "message", project: "worker" })["README.md"]!;
+    assert.ok(
+      readme.includes(
+        "- `apps/worker/`: a message consumer, built with\n" +
+          "  `@chojs/message`, on `@chojs/vendor-kafka`.",
+      ),
+    );
+    assert.match(readme, /^## Kafka$/m);
+    assert.ok(readme.includes("the topic `worker.hello`"));
+    assert.ok(readme.includes("`KAFKA_BROKERS`"));
+    assert.ok(
+      readme.includes("deno run --allow-net --allow-env --allow-read main.ts"),
+    );
+    // one empty line between two sections, and no more
+    assert.doesNotMatch(readme, /\n\n\n/);
+
+    // the other kinds need nothing: no such section
+    for (const kind of ["web", "cli"] as const) {
+      const other = plan({ kind })["README.md"]!;
+      assert.doesNotMatch(other, /Kafka/);
+      assert.doesNotMatch(other, /\n\n\n/);
+    }
   });
 
   it("gives a project no scripts: no one command runs it on the three", () => {
@@ -349,12 +393,51 @@ describe("run_command", () => {
     ]);
   });
 
+  it("starts a message consumer as a server is, and lets it read files on Deno", () => {
+    // the client library of Kafka reads a file when it loads
+    assert.deepEqual(run_command("deno", worker, { watch: true }).args, [
+      "run",
+      "--allow-net",
+      "--allow-env",
+      "--allow-read",
+      "--watch",
+      "main.ts",
+    ]);
+    assert.deepEqual(run_command("node", worker, { watch: true }).args, [
+      "tsx",
+      "watch",
+      "main.ts",
+    ]);
+    assert.deepEqual(run_command("bun", worker, { watch: true }).args, [
+      "--watch",
+      "main.ts",
+    ]);
+    // its tests give it messages of their own: they need no more than the
+    // tests of any application
+    assert.equal(command_of("deno", worker, "test"), "deno test --allow-env");
+  });
+
   it("puts the arguments of the project after its entry, each as it is", () => {
     const args = ["hello", "--name", "Ada Lovelace", "--watch"];
     for (const runtime of RUNTIMES) {
       const command = run_command(runtime, cli, { watch: false, args });
       assert.deepEqual(command.args.slice(-5), ["main.ts", ...args], runtime);
     }
+  });
+});
+
+describe("needs_line", () => {
+  it("says that a message consumer reads from Kafka, and where", () => {
+    assert.equal(
+      needs_line("worker", "message"),
+      "worker reads from Kafka, at localhost:9092: the variable " +
+        "KAFKA_BROKERS names another address.",
+    );
+  });
+
+  it("says nothing for a kind that needs nothing", () => {
+    assert.equal(needs_line("api", "web"), undefined);
+    assert.equal(needs_line("tool", "cli"), undefined);
   });
 });
 

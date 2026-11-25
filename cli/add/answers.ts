@@ -18,6 +18,7 @@
 import { type ChoPrompts, createPrompts } from "@chojs/prompt";
 import { type ChoConfig, DEFAULTS, type ProjectChoice } from "../new/config.ts";
 import { cli_error } from "../errors.ts";
+import { KIND_CHOICES } from "../new/answers.ts";
 import { name_mistake } from "../new/names.ts";
 import type { Tree } from "../tree.ts";
 import type { Flags } from "./flags.ts";
@@ -130,14 +131,7 @@ export async function ask_answers(
     if (kind === undefined) {
       kind = yes ? "web" : await ask.select({
         message: "What are you building?",
-        choices: [
-          { value: "web", label: "A web application", hint: "@chojs/web" },
-          {
-            value: "cli",
-            label: "A command-line tool",
-            hint: "@chojs/command",
-          },
-        ],
+        choices: KIND_CHOICES,
       });
     }
     choice = { type, kind };

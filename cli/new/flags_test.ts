@@ -83,9 +83,9 @@ describe("read_flags", () => {
   });
 
   it("refuses a value that is not one of the choices of its flag", () => {
-    assert.deepEqual(mistake_of({ kind: "message" }), {
+    assert.deepEqual(mistake_of({ kind: "mobile" }), {
       code: "CHO_CLI_INVALID_OPTION",
-      message: "--kind message: not one of web, cli",
+      message: "--kind mobile: not one of web, cli, message",
     });
     assert.deepEqual(mistake_of({ runtime: "pnpm" }), {
       code: "CHO_CLI_INVALID_OPTION",

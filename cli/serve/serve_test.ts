@@ -112,6 +112,41 @@ describe("serve_project", () => {
     ]);
   });
 
+  it("starts a message consumer as a server: watched, and reading files on Deno", async () => {
+    const workspace: ChoConfig = {
+      version: 1,
+      runtime: "deno",
+      projects: { worker: { kind: "message", root: "apps/worker" } },
+    };
+    const ran: string[][] = [];
+    await capture(() =>
+      serve_project(
+        new Tree(memory_host({
+          "cho.json": JSON.stringify(workspace),
+          "package.json": "{}",
+          "apps/worker/main.ts": "",
+          "node_modules/.package-lock.json": "{}",
+        })),
+        workspace,
+        flags(), // no name: the one application of the workspace
+        { root, cwd: root },
+        (program, args) => {
+          ran.push([program, ...args]);
+          return Promise.resolve(0);
+        },
+      )
+    );
+    assert.deepEqual(ran, [[
+      "deno",
+      "run",
+      "--allow-net",
+      "--allow-env",
+      "--allow-read",
+      "--watch",
+      "main.ts",
+    ]]);
+  });
+
   it("runs on the runtime of --runtime, for this run", async () => {
     const node = await serve({ name: "api", runtime: "node" });
     assert.deepEqual(

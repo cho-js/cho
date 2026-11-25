@@ -142,6 +142,42 @@ describe("add_project", () => {
       });
     }));
 
+  it("adds a message consumer, with the adapter of Kafka, and says what it needs", () =>
+    with_workspace(async (root) => {
+      const { result, output } = await add(root, {
+        name: "worker",
+        choice: { type: "application", kind: "message" },
+        install: false,
+      });
+      assert.equal(result, 0);
+      assert.deepEqual(output.log, [
+        "Added worker in apps/worker (5 files)",
+        "Updated cho.json",
+        "\n  deno install\n  cho serve worker\n\n" +
+        "worker reads from Kafka, at localhost:9092: the variable " +
+        "KAFKA_BROKERS names another address.",
+      ]);
+      const config = check_config(await read_json(root, "cho.json"));
+      assert.deepEqual(config.projects.worker, {
+        type: "application",
+        kind: "message",
+        root: "apps/worker",
+        entry: "main.ts",
+        module: "app.ts",
+      });
+      const range = await cho_range(root);
+      const manifest = await read_json(
+        root,
+        "apps",
+        "worker",
+        "package.json",
+      ) as { dependencies: Record<string, string> };
+      assert.deepEqual(manifest.dependencies, {
+        "@chojs/message": range.replace("command", "message"),
+        "@chojs/vendor-kafka": range.replace("command", "vendor-kafka"),
+      });
+    }));
+
   it("prints what it would write and run, and does nothing, for a dry run", () =>
     with_workspace(async (root) => {
       const before = await texts_of(root);
@@ -220,6 +256,19 @@ describe("next_steps", () => {
     assert.equal(
       next_steps("tool", tool, "deno", { root, cwd: root }, true),
       "  cho serve tool -- hello",
+    );
+  });
+
+  it("says what a message consumer needs, under the commands", () => {
+    const worker = make_project(
+      { type: "application", kind: "message" },
+      "apps/worker",
+    );
+    assert.equal(
+      next_steps("worker", worker, "node", { root, cwd: root }, false),
+      "  npm install\n  cho serve worker\n\n" +
+        "worker reads from Kafka, at localhost:9092: the variable " +
+        "KAFKA_BROKERS names another address.",
     );
   });
 

@@ -76,7 +76,8 @@
           "description": "What the application is: a web application (@chojs/web), or a command-line tool (@chojs/command).",
           "enum": [
             "web",
-            "cli"
+            "cli",
+            "message"
           ]
         },
         "root": {

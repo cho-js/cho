@@ -79,8 +79,9 @@ ends with the exit code of the project it ran.
 ## `cho new`
 
 Creates a folder, and writes a workspace in it, with one project. The project is
-a web application ([`@chojs/web`](../web/README.md)) or a command-line tool
-([`@chojs/command`](../command/README.md)), with its tests, and it runs as it
+a web application ([`@chojs/web`](../web/README.md)), a command-line tool
+([`@chojs/command`](../command/README.md)) or a message consumer
+([`@chojs/message`](../message/README.md)), with its tests, and it runs as it
 is.
 
 ```
@@ -117,21 +118,22 @@ own, and the `README.md` of a workspace has them all:
 `cho new` asks what it was not told. Every question has a flag, so the command
 runs in a script as it runs in a terminal:
 
-| Flag                  | Answers                               | Default                   |
-| --------------------- | ------------------------------------- | ------------------------- |
-| `<name>`              | The name of the workspace: its folder | None: it is asked         |
-| `--kind <kind>`       | What the project is: `web` or `cli`   | `web`                     |
-| `--runtime <runtime>` | What installs: `deno`, `node`, `bun`  | The runtime `cho` runs on |
-| `--project <name>`    | The name of the project               | `api`, or `cli`           |
-| `--apps-dir <name>`   | The folder of the projects            | `apps`                    |
-| `--no-git`            | Does not run `git init`               | It is run                 |
-| `--no-install`        | Does not install the packages         | They are installed        |
-| `--yes`, `-y`         | Takes the default of every question   |                           |
-| `--dry-run`           | Prints what it would do, and does not |                           |
+| Flag                  | Answers                                        | Default                   |
+| --------------------- | ---------------------------------------------- | ------------------------- |
+| `<name>`              | The name of the workspace: its folder          | None: it is asked         |
+| `--kind <kind>`       | What the project is: `web`, `cli` or `message` | `web`                     |
+| `--runtime <runtime>` | What installs: `deno`, `node`, `bun`           | The runtime `cho` runs on |
+| `--project <name>`    | The name of the project                        | `api`, `cli` or `worker`  |
+| `--apps-dir <name>`   | The folder of the projects                     | `apps`                    |
+| `--no-git`            | Does not run `git init`                        | It is run                 |
+| `--no-install`        | Does not install the packages                  | They are installed        |
+| `--yes`, `-y`         | Takes the default of every question            |                           |
+| `--dry-run`           | Prints what it would do, and does not          |                           |
 
 ```sh
 cho new shop --yes                              # the defaults
 cho new tool --kind cli --runtime bun --yes     # a command-line tool
+cho new shop --kind message --yes               # a message consumer, on Kafka
 cho new shop --yes --dry-run                    # the files, and nothing written
 ```
 
@@ -145,6 +147,12 @@ cho new shop --yes --dry-run                    # the files, and nothing written
 - **A file that cannot be written** leaves nothing: what was written is removed.
 - **A step that fails** (`git init`, the installation) leaves the workspace,
   which is whole, and says what to run. The exit code is `1`.
+- **A message consumer reads from Kafka**, with
+  [`@chojs/vendor-kafka`](../vendor/kafka/README.md): at `localhost:9092`, or
+  where `KAFKA_BROKERS` says. Its consumer group is the name of the project, and
+  it handles one topic, `<project>.hello`. Its tests need no broker. The
+  `README.md` of the workspace has a command that runs a broker in Docker.
+  Another broker is a change of its `main.ts`.
 - **No linter and no formatter is installed.** Deno has both (`deno fmt`,
   `deno lint`), and Bun has `bun fmt`.
 - On Node.js, the project is run by [`tsx`](https://tsx.is): Node.js does not
@@ -166,20 +174,21 @@ Updated cho.json
 
 | A project is   | It                                                    | Goes in |
 | -------------- | ----------------------------------------------------- | ------- |
-| An application | Runs: the project of `cho new`, `web` or `cli`        | `apps/` |
+| An application | Runs: `web`, `cli` or `message`, as in `cho new`      | `apps/` |
 | A library      | Does not run: plain TypeScript, that applications use | `libs/` |
 
-| Flag            | Answers                               | Default            |
-| --------------- | ------------------------------------- | ------------------ |
-| `<name>`        | The name of the project               | None: it is asked  |
-| `--type <type>` | `application` or `library`            | `application`      |
-| `--kind <kind>` | An application: `web` or `cli`        | `web`              |
-| `--no-install`  | Does not install the packages         | They are installed |
-| `--yes`, `-y`   | Takes the default of every question   |                    |
-| `--dry-run`     | Prints what it would do, and does not |                    |
+| Flag            | Answers                                   | Default            |
+| --------------- | ----------------------------------------- | ------------------ |
+| `<name>`        | The name of the project                   | None: it is asked  |
+| `--type <type>` | `application` or `library`                | `application`      |
+| `--kind <kind>` | An application: `web`, `cli` or `message` | `web`              |
+| `--no-install`  | Does not install the packages             | They are installed |
+| `--yes`, `-y`   | Takes the default of every question       |                    |
+| `--dry-run`     | Prints what it would do, and does not     |                    |
 
 ```sh
 cho add admin --kind web             # an application
+cho add worker --kind message        # a message consumer, on Kafka
 cho add shared --type library        # a library
 cho add shared --type library --dry-run
 ```
@@ -259,6 +268,7 @@ cho serve tool -- hello --name Ada    # a command-line tool, with its arguments
 | A project that is   | Is                                                         |
 | ------------------- | ---------------------------------------------------------- |
 | A web application   | Started, and run again when a file changes                 |
+| A message consumer  | Started, and run again when a file changes: it needs Kafka |
 | A command-line tool | Run once, with the words after `--`: it ends on its own    |
 | A library           | Refused: it does not run. The message has its test command |
 
@@ -327,8 +337,8 @@ cho generate module orders --path apps/api/orders
 - **The folder is one of the project**: its folder, or one under it. Folders
   that do not exist are created.
 - **The decorators come from the package of the project**: `@chojs/web` in a web
-  application, `@chojs/command` in a command-line tool. A library has none, and
-  is refused.
+  application, `@chojs/command` in a command-line tool, `@chojs/message` in a
+  message consumer. A library has none, and is refused.
 - **The test of a part calls its method.** It runs with the tests of the
   project.
 

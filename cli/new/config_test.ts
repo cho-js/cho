@@ -258,13 +258,13 @@ describe("check_config", () => {
     );
   });
 
-  it("refuses a kind that is not one of the two", () => {
-    for (const kind of ["message", undefined]) {
+  it("refuses a kind that is not one of the three", () => {
+    for (const kind of ["mobile", undefined]) {
       const config = whole();
       Object.assign(config.projects.api, { kind });
       assert.equal(
         mistake_of(config),
-        'cho.json: projects.api.kind: must be "web" or "cli"',
+        'cho.json: projects.api.kind: must be "web", "cli" or "message"',
       );
     }
   });

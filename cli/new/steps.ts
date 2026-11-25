@@ -32,6 +32,48 @@ export const INSTALL: Record<Runtime, string> = {
 export const GIT_INIT = "git init --quiet";
 
 /**
+ * The programs that are scripts on Windows (`npm.cmd`, `npx.cmd`), and not
+ * programs: only a shell runs them there.
+ */
+const WINDOWS_SCRIPTS: ReadonlySet<string> = new Set(["npm", "npx"]);
+
+/** An argument, as the shell of Windows takes one: in quotes when it has to be. */
+function windows_word(word: string): string {
+  return /^[\w@+=:,./\\-]+$/.test(word)
+    ? word
+    : `"${word.replaceAll('"', '\\"')}"`;
+}
+
+/**
+ * How a program is started: as it is, or by a shell.
+ *
+ * A program is started as it is, with each argument as it is: no shell reads
+ * them, so an argument with a space stays one, and a program that is not
+ * installed is an error.
+ *
+ * The exception is `npm` and `npx` on Windows, which are scripts. A shell
+ * runs them, and reads the command line again: an argument that is not a
+ * plain word is written in quotes.
+ *
+ * @param program The program.
+ * @param args Its arguments.
+ * @param platform The platform, as `process.platform` names it. Default: the
+ *   one of the process.
+ * @returns What to give `spawn`: the program, its arguments, and whether a
+ *   shell runs them.
+ */
+export function spawn_plan(
+  program: string,
+  args: readonly string[],
+  platform: string = process.platform,
+): { program: string; args: string[]; shell: boolean } {
+  if (platform === "win32" && WINDOWS_SCRIPTS.has(program)) {
+    return { program, args: args.map(windows_word), shell: true };
+  }
+  return { program, args: [...args], shell: false };
+}
+
+/**
  * Run a command in a folder, and wait for it to end. What it prints is shown
  * as it comes.
  *
@@ -45,12 +87,12 @@ export const GIT_INIT = "git init --quiet";
  */
 export function run(command: string, cwd: string): Promise<boolean> {
   const [program = "", ...args] = command.split(" ");
+  const plan = spawn_plan(program, args);
   return new Promise((resolve) => {
-    const child = spawn(program, args, {
+    const child = spawn(plan.program, plan.args, {
       cwd,
       stdio: "inherit",
-      // On Windows, `npm` is a script (`npm.cmd`), that a shell runs.
-      shell: process.platform === "win32",
+      shell: plan.shell,
     });
     child.once("error", () => resolve(false));
     child.once("close", (code) => resolve(code === 0));
@@ -108,24 +150,26 @@ export function print_dry_run(
  *
  * @param program The program.
  * @param args Its arguments, each as it is: none is split, or read by a
- *   shell.
+ *   shell (but for `npx` on Windows: see {@link spawn_plan}).
  * @param cwd The folder to run it in.
  * @returns The exit code of the program. For one that a signal ended, 128
  *   and the number of the signal: `130` for Ctrl+C.
  * @throws {ChoError} `CHO_CLI_NOT_STARTED` (as a rejection) when the program
- *   could not be started: it is not installed.
+ *   could not be started: it is not installed. On Windows, a shell starts
+ *   `npx`: there, the shell says that it is not installed, and the exit code
+ *   is the one of the shell.
  */
 export function run_program(
   program: string,
   args: readonly string[],
   cwd: string,
 ): Promise<number> {
+  const plan = spawn_plan(program, args);
   return new Promise((resolve, reject) => {
-    const child = spawn(program, [...args], {
+    const child = spawn(plan.program, plan.args, {
       cwd,
       stdio: "inherit",
-      // On Windows, `npx` is a script (`npx.cmd`), that a shell runs.
-      shell: process.platform === "win32",
+      shell: plan.shell,
     });
     const ignore = () => {};
     const pass = () => void child.kill("SIGTERM");

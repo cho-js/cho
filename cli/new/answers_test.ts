@@ -172,6 +172,32 @@ describe("ask_answers", () => {
       });
     }));
 
+  it("proposes a message consumer, third", () =>
+    with_folder(async (cwd) => {
+      const { answers, screen } = await ask(
+        cwd,
+        { name: "shop", runtime: "node", git: false, install: false },
+        ["down", "down", "return", "return", "return"],
+      );
+      assert.deepEqual(screen, [
+        "✔ What are you building? · A message consumer",
+        "✔ Project name · worker",
+        "✔ Folder of the projects · apps",
+      ]);
+      assert.equal(answers.kind, "message");
+    }));
+
+  it("names a message consumer worker by default", () =>
+    with_folder(async (cwd) => {
+      const { answers } = await ask(cwd, {
+        name: "shop",
+        yes: true,
+        kind: "message",
+      }, []);
+      assert.equal(answers.kind, "message");
+      assert.equal(answers.project, "worker");
+    }));
+
   it("still asks for the name with --yes: it has no default", () =>
     with_folder(async (cwd) => {
       const { answers, screen } = await ask(cwd, { yes: true }, [

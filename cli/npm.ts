@@ -24,6 +24,7 @@
  * @module
  */
 
+import { fileURLToPath } from "node:url";
 import config from "./deno.json" with { type: "json" };
 
 /** The folder of the tool, and the folder of its npm package. */
@@ -57,13 +58,15 @@ await Deno.remove(TARGET, { recursive: true }).catch(() => {});
 await Deno.mkdir(TARGET);
 
 // The bundle. The imports of `node:` stay as they are: Node.js has them.
+// A path, and not the `pathname` of a URL: on Windows that one starts with a
+// `/` before the drive (`/D:/cho/cli`), and is the path of nothing.
 const bundle = await new Deno.Command(Deno.execPath(), {
   args: [
     "bundle",
     "--platform=deno",
     "--format=esm",
-    `--output=${new URL("cho.js", TARGET).pathname}`,
-    new URL("main.ts", SOURCE).pathname,
+    `--output=${fileURLToPath(new URL("cho.js", TARGET))}`,
+    fileURLToPath(new URL("main.ts", SOURCE)),
   ],
   stdout: "inherit",
   stderr: "inherit",
@@ -79,7 +82,10 @@ await Deno.writeTextFile(
   file,
   `#!/usr/bin/env node\n${await Deno.readTextFile(file)}`,
 );
-await Deno.chmod(file, 0o755);
+// Windows has no such mode: a file is run by its extension there.
+if (Deno.build.os !== "windows") {
+  await Deno.chmod(file, 0o755);
+}
 
 await Deno.writeTextFile(
   new URL("package.json", TARGET),
@@ -89,4 +95,4 @@ for (const name of ["README.md", "LICENSE"]) {
   await Deno.copyFile(new URL(name, SOURCE), new URL(name, TARGET));
 }
 
-console.log(`${MANIFEST.name}@${MANIFEST.version}: ${TARGET.pathname}`);
+console.log(`${MANIFEST.name}@${MANIFEST.version}: ${fileURLToPath(TARGET)}`);
