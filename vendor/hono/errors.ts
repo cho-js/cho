@@ -9,7 +9,8 @@ import type { ChoError } from "@chojs/core";
 import { make_error } from "@chojs/core/utils";
 
 /**
- * The codes of the errors of `@chojs/vendor-hono`. Each is described in `README.md`.
+ * The codes of the errors of `@chojs/vendor-hono`. Each is described in `specs.md`,
+ * section 11.
  *
  * A mistake the core finds for the package has a code of the core
  * (`ChoCoreErrorCode` of `@chojs/core`): an unknown option is

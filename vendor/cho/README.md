@@ -133,13 +133,15 @@ What it does:
   The handler does not run.
 - **Any other request** runs as usual, and the CORS headers are added to its
   response.
-- A request without an `Origin` header is left as it is. A request from an
-  origin that is not allowed runs, and gets no CORS header: the browser is what
-  refuses to give the response to the page.
+- A request without an `Origin` header runs, and gets no CORS header. A request
+  from an origin that is not allowed runs too, and gets none either: the browser
+  is what refuses to give the response to the page.
 - With `credentials`, a response never allows `*`: it names the origin of the
   request.
 - `Vary: Origin` is added whenever the answer depends on the origin of the
-  request, so that caches keep the answers apart.
+  request (`origin` is not `"*"`, or `credentials` is on), so that caches keep
+  the answers apart. It is added to every response then, the one to a request
+  without an `Origin` header included.
 
 **Put it on the router.** A browser sends a preflight request to the path of the
 real request, with the method `OPTIONS`. A middleware declared with
@@ -348,6 +350,8 @@ with the standard `Request`, `Response` and `Headers`.
 
 ## Documentation
 
+- [The specification of the package](./specs.md): what each middleware does,
+  rule by rule.
 - [`@chojs/web`](../../web/README.md): the web package, its
   [built-in router](../../web/README.md#the-built-in-router) and its
   [specification](../../web/specs.md).

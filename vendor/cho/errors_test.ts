@@ -43,7 +43,7 @@ describe("the errors of @chojs/vendor-cho", () => {
       Object.keys(CODES),
       "CHO_VENDOR_",
       import.meta.url,
-      "README.md",
+      "specs.md",
     );
     assert.deepEqual(problems ?? [], []);
   });

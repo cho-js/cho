@@ -104,10 +104,12 @@ tests.
 | `examples/`       |                         | Runnable examples                                                          |
 | `tools/`          |                         | What the tests need outside a test runner ([README](./tools/README.md))    |
 
-Every package has a `specs.md`, apart from the three packages of `@chojs/web` in
-`vendor/` (`vendor/cho`, `vendor/hono` and `vendor/fastify`), which
-`web/specs.md` covers. It is the specification of the package, and the place to
-look for how something is meant to behave.
+Every package has a `specs.md`. It is the specification of the package, and the
+place to look for how something is meant to behave. The three packages of
+`@chojs/web` in `vendor/` (`vendor/cho`, `vendor/hono` and `vendor/fastify`)
+have theirs in the form of an RFC: numbered rules, with the key words of RFC
+2119 (`MUST`, `SHOULD`, `MAY`). The contract of an adapter is in `web/specs.md`,
+section 7.
 
 ### Checks
 
@@ -204,9 +206,8 @@ the code is how an application, a test and the documentation name the mistake.
 
 - **A new mistake is three changes**: a code in the union of `errors.ts` (and in
   the list of `errors_test.ts`, which the compiler asks for), a row in the table
-  of the document (`specs.md`, or the `README.md` of a package that has none),
-  and a test that names the code. `errors_test.ts` fails when one of the three
-  is missing.
+  of the document (`specs.md`), and a test that names the code. `errors_test.ts`
+  fails when one of the three is missing.
 - **One code is one mistake**, not one `throw`. Reuse a code when the fix is the
   same; add one when it is not. A code that was released is never renamed, and
   never used again for something else.
