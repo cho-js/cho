@@ -18,6 +18,7 @@
  * @module
  */
 
+import { fileURLToPath } from "node:url";
 import { PARTS } from "../generate/parts.ts";
 import { config_schema, KINDS, TEMPLATE_NAMES } from "./config.ts";
 
@@ -120,7 +121,8 @@ for (const [name, text] of Object.entries(files)) {
 const fmt = await new Deno.Command(Deno.execPath(), {
   args: [
     "fmt",
-    ...Object.keys(files).map((name) => new URL(name, HERE).pathname),
+    // a path, and not the `pathname` of a URL, which is wrong on Windows
+    ...Object.keys(files).map((name) => fileURLToPath(new URL(name, HERE))),
   ],
   stdout: "inherit",
   stderr: "inherit",
