@@ -1,4 +1,6 @@
 # Checks every pull request, and main, on the four runtimes CHO supports.
+# The jobs run on Linux; `os` runs what depends on the system on macOS and on
+# Windows.
 name: CI
 
 on:
@@ -50,27 +52,7 @@ jobs:
       - name: The questions of @chojs/prompt and of cho new, in a real terminal
         run: tools/pty.sh node
       - name: The npm package of the CLI
-        run: |
-          deno task --cwd cli npm
-          node cli/npm/cho.js --help
-          # a workspace, written by the file a user would get: every answer
-          # is a flag, and nothing is installed
-          folder=$(mktemp -d)
-          (cd "$folder" && node "$GITHUB_WORKSPACE/cli/npm/cho.js" new shop \
-            --kind web --runtime node --project api --apps-dir apps \
-            --no-git --no-install)
-          test -f "$folder/shop/cho.json"
-          test -f "$folder/shop/.npmrc"
-          test -f "$folder/shop/apps/api/main.ts"
-          # a library, added to it from a folder of the workspace
-          (cd "$folder/shop/apps/api" && node "$GITHUB_WORKSPACE/cli/npm/cho.js" \
-            add shared --type library --no-install)
-          test -f "$folder/shop/libs/shared/mod.ts"
-          grep -q '"shared"' "$folder/shop/cho.json"
-          # packs the package and lists its files, and asks npm nothing:
-          # `npm publish --dry-run` fails when the version is already on npm,
-          # which it is from a release to the next
-          npm pack --dry-run ./cli/npm
+        run: tools/npm-cli.sh
 
   kafka:
     # The Kafka adapter against a real broker, on the runtime its client
@@ -103,6 +85,51 @@ jobs:
       - run: bun test
       - name: The questions of @chojs/prompt and of cho new, in a real terminal
         run: tools/pty.sh bun
+
+  os:
+    # macOS and Windows. The other jobs run on Linux, and say whether the code
+    # is right. This one runs what talks to the system, where a system can
+    # differ: the files and the programs of the CLI, and the servers and the
+    # sockets of @chojs/web/serve, on the three runtimes. No broker runs here:
+    # these machines have no Docker.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash # on Windows too: the one of Git
+    steps:
+      - name: Keep the line endings of the repository
+        # on Windows, git would write the files with CRLF: the templates of
+        # the CLI are compared with what was generated from them
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+      - run: deno install
+      # each runtime is run, also when the one before it failed
+      - name: Deno
+        run: deno task test cli web/serve_test.ts web/socket-serve_test.ts
+      - name: Node.js
+        if: ${{ !cancelled() }}
+        run: npx --yes tsx --test "cli/**/*_test.ts" web/serve_test.ts web/socket-serve_test.ts
+      - name: Bun
+        if: ${{ !cancelled() }}
+        run: bun test ./cli ./web/serve_test.ts ./web/socket-serve_test.ts
+      - name: The npm package of the CLI
+        if: ${{ !cancelled() }}
+        run: tools/npm-cli.sh
+      - name: The questions of @chojs/prompt and of cho new, in a real terminal
+        # script(1) makes the terminal: Windows has none
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        run: tools/pty.sh
 
   workerd:
     # Cloudflare Workers: each test file runs as a Worker, in workerd.
