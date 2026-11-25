@@ -217,14 +217,17 @@ people, and can change.
 | A hook that fails with no error       | `CHO_FASTIFY_HOOK_FAILED`    | `the hook rejected` (or `the hook threw`)                                                                                                 |
 | A route that upgrades to a WebSocket  | `CHO_FASTIFY_NO_SOCKET`      | `FastifyLinker cannot register ChatController.join (GET /chat/:room): the route upgrades its request to a WebSocket, …`                   |
 
-The last two fail the request: they go to the error handlers of the route. An
-error a hook fails with is passed on as it is.
+`CHO_FASTIFY_WRONG_ADAPTER` and `CHO_FASTIFY_HOOK_FAILED` fail the request: they
+go to the error handlers of the route. The three others are thrown where routes
+are registered: when the application is created, or by `app.mount`. An error a
+hook fails with is passed on as it is.
 
 An `HttpError` of `@chojs/web` is answered by the route, before Fastify sees an
 error.
 
 ## Documentation
 
+- [The specification of the adapter](./specs.md): what it decides, rule by rule.
 - [`@chojs/web`](../../web/README.md): the web package and its
   [specification](../../web/specs.md).
 - [Fastify](https://fastify.dev/docs/latest/): the server underneath.

@@ -20,9 +20,17 @@ export type CompressOptions = {
 /** The encodings `CompressionStream` has, in order of preference. */
 const ENCODINGS = ["gzip", "deflate"] as const;
 
-/** Content types that are text, whatever their name says. */
+/** Media types that are text, whatever their name says. */
 const TEXT_TYPES =
   /^(text\/|application\/(json|javascript|xml|x-www-form-urlencoded|wasm)|image\/svg\+xml)|\+(json|xml)$/i;
+
+/**
+ * The media type of a `Content-Type` header, without its parameters:
+ * `application/ld+json` for `application/ld+json; charset=utf-8`.
+ */
+function media_type(content_type: string | null): string {
+  return (content_type ?? "").split(";")[0]!.trim();
+}
 
 /** The encoding to use for a request, from its `Accept-Encoding`, if any. */
 function pick_encoding(accept: string | null): "gzip" | "deflate" | undefined {
@@ -89,7 +97,7 @@ export function compress(options: CompressOptions = {}): ChoWebMiddlewareFn {
       headers.has("content-encoding") ||
       // Compressed events would wait for the compressor to fill a block.
       is_event_stream(response) ||
-      !TEXT_TYPES.test(headers.get("content-type") ?? "") ||
+      !TEXT_TYPES.test(media_type(headers.get("content-type"))) ||
       /\bno-transform\b/i.test(headers.get("cache-control") ?? "") ||
       (length !== null && Number(length) < threshold)
     ) {

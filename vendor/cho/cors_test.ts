@@ -74,6 +74,14 @@ describe("cors, a request", () => {
     assert.equal(called, 1);
   });
 
+  it("says the answer varies to a request without an Origin, when it does", async () => {
+    // one origin is allowed: a cache must not give this answer to that origin
+    const { headers, called } = await run({ origin: ORIGIN });
+    assert.equal(headers.get("access-control-allow-origin"), null);
+    assert.equal(headers.get("vary"), "Origin");
+    assert.equal(called, 1);
+  });
+
   for (
     const [name, origin] of [
       ["a string", ORIGIN],

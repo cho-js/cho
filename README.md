@@ -17,6 +17,40 @@ CHO is an enterprise ready decorator-based framework for building modular applic
 uses modern JavaScript decorators to provide a clean
 and efficient way to define the structure of an application.
 
+### Main features
+
+- **One model for every application.** Modules, controllers and providers are
+  the same in an [HTTP application](./web/README.md), a
+  [command-line application](./command/README.md) and an application that
+  handles the [messages of a broker](./message/README.md).
+- **Dependency injection with no reflection.** Dependencies are listed
+  explicitly and checked against the constructor at compile time: no
+  `reflect-metadata`, no emitted types. A provider can be asynchronous.
+- **Fails before it starts.** A missing provider, a circular dependency or a
+  duplicate route is reported when the application is created, not on the first
+  request.
+- **Standard decorators.** TC39 decorators, as TypeScript 5 has them. Legacy
+  (`experimentalDecorators`) and Bun decorators work too.
+- **Built on web standards.** A handler receives a standard `Request` and
+  answers with a standard `Response`. A router is built in, so an HTTP
+  application needs no HTTP library, and an adapter runs it on Hono or on
+  Fastify.
+- **Server-sent events and WebSockets**, with no library: an `async *` method is
+  a stream of events, and a controller handles a socket with decorators.
+- **Typed, validated arguments.** A handler declares what it receives, and a
+  schema of Zod, Valibot, ArkType or any other
+  [Standard Schema](https://standardschema.dev/) checks it.
+- **Middlewares and error handlers** on a module, a controller or a handler, as
+  functions or as injectable classes.
+- **Message brokers.** The same handlers run on Apache Kafka and on NATS, and a
+  contract gives the two sides of a message their types.
+- **OpenAPI.** The [document of an application](./extras/openapi/README.md), and
+  its page, are made from its code.
+- **Testable with no server.** An application is a function that takes a
+  `Request`, and a test replaces any provider with a fake.
+- **A command-line tool.** [`cho`](./cli/README.md) creates a workspace, adds
+  projects to it, runs them, and generates controllers, services and modules.
+
 ### Portability
 
 CHO applications can run on multiple JavaScript runtimes, including **Node.js**, **Deno**, **Bun**, and **Cloudflare Workers**. This allows developers to write code once and deploy it anywhere, without worrying about runtime-specific issues.
@@ -42,6 +76,7 @@ import {
     Injectable,
     Module,
 } from "@chojs/web";
+import { serve } from "@chojs/web/serve";
 
 @Injectable()
 class UserStore {
@@ -66,12 +101,13 @@ class App {
 }
 
 const app = await ChoWeb.create(App);
-Deno.serve(app.handler); // Bun: Bun.serve({ fetch: app.handler })
+await serve(app, {port: 3000}); // the same file runs on Deno, Node.js and Bun
 ```
 
 A command-line application, with the same modules, controllers and providers:
 
 ```ts
+import process from "node:process";
 import {
     Action,
     ChoCommand,
@@ -95,24 +131,55 @@ class App {
 }
 
 const app = ChoCommand.create(App, {name: "greet"});
-Deno.exit(await app.run(Deno.args)); // greet hello --name you
+const code = await app.run(process.argv.slice(2)); // greet hello --name you
+await app.close();
+process.exit(code);
 ```
+
+An application that handles the messages of a broker is made the same way: see
+[`@chojs/message`](./message/README.md).
 
 ## Getting started
 
-Create a workspace with `cho`, the command-line tool of the framework. It asks
-what you are building, and writes a project that runs as it is:
+### With `cho`
 
-```shell
-npm install --global @chojs/cli
-cho new shop
+`cho` is the command-line tool of the framework. Install it once, for the whole
+machine:
+
+```sh
+npm install --global @chojs/cli   # Node.js
+bun add --global @chojs/cli       # Bun
+
+# Deno
+deno install --global --allow-env --allow-read --allow-write --allow-run --name cho jsr:@chojs/cli
 ```
 
-[`@chojs/cli`](./cli/README.md) has the installation on Deno and on Bun, and
-the options of `cho new`.
+Create a workspace, and run its application:
 
-Or pick the package for what you are building, and add it to a project of your
-own; it brings everything an application needs:
+```sh
+cho new shop   # asks what you are building, and writes the workspace
+cd shop
+cho serve      # runs the application, and again when a file changes
+```
+
+`cho new` writes a web application or a command-line tool, with its tests, and
+it runs as it is. The workspace is the same on Deno, on Node.js and on Bun: the
+runtime you choose is the one `cho` installs and runs with, and another one can
+take over later.
+
+Then, in the workspace:
+
+```sh
+cho generate controller users   # users.ts and its test, for the application
+cho add                         # another application, or a library
+```
+
+[`@chojs/cli`](./cli/README.md) has every command, and its options.
+
+### In a project of your own
+
+Pick the package for what you are building, and add it to the project; it
+brings everything an application needs:
 
 ```sh
 # an HTTP application
@@ -131,6 +198,9 @@ npx jsr add @chojs/message
 bunx jsr add @chojs/message
 ```
 
+Deno and Bun run TypeScript decorators directly. On Node.js, compile the
+application with TypeScript 5 or run it with a tool such as `tsx`.
+
 `@chojs/web` has a router built in, on the standard URL Pattern API, so an HTTP
 application needs nothing else. To match requests with another HTTP library,
 give `ChoWeb.create` the linker of an adapter:
@@ -141,10 +211,13 @@ give `ChoWeb.create` the linker of an adapter:
 | [`@chojs/vendor-hono`](./vendor/hono/README.md)       | Deno, Node.js, Bun and edge runtimes                                   |
 | [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | Node.js only                                                           |
 
-Deno and Bun run TypeScript decorators directly. On Node.js, compile the
-application with TypeScript 5 or run it with a tool such as `tsx`.
+`@chojs/message` is connected to its broker by an adapter, a package of its
+own:
 
-
+| Broker       | Adapter                                           | Runs on                         |
+|--------------|---------------------------------------------------|---------------------------------|
+| Apache Kafka | [`@chojs/vendor-kafka`](./vendor/kafka/README.md) | Node.js; tested on Deno and Bun |
+| NATS         | [`@chojs/vendor-nats`](./vendor/nats/README.md)   | Deno, Node.js and Bun           |
 
 ## Packages
 
@@ -156,9 +229,9 @@ description.
 | [`@chojs/web`](./web/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/web)](https://jsr.io/@chojs/web)                       | HTTP applications                                                     | [specs](./web/specs.md)            |
 | [`@chojs/command`](./command/README.md)               | [![JSR](https://jsr.io/badges/@chojs/command)](https://jsr.io/@chojs/command)               | Command-line applications                                             | [specs](./command/specs.md)        |
 | [`@chojs/message`](./message/README.md)               | [![JSR](https://jsr.io/badges/@chojs/message)](https://jsr.io/@chojs/message)               | Applications that handle the messages of a broker, such as Kafka      | [specs](./message/specs.md)        |
-| [`@chojs/vendor-cho`](./vendor/cho/README.md)         | [![JSR](https://jsr.io/badges/@chojs/vendor-cho)](https://jsr.io/@chojs/vendor-cho)         | Middlewares for the built-in router of `@chojs/web`, such as CORS     |                                    |
-| [`@chojs/vendor-hono`](./vendor/hono/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-hono)](https://jsr.io/@chojs/vendor-hono)       | Running `@chojs/web` on [Hono](https://hono.dev)                      |                                    |
-| [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | [![JSR](https://jsr.io/badges/@chojs/vendor-fastify)](https://jsr.io/@chojs/vendor-fastify) | Running `@chojs/web` on [Fastify](https://fastify.dev) (Node.js only) |                                    |
+| [`@chojs/vendor-cho`](./vendor/cho/README.md)         | [![JSR](https://jsr.io/badges/@chojs/vendor-cho)](https://jsr.io/@chojs/vendor-cho)         | Middlewares for the built-in router of `@chojs/web`, such as CORS     | [specs](./vendor/cho/specs.md)     |
+| [`@chojs/vendor-hono`](./vendor/hono/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-hono)](https://jsr.io/@chojs/vendor-hono)       | Running `@chojs/web` on [Hono](https://hono.dev)                      | [specs](./vendor/hono/specs.md)    |
+| [`@chojs/vendor-fastify`](./vendor/fastify/README.md) | [![JSR](https://jsr.io/badges/@chojs/vendor-fastify)](https://jsr.io/@chojs/vendor-fastify) | Running `@chojs/web` on [Fastify](https://fastify.dev) (Node.js only) | [specs](./vendor/fastify/specs.md) |
 | [`@chojs/vendor-kafka`](./vendor/kafka/README.md)     | [![JSR](https://jsr.io/badges/@chojs/vendor-kafka)](https://jsr.io/@chojs/vendor-kafka)     | Running `@chojs/message` on Apache Kafka (tested on Deno and Bun too) | [specs](./vendor/kafka/specs.md)   |
 | [`@chojs/vendor-nats`](./vendor/nats/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-nats)](https://jsr.io/@chojs/vendor-nats)       | Running `@chojs/message` on [NATS](https://nats.io), with replies     | [specs](./vendor/nats/specs.md)    |
 | [`@chojs/openapi`](./extras/openapi/README.md)        | [![JSR](https://jsr.io/badges/@chojs/openapi)](https://jsr.io/@chojs/openapi)               | The OpenAPI document of a `@chojs/web` application, and its page      | [specs](./extras/openapi/specs.md) |

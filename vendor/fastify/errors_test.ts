@@ -46,7 +46,7 @@ describe("the errors of @chojs/vendor-fastify", () => {
       Object.keys(CODES),
       "CHO_FASTIFY_",
       import.meta.url,
-      "README.md",
+      "specs.md",
     );
     assert.deepEqual(problems ?? [], []);
   });

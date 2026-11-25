@@ -167,6 +167,7 @@ it.
 
 ## Documentation
 
+- [The specification of the adapter](./specs.md): what it decides, rule by rule.
 - [`@chojs/web`](../../web/README.md): the web package and its
   [specification](../../web/specs.md).
 - [Hono](https://hono.dev/docs): the router underneath.
