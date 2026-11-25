@@ -2,8 +2,9 @@
 
 What the repository uses to test CHO outside of a test runner: against real
 brokers, in a real terminal, in the runtime of Cloudflare Workers, and against a
-conformance suite, and as the npm package a user installs. Nothing here is a
-package, and nothing here is published.
+conformance suite, and as the npm package a user installs. One folder tests
+nothing: `logo/` writes the animations of the logo. Nothing here is a package,
+and nothing here is published.
 
 | Tool                       | What it does                                                     | Needs           | Run by         |
 | -------------------------- | ---------------------------------------------------------------- | --------------- | -------------- |
@@ -12,6 +13,7 @@ package, and nothing here is published.
 | [`npm-cli.sh`](#npm-clish) | Builds the npm package of `cho`, and uses it as a user would     | Deno, Node.js   | the CI, or you |
 | [`workerd/`](./workerd)    | Runs the tests in workerd, the runtime of Cloudflare Workers     | Docker, or Node | the CI, or you |
 | [`autobahn/`](./autobahn)  | Runs the Autobahn conformance suite against the WebSocket server | Docker          | you            |
+| [`logo/`](./logo)          | Writes the animations of the logo, in `assets/`                  | Python 3        | you            |
 
 Each folder has a README of its own. `brokers.sh`, `pty.sh` and `npm-cli.sh` are
 one file each: they are described here.

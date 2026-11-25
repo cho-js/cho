@@ -13,7 +13,7 @@ The only cross-platform, cross-runtime, decorator-based framework for building m
 
 # CHO
 
-CHO is an enterprise ready decorator-based framework for building modular applications. It
+CHO (chō) is an enterprise ready decorator-based framework for building modular applications. It
 uses modern JavaScript decorators to provide a clean
 and efficient way to define the structure of an application.
 
