@@ -9,18 +9,21 @@
  *   `cho new` and `cho add` both write a project with it.
  * - {@link plan_workspace}: the files of a new workspace, with its first
  *   application.
- * - {@link command_of}: the command that runs a project, on each runtime. A
- *   project has no scripts, so this is where the commands are.
+ * - {@link run_command}: the command that runs an application, on each
+ *   runtime. A project has no scripts, so this is where the commands are:
+ *   `cho serve` runs it, and {@link command_of} is how it is typed.
  *
  * @module
  */
 
 import type { Answers } from "./answers.ts";
 import {
+  type ChoApplication,
   type ChoProject,
   CONFIG_FILE,
   DEFAULTS,
   type Kind,
+  KIND_TRAITS,
   make_config,
   type Runtime,
 } from "./config.ts";
@@ -60,11 +63,77 @@ export const RUNTIME_NAMES: Record<Runtime, string> = {
   bun: "Bun",
 };
 
+/** A program to run, with its arguments: what a child process is made of. */
+export type Command = { program: string; args: string[] };
+
+/**
+ * The command that runs an application, from its folder.
+ *
+ * | Runtime | Runs it with                                             |
+ * | ------- | -------------------------------------------------------- |
+ * | Deno    | `deno run`, with the permissions of the kind             |
+ * | Node.js | `npx tsx`: Node.js does not run decorators of TypeScript |
+ * | Bun     | `bun`                                                    |
+ *
+ * On Deno, the permissions are `--allow-env` for a package of CHO, which
+ * reads its debug settings there, and `--allow-net` for a kind that uses the
+ * network.
+ *
+ * @param runtime The runtime.
+ * @param project The application, as `cho.json` has it.
+ * @param options `watch`: run it again when a file changes. `args`: the
+ *   arguments of the application, after its entry.
+ * @returns The program, and its arguments.
+ */
+export function run_command(
+  runtime: Runtime,
+  project: ChoApplication,
+  options: { watch: boolean; args?: readonly string[] },
+): Command {
+  const entry = project.entry ?? DEFAULTS.entry;
+  const rest = [entry, ...(options.args ?? [])];
+  switch (runtime) {
+    case "deno": {
+      const permissions = KIND_TRAITS[project.kind].net
+        ? ["--allow-net", "--allow-env"]
+        : ["--allow-env"];
+      const watch = options.watch ? ["--watch"] : [];
+      return {
+        program: "deno",
+        args: ["run", ...permissions, ...watch, ...rest],
+      };
+    }
+    case "node":
+      return {
+        program: "npx",
+        args: ["tsx", ...(options.watch ? ["watch"] : []), ...rest],
+      };
+    case "bun":
+      return {
+        program: "bun",
+        args: [...(options.watch ? ["--watch"] : []), ...rest],
+      };
+  }
+}
+
+/**
+ * A command, as it is typed: for a message, not for a shell to run. An
+ * argument that is not a plain word is in quotes.
+ *
+ * @param command The command.
+ * @returns The line.
+ */
+export function command_line(command: Command): string {
+  return [command.program, ...command.args]
+    .map((word) => /^[\w@%+=:,./-]+$/.test(word) ? word : JSON.stringify(word))
+    .join(" ");
+}
+
 /** What a project is run for. */
 export type Task = "start" | "dev" | "test";
 
 /**
- * The command that runs a project, from its folder.
+ * The command of a task of a project, from its folder, as it is typed.
  *
  * | Task    | Does                                                |
  * | ------- | --------------------------------------------------- |
@@ -72,16 +141,13 @@ export type Task = "start" | "dev" | "test";
  * | `dev`   | Runs it, and again when a file changes              |
  * | `test`  | Runs the tests of the project                       |
  *
- * - On Deno, a command has the permissions the project needs: `--allow-env`
- *   for a package of CHO, which reads its debug settings there, and
- *   `--allow-net` for a web application.
- * - On Node.js, `tsx` runs the project: Node.js does not run the decorators
- *   of TypeScript.
- * - A command-line tool is run with its first command, `hello`.
+ * - `start` and `dev` are {@link run_command}. A command-line tool is run
+ *   with its first command, `hello`.
+ * - A library has nothing to start: every task of it is its tests.
+ * - On Deno, the tests of an application get `--allow-env`, as it does.
  *
  * @param runtime The runtime.
- * @param project The project, as `cho.json` has it. A library has tests, and
- *   nothing to start.
+ * @param project The project, as `cho.json` has it.
  * @param task What to run it for.
  * @returns The command line.
  */
@@ -90,7 +156,7 @@ export function command_of(
   project: ChoProject,
   task: Task,
 ): string {
-  if (task === "test") {
+  if (task === "test" || project.type === "library") {
     switch (runtime) {
       case "deno":
         return project.type === "library"
@@ -102,24 +168,23 @@ export function command_of(
         return "bun test";
     }
   }
-  const kind = project.type === "library" ? undefined : project.kind;
-  const entry = project.entry ??
-    (project.type === "library" ? DEFAULTS.libraryEntry : DEFAULTS.entry);
-  const watch = task === "dev";
-  // a command-line tool does nothing without a command
-  const file = kind === "cli" ? `${entry} hello` : entry;
-  switch (runtime) {
-    case "deno": {
-      const permissions = kind === "web"
-        ? "--allow-net --allow-env"
-        : "--allow-env";
-      return `deno run ${permissions} ${watch ? "--watch " : ""}${file}`;
-    }
-    case "node":
-      return `npx tsx ${watch ? "watch " : ""}${file}`;
-    case "bun":
-      return `bun ${watch ? "--watch " : ""}${file}`;
-  }
+  return command_line(run_command(runtime, project, {
+    watch: task === "dev",
+    // a command-line tool does nothing without a command
+    args: project.kind === "cli" ? ["hello"] : [],
+  }));
+}
+
+/**
+ * How `cho` runs an application: `cho serve <name>`, on any runtime. A
+ * command-line tool is run with its first command, `hello`.
+ *
+ * @param name The name of the project.
+ * @param kind The kind of the application.
+ * @returns The command line.
+ */
+export function serve_line(name: string, kind: Kind): string {
+  return kind === "cli" ? `cho serve ${name} -- hello` : `cho serve ${name}`;
 }
 
 /**
@@ -197,10 +262,19 @@ installs it, and runs it. \`cho\` installs it with ${RUNTIME_NAMES[runtime]}
 
 ## Running ${answers.project}
 
-A project has no scripts: each runtime runs it with its own command. On each,
-the first command installs the packages, once, at the root of the workspace.
-The others run in \`${project.root}/\`: they run the project, run it again when
-a file changes, and run its tests.
+Install the packages once, at the root of the workspace, then:
+
+\`\`\`sh
+${serve_line(answers.project, kind)}
+\`\`\`
+
+\`cho serve\` runs the project on the runtime of the workspace, from any folder
+of it, and \`--runtime\` picks another one for a run.
+
+Without \`cho\`: a project has no scripts, since each runtime runs it with its
+own command. On each, the first command installs the packages, at the root of
+the workspace. The others run in \`${project.root}/\`: they run the project,
+run it again when a file changes, and run its tests.
 
 ${commands("deno", project)}
 

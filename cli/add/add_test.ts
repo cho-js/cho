@@ -126,8 +126,7 @@ describe("add_project", () => {
       assert.deepEqual(output.log, [
         "Added admin in apps/admin (5 files)",
         "Updated cho.json",
-        "\n  deno install\n  cd apps/admin\n" +
-        "  deno run --allow-env main.ts hello",
+        "\n  deno install\n  cho serve admin -- hello",
       ]);
       const config = check_config(await read_json(root, "cho.json"));
       assert.deepEqual(Object.keys(config.projects), ["api", "admin"]);
@@ -207,38 +206,46 @@ async function cho_range(root: string): Promise<string> {
 
 describe("next_steps", () => {
   const web = make_project({ type: "application", kind: "web" }, "apps/api");
+  const tool = make_project({ type: "application", kind: "cli" }, "apps/tool");
   const library = make_project({ type: "library" }, "libs/shared");
   const root = join("/", "work", "shop");
+  const deep = join(root, "apps", "api");
 
-  it("goes to the project from the current folder, and runs it", () => {
+  it("runs an application with cho serve, from where the command ran", () => {
     assert.equal(
-      next_steps(web, "bun", { root, cwd: root }, true),
-      "  cd apps/api\n  bun --watch main.ts",
+      next_steps("api", web, "bun", { root, cwd: deep }, true),
+      "  cho serve api",
+    );
+    // a command-line tool, with its first command
+    assert.equal(
+      next_steps("tool", tool, "deno", { root, cwd: root }, true),
+      "  cho serve tool -- hello",
+    );
+  });
+
+  it("goes to a library, and runs its tests", () => {
+    assert.equal(
+      next_steps("shared", library, "bun", { root, cwd: root }, true),
+      "  cd libs/shared\n  bun test",
     );
     assert.equal(
-      next_steps(web, "node", { root, cwd: join(root, "libs") }, true),
-      "  cd ../apps/api\n  npx tsx watch main.ts",
-    );
-    // from the folder of the project itself
-    assert.equal(
-      next_steps(web, "deno", { root, cwd: join(root, "apps", "api") }, true),
-      "  deno run --allow-net --allow-env --watch main.ts",
+      next_steps("shared", library, "node", { root, cwd: deep }, true),
+      "  cd ../../libs/shared\n  npx tsx --test",
     );
   });
 
   it("installs first, at the root, when the packages were not installed", () => {
     assert.equal(
-      next_steps(
-        library,
-        "node",
-        { root, cwd: join(root, "apps", "api") },
-        false,
-      ),
+      next_steps("shared", library, "node", { root, cwd: deep }, false),
       "  cd ../..\n  npm install\n  cd libs/shared\n  npx tsx --test",
     );
     assert.equal(
-      next_steps(library, "bun", { root, cwd: root }, false),
+      next_steps("shared", library, "bun", { root, cwd: root }, false),
       "  bun install\n  cd libs/shared\n  bun test",
+    );
+    assert.equal(
+      next_steps("api", web, "deno", { root, cwd: deep }, false),
+      "  cd ../..\n  deno install\n  cho serve api",
     );
   });
 });
@@ -311,8 +318,7 @@ describe("cho add, as a command line", () => {
         log: [
           "Added admin in apps/admin (5 files)",
           "Updated cho.json",
-          "\n  cd ../..\n  deno install\n  cd apps/admin\n" +
-          "  deno run --allow-net --allow-env --watch main.ts",
+          "\n  cd ../..\n  deno install\n  cho serve admin",
         ],
         error: [],
       });

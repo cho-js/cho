@@ -45,6 +45,23 @@ export const RUNTIMES = ["deno", "node", "bun"] as const;
  */
 export const TEMPLATE_NAMES = [...KINDS, "library"] as const;
 
+/**
+ * What an application of each kind needs, to be run.
+ *
+ * - `net`: it uses the network. On Deno, it is run with `--allow-net`.
+ * - `stays`: it stays up until it is stopped, as a server does. It is run
+ *   again when a file changes. A kind that does not stay runs, and ends.
+ *
+ * A new kind is a row here: `cho serve` reads nothing else of a kind.
+ */
+export const KIND_TRAITS: Record<
+  typeof KINDS[number],
+  { net: boolean; stays: boolean }
+> = {
+  web: { net: true, stays: true },
+  cli: { net: false, stays: false },
+};
+
 /** What a field that is not written means. */
 export const DEFAULTS = {
   appsDir: "apps",
@@ -130,6 +147,15 @@ export type ChoConfig = {
  * @param root The folder of the project, from the root of the workspace.
  * @returns The settings.
  */
+export function make_project(
+  choice: { type: "application"; kind: Kind },
+  root: string,
+): ChoApplication;
+export function make_project(
+  choice: { type: "library" },
+  root: string,
+): ChoLibrary;
+export function make_project(choice: ProjectChoice, root: string): ChoProject;
 export function make_project(choice: ProjectChoice, root: string): ChoProject {
   if (choice.type === "library") {
     return { type: "library", root, entry: DEFAULTS.libraryEntry };

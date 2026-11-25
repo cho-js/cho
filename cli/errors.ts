@@ -12,15 +12,19 @@
 
 import { ChoError, isChoError } from "@chojs/command";
 
-/** The codes of the errors of the tool. `specs.md`, section 10, has each. */
+/** The codes of the errors of the tool. `specs.md`, section 11, has each. */
 export type ChoCliErrorCode =
   | "CHO_CLI_INVALID_CONFIG"
   | "CHO_CLI_INVALID_MANIFEST"
   | "CHO_CLI_INVALID_NAME"
   | "CHO_CLI_INVALID_OPTION"
   | "CHO_CLI_NO_WORKSPACE"
+  | "CHO_CLI_NOT_AN_APPLICATION"
+  | "CHO_CLI_NOT_INSTALLED"
+  | "CHO_CLI_NOT_STARTED"
   | "CHO_CLI_PROJECT_EXISTS"
   | "CHO_CLI_TARGET_EXISTS"
+  | "CHO_CLI_UNKNOWN_PROJECT"
   | "CHO_CLI_WRITE_FAILED";
 
 /**

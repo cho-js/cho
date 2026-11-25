@@ -86,17 +86,16 @@ function read_object(
 }
 
 /**
- * Read a workspace: its settings, and its manifest.
+ * Read the settings of a workspace: its `cho.json`, checked.
  *
  * @param tree The tree of the workspace: its root is the one
  *   {@link find_workspace} found.
- * @returns The workspace.
+ * @returns The settings.
  * @throws {ChoError} `CHO_CLI_NO_WORKSPACE` when there is no `cho.json`;
- *   `CHO_CLI_INVALID_CONFIG` when it is not what `check_config` wants;
- *   `CHO_CLI_INVALID_MANIFEST` when `package.json` is missing, is not an
- *   object of JSON, or has no name that is the name of a workspace.
+ *   `CHO_CLI_INVALID_CONFIG` when it is not JSON, or not what `check_config`
+ *   wants.
  */
-export function read_workspace(tree: Tree): Workspace {
+export function read_config(tree: Tree): ChoConfig {
   const settings = read_object(tree, CONFIG_FILE, "CHO_CLI_INVALID_CONFIG");
   if (settings === undefined) {
     throw cli_error(
@@ -104,7 +103,21 @@ export function read_workspace(tree: Tree): Workspace {
       `There is no ${CONFIG_FILE} here: this is not a workspace.`,
     );
   }
-  const config = check_config(settings);
+  return check_config(settings);
+}
+
+/**
+ * Read a workspace: its settings, and its manifest.
+ *
+ * @param tree The tree of the workspace: its root is the one
+ *   {@link find_workspace} found.
+ * @returns The workspace.
+ * @throws {ChoError} What {@link read_config} throws, and
+ *   `CHO_CLI_INVALID_MANIFEST` when `package.json` is missing, is not an
+ *   object of JSON, or has no name that is the name of a workspace.
+ */
+export function read_workspace(tree: Tree): Workspace {
+  const config = read_config(tree);
 
   const manifest = read_object(tree, MANIFEST, "CHO_CLI_INVALID_MANIFEST");
   if (manifest === undefined) {

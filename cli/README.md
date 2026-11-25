@@ -48,9 +48,10 @@ $ cho
 Usage: cho <command> [options] [args]
 
 Commands:
-  new   Create a new workspace, with a first project
-  add   Add a project to the workspace: an application, or a library
-  help  Show the help of cho, or of one of its commands
+  new    Create a new workspace, with a first project
+    add    Add a project to the workspace: an application, or a library
+  serve  Run an application of the workspace
+  help   Show the help of cho, or of one of its commands
 
 Options:
   --help     Show this help
@@ -68,8 +69,10 @@ Run 'cho <command> --help' for help on a command.
 | `cho --version`        | Prints the version of the tool: `cho version 3…` |
 | `cho new [name]`       | Creates a workspace: see below                   |
 | `cho add [name]`       | Adds a project to a workspace: see below         |
+| `cho serve [project]`  | Runs an application of a workspace: see below    |
 
-The exit code is `0`, and `1` for a command the tool does not have.
+The exit code is `0`, and `1` for a command the tool does not have. `cho serve`
+ends with the exit code of the project it ran.
 
 ## `cho new`
 
@@ -98,8 +101,9 @@ shop/
 A workspace that one of them installed is installed and run by another the day
 after: the runtime you choose is the one `cho` installs with, and nothing more.
 
-A project has no scripts: no one command runs it on the three. Each runtime has
-its own, and the `README.md` of a workspace has them all:
+A project has no scripts: no one command runs it on the three.
+[`cho serve`](#cho-serve) is that command. Without `cho`, each runtime has its
+own, and the `README.md` of a workspace has them all:
 
 | To             | Deno                                               | Node.js                 | Bun                   |
 | -------------- | -------------------------------------------------- | ----------------------- | --------------------- |
@@ -230,7 +234,46 @@ manifests do not say.
 
 Its JSON Schema is [`cho.schema.json`](./new/cho.schema.json): an editor
 completes the fields, and marks a mistake. The
-[specification](./specs.md#5-chojson) describes each field.
+[specification](./specs.md#6-chojson) describes each field.
+
+## `cho serve`
+
+Runs an application of the workspace, on its runtime. It is run in the
+workspace, or in any folder under it.
+
+```console
+$ cho serve api
+Running deno run --allow-net --allow-env --watch main.ts
+api is listening on http://localhost:3000
+```
+
+```sh
+cho serve                             # the project of the current folder
+cho serve api --runtime bun           # on another runtime, for this run
+cho serve api --no-watch              # not again when a file changes
+cho serve tool -- hello --name Ada    # a command-line tool, with its arguments
+```
+
+| A project that is   | Is                                                         |
+| ------------------- | ---------------------------------------------------------- |
+| A web application   | Started, and run again when a file changes                 |
+| A command-line tool | Run once, with the words after `--`: it ends on its own    |
+| A library           | Refused: it does not run. The message has its test command |
+
+- **It runs the entry of the project**, `main.ts`: the file that creates the
+  application, and serves it. `cho` adds nothing to it.
+- **The runtime is the one of `cho.json`**, and `--runtime` picks another for a
+  run: the workspace is the same on the three.
+- **Without a name**, it runs the project the current folder is in, or the one
+  application of the workspace.
+- **The words after `--` go to the project** as they are. A flag before `--` is
+  one of `cho serve`.
+- **Ctrl+C** stops the project, and `cho` after it. The exit code is the one of
+  the project.
+- **The packages must be installed**: without `node_modules`, it says which
+  command installs.
+- It prints one line, `Running <command>`, on the error output: the output of
+  the project is its own.
 
 ## Two packages, one tool
 
@@ -270,6 +313,7 @@ bun cli/main.ts --help                    # Bun
 | [`help.ts`](./help.ts) | The `help` command                                |
 | [`new/`](./new)        | The `new` command, and what the commands share    |
 | [`add/`](./add)        | The `add` command                                 |
+| [`serve/`](./serve)    | The `serve` command                               |
 | [`tree.ts`](./tree.ts) | The tree: how a command writes files              |
 | [`npm.ts`](./npm.ts)   | The build of the npm package                      |
 

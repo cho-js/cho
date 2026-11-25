@@ -36,7 +36,7 @@ import config from "../deno.json" with { type: "json" };
 import type { ChoProject, Runtime } from "../new/config.ts";
 import { print_error } from "../errors.ts";
 import { package_name } from "../new/manifests.ts";
-import { command_of } from "../new/plan.ts";
+import { command_of, serve_line } from "../new/plan.ts";
 import { INSTALL, print_dry_run, run_steps } from "../new/steps.ts";
 import { commit, disk_host, Tree } from "../tree.ts";
 import { type Answers, ask_answers } from "./answers.ts";
@@ -56,9 +56,11 @@ function cd(from: string, to: string): string | undefined {
 /**
  * The commands that say what to do next, each on its line.
  *
- * An application is run. A library has nothing to run: its tests are.
+ * An application is run by `cho serve`, from any folder of the workspace. A
+ * library has nothing to run: its tests are, in its folder.
  *
- * @param project The project that was added.
+ * @param name The name of the project that was added.
+ * @param project The project.
  * @param runtime The runtime of the workspace.
  * @param where The root of the workspace, and the current folder.
  * @param installed Whether the packages were installed. When they were not,
@@ -66,21 +68,22 @@ function cd(from: string, to: string): string | undefined {
  * @returns The lines, indented.
  */
 export function next_steps(
+  name: string,
   project: ChoProject,
   runtime: Runtime,
   where: Where,
   installed: boolean,
 ): string {
   const folder = `${where.root}/${project.root}`;
-  const lines = installed
-    ? [cd(where.cwd, folder)]
-    : [cd(where.cwd, where.root), INSTALL[runtime], `cd ${project.root}`];
-  const task = project.type === "library"
-    ? "test"
-    : project.kind === "web"
-    ? "dev"
-    : "start";
-  lines.push(command_of(runtime, project, task));
+  const lines = installed ? [] : [cd(where.cwd, where.root), INSTALL[runtime]];
+  if (project.type === "library") {
+    lines.push(
+      installed ? cd(where.cwd, folder) : `cd ${project.root}`,
+      command_of(runtime, project, "test"),
+    );
+  } else {
+    lines.push(serve_line(name, project.kind));
+  }
   return lines.filter((line) => line !== undefined)
     .map((line) => `  ${line}`).join("\n");
 }
@@ -150,7 +153,9 @@ export async function add_project(
   }
 
   const installed = answers.install && failed.length === 0;
-  console.log(`\n${next_steps(project, runtime, where, installed)}`);
+  console.log(
+    `\n${next_steps(answers.name, project, runtime, where, installed)}`,
+  );
   if (project.type === "library") {
     const name = package_name(workspace.name, answers.name);
     console.log(`\n${usage(name, runtime)}`);

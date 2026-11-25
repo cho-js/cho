@@ -14,9 +14,10 @@ $ cho
 Usage: cho <command> [options] [args]
 
 Commands:
-  new   Create a new workspace, with a first project
-  add   Add a project to the workspace: an application, or a library
-  help  Show the help of cho, or of one of its commands
+  new    Create a new workspace, with a first project
+    add    Add a project to the workspace: an application, or a library
+  serve  Run an application of the workspace
+  help   Show the help of cho, or of one of its commands
 
 Options:
   --help     Show this help
@@ -29,14 +30,15 @@ Run 'cho <command> --help' for help on a command.
   Bun. Nothing in it is written for one of them.
 - **Two packages.** Deno installs the tool from JSR, as the other packages of
   CHO. npm and Bun install it from npm, where it is one JavaScript file with no
-  dependency (section 7).
+  dependency (section 8).
 - **The version of the framework.** The tool has the version of the other
-  packages, and is released with them (section 8). What it creates depends on
+  packages, and is released with them (section 9). What it creates depends on
   the packages of that version.
 
 - **One workspace, three runtimes.** What the tool creates is the same on the
   three: a workspace that one of them installed is installed and run by another
-  the day after (section 3.4).
+  the day after (section 3.4). `cho serve` runs a project of it on any of them
+  (section 5).
 
 Three words are used all along:
 
@@ -46,7 +48,7 @@ Three words are used all along:
   runs, or a **library**, which is plain TypeScript that the applications
   import.
 - The **tree** is how a command writes: it records its changes in memory, and
-  they are written together, or not at all (section 6.3).
+  they are written together, or not at all (section 7.3).
 
 ## 2. The command line
 
@@ -62,6 +64,7 @@ It is a multiple-actions application: the first word names the command.
 | `cho --version`        | Prints `cho version <version>`                   | `0`       |
 | `cho new [name]`       | Creates a workspace (section 3)                  | 3.7       |
 | `cho add [name]`       | Adds a project to a workspace (section 4)        | 4.5       |
+| `cho serve [project]`  | Runs an application of a workspace (section 5)   | 5.4       |
 | `cho <unknown>`        | Prints an error, on the error output             | `1`       |
 
 - The help and the version go to the standard output, an error to the error
@@ -246,8 +249,9 @@ manifests are those of npm, and there is no `deno.json`.
   file.
 
 **A project has no scripts.** No one command runs a project on the three, so a
-script would be the command of one runtime. The `README.md` of a workspace has
-the commands of each, and `cho` prints the ones of the runtime of the workspace:
+script would be the command of one runtime. `cho serve` is that command (section
+5): it runs the one of the runtime of the workspace. The `README.md` of a
+workspace has the commands of each, for who runs a project without `cho`:
 
 | To             | Deno                                               | Node.js                 | Bun                   |
 | -------------- | -------------------------------------------------- | ----------------------- | --------------------- |
@@ -259,7 +263,9 @@ the commands of each, and `cho` prints the ones of the runtime of the workspace:
   package of CHO, which reads its debug settings there, and `--allow-net` for a
   web application. A library needs none: `deno test`.
 - A command-line tool is run with its first command: `bun main.ts hello`.
-- `command_of(runtime, project, task)` is the one function that knows them.
+- `run_command(runtime, project, options)` is the one function that knows how an
+  application is run. `cho serve` runs what it gives, and `command_of` is the
+  same command as it is typed, for the `README.md`.
 
 **Another runtime installs first.** Each tool lays out `node_modules` its own
 way, and writes its own lock file. A workspace that Bun installed is run by Deno
@@ -306,7 +312,7 @@ In this order:
 2. **The answers** (section 3.1). Nothing is written before the last one.
 3. **The plan**: the list of the files, each with its text. It is made from the
    answers alone, and reads nothing.
-4. **The tree** (section 6.3). Its root is the current folder, and every file is
+4. **The tree** (section 7.3). Its root is the current folder, and every file is
    recorded under the folder of the workspace: `shop/cho.json`. So the folder
    itself is a change, like any file.
 5. **The commit.** The folder is created with a call that fails when it exists,
@@ -335,14 +341,13 @@ Created shop (10 files)
 Running git init --quiet
 Running deno install
 
-  cd shop/apps/api
-  deno run --allow-net --allow-env --watch main.ts
+    cd shop
+  cho serve api
 ```
 
 The output of a step is shown under its line. When the packages were not
-installed, the commands start with the one that installs them, in the workspace.
-A command-line tool is started with its first command:
-`deno run --allow-env main.ts hello`.
+installed, the command that installs them comes before `cho serve`. A
+command-line tool is run with its first command: `cho serve cli -- hello`.
 
 With `--dry-run`, the files and the steps are printed, and nothing is done:
 
@@ -398,8 +403,8 @@ A failure leaves the workspace as it was: what was written is undone.
 - **It is found from the current folder**: the folder, or the nearest one above
   it, that has a `cho.json`. So the command runs from the root of a workspace,
   or from any folder under it. No folder has one: `CHO_CLI_NO_WORKSPACE`.
-- **`cho.json` is read, and checked** (section 5.2). A file that is not JSON, or
-  not what section 5 says: `CHO_CLI_INVALID_CONFIG`.
+- **`cho.json` is read, and checked** (section 6.2). A file that is not JSON, or
+  not what section 6 says: `CHO_CLI_INVALID_CONFIG`.
 - **`package.json` of the root is read.** Its `name` is the name of the
   workspace: the package of a project is named `@<name>/<project>`. A file that
   is missing, that is not an object of JSON, or whose `name` is not a name
@@ -439,7 +444,7 @@ with no terminal is an error.
 
 ### 4.3 What is written
 
-An application goes in `appsDir`, and a library in `libsDir` (section 5.1).
+An application goes in `appsDir`, and a library in `libsDir` (section 6.1).
 
 | Type          | Files, in `<folder>/<name>/`                                          |
 | ------------- | --------------------------------------------------------------------- |
@@ -483,7 +488,7 @@ In this order:
 1. **The flags** are read, and checked.
 2. **The workspace** is found, read and checked (section 4.1).
 3. **The answers** (section 4.2). Nothing is written before the last one.
-4. **The plan**, recorded on the tree of the workspace (section 6.3): the files
+4. **The plan**, recorded on the tree of the workspace (section 7.3): the files
    of the project, then `cho.json`, then `package.json`.
 5. **The commit.** The files of the project are written first, and the two files
    of the root last. When a change fails, the ones before it are undone: the
@@ -507,9 +512,9 @@ Running deno install
   deno test
 ```
 
-- The `cd` goes from the current folder to the project.
-- An application is run as after `cho new`. A library has nothing to run: its
-  tests are.
+- A library has nothing to run: its tests are, in its folder. The `cd` goes
+  there from the current folder.
+- An application is run by `cho serve <name>`, from where the command ran.
 - When the packages were not installed, the commands start with the one that
   installs them, at the root of the workspace.
 - After a library, the tool says how an application uses it (section 4.6).
@@ -546,12 +551,147 @@ import { greet } from "@shop/shared";
   linked at the root. Bun links what is declared: with the line, the three do
   the same.
 
-## 5. `cho.json`
+## 5. `cho serve`
+
+```console
+$ cho serve api
+Running deno run --allow-net --allow-env --watch main.ts
+api is listening on http://localhost:3000
+```
+
+It runs an application of the workspace it is run in: the entry of the project
+(`main.ts`), with the runtime of the workspace, in a child process, on the
+terminal of `cho`. It is the one command that runs a project on the three
+runtimes.
+
+- **An application is run, whatever its kind.** A web application is started,
+  and stays up. A command-line tool runs, and ends.
+- **A library does not run**: `CHO_CLI_NOT_AN_APPLICATION`.
+- **`cho` serves nothing itself.** The `main.ts` of a web application creates it
+  and calls `serve` of `@chojs/web/serve`, with its own linker and options: what
+  `cho serve` runs is what runs in production.
+- It writes nothing.
+
+### 5.1 The command line
+
+```sh
+cho serve                             # the project of the current folder
+cho serve api --runtime bun           # on another runtime, for this run
+cho serve api --no-watch
+cho serve tool -- hello --name Ada    # a command-line tool, with its arguments
+```
+
+| Word                  | What it is                                | Default                 |
+| --------------------- | ----------------------------------------- | ----------------------- |
+| `<project>`           | The name of the project                   | Section 5.2             |
+| `--runtime <runtime>` | `deno`, `node` or `bun`, for this run     | `runtime` of `cho.json` |
+| `--no-watch`          | It is not run again when a file changes   | It is watched           |
+| `<arguments>`         | The words after the name: for the project |                         |
+| `-- <arguments>`      | The words after `--`: for the project too |                         |
+
+- **A flag before `--` is one of `cho serve`.** One it does not have is
+  `CHO_CLI_INVALID_OPTION`, with a message that says a flag of the project goes
+  after `--`.
+- **After `--`, `cho` reads nothing**: the words go to the project as they are,
+  each one argument, with its spaces.
+- **The words after `--` are never the name.** `cho serve -- hello` runs the
+  project of section 5.2, with `hello`.
+
+### 5.2 Which project
+
+1. The one that is named. A name that is not in `cho.json`:
+   `CHO_CLI_UNKNOWN_PROJECT`, with the names of the projects.
+2. Else the project the current folder is in: its folder, or a folder under it.
+   The deepest one, when a project is in the folder of another.
+3. Else the application of the workspace, when it has one only.
+4. Else `CHO_CLI_UNKNOWN_PROJECT`, which says to name one, with the names of the
+   applications.
+
+The workspace is found as in `cho add` (section 4.1), and `cho.json` alone is
+read: `package.json` is not.
+
+### 5.3 What runs
+
+In the folder of the project:
+
+| Runtime | An application that stays up                       | One that runs, and ends        |
+| ------- | -------------------------------------------------- | ------------------------------ |
+| Deno    | `deno run --allow-net --allow-env --watch <entry>` | `deno run --allow-env <entry>` |
+| Node.js | `npx tsx watch <entry>`                            | `npx tsx <entry>`              |
+| Bun     | `bun --watch <entry>`                              | `bun <entry>`                  |
+
+- **`<entry>` is the one of `cho.json`**: `main.ts` by default. The arguments of
+  the project follow it.
+- **What a kind needs is one row of a table** (`KIND_TRAITS`): whether it uses
+  the network, and whether it stays up.
+
+  | Kind  | Uses the network | Stays up |
+  | ----- | ---------------- | -------- |
+  | `web` | Yes              | Yes      |
+  | `cli` | No               | No       |
+
+  A kind that comes later, as a `message` application, is a row more: `serve`
+  reads nothing else of a kind.
+- **On Deno, a kind that uses the network gets `--allow-net`**, and every kind
+  gets `--allow-env`. A project that needs more is asked for it by Deno, in the
+  terminal.
+- **An application that stays up is watched**: it is run again when a file
+  changes. `--no-watch` runs it once.
+- **One that runs and ends is never watched.** A watcher would keep it open
+  after it ended. The parser gives `false` for a boolean that was not given, so
+  "not said" and `--no-watch` are the same, and there is no `--watch` to ask for
+  it.
+- **The runtime is the one of `--runtime`**, else the one of `cho.json`. A
+  workspace is the same on the three (section 3.4), so any of them runs it once
+  it has installed it.
+
+Before it runs:
+
+| Check                                                | Error                    |
+| ---------------------------------------------------- | ------------------------ |
+| The entry is a file                                  | `CHO_CLI_INVALID_CONFIG` |
+| A workspace with a `package.json` has `node_modules` | `CHO_CLI_NOT_INSTALLED`  |
+
+`CHO_CLI_NOT_INSTALLED` names the command that installs. Without the check,
+`npx` would propose to download `tsx`. A workspace of Deno made by `cho` 3.7 has
+no `package.json`, and its packages are not in `node_modules`: it is not
+checked, and it is served.
+
+### 5.4 What it prints, and the exit code
+
+- **One line, on the error output**: `Running <command>`. The standard output is
+  the one of the project: a tool whose output is piped is not changed.
+- **The input, the output and the error output of the project** are those of
+  `cho`: a tool that asks a question asks it in the terminal.
+- **Ctrl+C** reaches the project and `cho` alike. `cho` ignores it while the
+  project runs, and ends after it: a server closes as it chooses. A request to
+  end `cho` alone (`SIGTERM`) is passed to the project.
+- **The exit code is the one of the project.** For a project that a signal
+  ended, it is 128 and the number of the signal.
+
+| What happened                                        | Exit code              |
+| ---------------------------------------------------- | ---------------------- |
+| The project ran, and ended                           | The one of the project |
+| No workspace, no such project, a library             | `1`                    |
+| The entry is not a file, or nothing is installed     | `1`                    |
+| The runtime is not installed (`CHO_CLI_NOT_STARTED`) | `1`                    |
+
+After Ctrl+C, the exit code is what the runtime gives. Seen on macOS, the same
+with `cho serve` and without it:
+
+| The command                       | Exit code after Ctrl+C     |
+| --------------------------------- | -------------------------- |
+| `deno run`, with `--watch` or not | `130`                      |
+| `npx tsx`, with `watch` or not    | `1`                        |
+| `bun --watch`                     | `0`                        |
+| `bun`                             | `130`: the signal ended it |
+
+## 6. `cho.json`
 
 The settings of a workspace, at its root. `cho new` writes it, `cho add` reads
-it and adds a project to it. It holds what the manifests do not say: the
-runtime, where a project is, whether it runs, what kind it is, and which file
-holds its module.
+it and adds a project to it, and `cho serve` reads it to run one. It holds what
+the manifests do not say: the runtime, where a project is, whether it runs, what
+kind it is, and which file holds its module.
 
 ```json
 {
@@ -577,7 +717,7 @@ holds its module.
 }
 ```
 
-### 5.1 The fields
+### 6.1 The fields
 
 | Field      | Required | Default | What it is                                 |
 | ---------- | -------- | ------- | ------------------------------------------ |
@@ -598,13 +738,14 @@ A project, `projects.<name>`:
 | `entry`  | Optional: `main.ts`      | Optional: `mod.ts`  | The file that runs it, or the file it exports      |
 | `module` | Optional: `app.ts`       | Refused             | The file that exports `AppModule`, from its folder |
 
-- **`runtime` is the runtime the workspace is installed with.** `cho new` and
-  `cho add` install with it, and print its commands. No file of a project
-  depends on it (section 3.4): to work with another tool, change it here.
+- **`runtime` is the runtime of the workspace**: `cho new` and `cho add` install
+  with it, and `cho serve` runs with it. No file of a project depends on it
+  (section 3.4): to work with another tool, change it here, or give `--runtime`
+  to `cho serve`.
 - **`type` and `kind` are two questions.** The type says whether a project runs.
   The kind says what an application is built with, and a library, which is built
-  with nothing of CHO, has none. A command that runs a project runs an
-  application, and refuses a library.
+  with nothing of CHO, has none. `cho serve` runs an application, and refuses a
+  library.
 - **A project with no `type` is an application**: what `cho` 3.7 wrote is still
   right.
 - **`cho new` and `cho add` write every field**, the ones with a default too:
@@ -620,7 +761,7 @@ A project, `projects.<name>`:
 - **The name of the workspace is not here.** It is `name`, in the `package.json`
   of the root: it is written once.
 
-### 5.2 Reading it
+### 6.2 Reading it
 
 `check_config` takes what was parsed from the file, and gives the settings,
 typed, or throws `CHO_CLI_INVALID_CONFIG`. The message names the field:
@@ -632,11 +773,11 @@ typed, or throws `CHO_CLI_INVALID_CONFIG`. The message names the field:
   by a newer `cho`.
 - The tool has no validation library: the check is its own code.
 
-`cho add` is the command that reads the file. The version of the format is still
-`1`: no released command read the file before, and every field that was added is
+`cho add` and `cho serve` read the file. The version of the format is still `1`:
+no released command read the file before, and every field that was added is
 optional.
 
-### 5.3 The schema
+### 6.3 The schema
 
 `cho.schema.json`, a JSON Schema (draft-07, the one editors read best). An
 editor that opens `cho.json` completes its fields, describes them, and marks a
@@ -703,7 +844,7 @@ mistake.
 }
 ```
 
-In the file, every property has a `description` too: the text of section 5.1.
+In the file, every property has a `description` too: the text of section 6.1.
 
 - **One definition.** The types, the kinds, the runtimes and the rule of a name
   are constants of the tool. `check_config` reads them, and the schema is made
@@ -721,7 +862,7 @@ In the file, every property has a `description` too: the text of section 5.1.
   version 2 gets an address of its own, and a file of version 1 keeps the schema
   it was written for.
 
-## 6. The application
+## 7. The application
 
 The tool is an application of `@chojs/command`, written as one is: a root
 module, and a controller for each command. Nothing in it is clever: a command is
@@ -732,12 +873,13 @@ a method that calls plain functions, from top to bottom.
 | `main.ts`     | The entry point: runs the command line of the process, exits  |
 | `app.ts`      | `AppModule`, the root module, and `run_cli`                   |
 | `help.ts`     | `HelpCommands`, the controller of `help`, and the `RUN` token |
-| `new/`        | The `new` command, and what the commands share (section 6.1)  |
-| `add/`        | The `add` command (section 6.1)                               |
-| `tree.ts`     | The tree: how a command writes (section 6.3)                  |
+| `new/`        | The `new` command, and what the commands share (section 7.1)  |
+| `add/`        | The `add` command (section 7.1)                               |
+| `serve/`      | The `serve` command (section 7.1)                             |
+| `tree.ts`     | The tree: how a command writes (section 7.3)                  |
 | `errors.ts`   | The codes of the errors, and `print_error`                    |
 | `app_test.ts` | The tests of the command line: the help, the version          |
-| `npm.ts`      | The build of the npm package (section 7.2)                    |
+| `npm.ts`      | The build of the npm package (section 8.2)                    |
 
 - **`run_cli(argv)`** runs one command line: it creates the application, runs
   it, releases what it created (`close()`), and resolves to the exit code. It
@@ -750,11 +892,11 @@ a method that calls plain functions, from top to bottom.
   asks for it, to run `--help`: it does not import the application.
 - The classes are declared with decorator syntax (`@Module`, `@Controller`,
   `@Action`), as an application is. Deno and Bun run it as it is, the tests on
-  Node.js run it through `tsx`, and the npm package is compiled (section 7.2).
+  Node.js run it through `tsx`, and the npm package is compiled (section 8.2).
 - **The tool uses the public API of the framework**, and no function of its
   inside: it is an application like the ones it creates.
 
-### 6.1 The folders of the commands
+### 7.1 The folders of the commands
 
 A command has a folder, and a file does one thing. `new/` has the `new` command,
 and what `add` shares with it: the settings, the manifests, the templates.
@@ -765,13 +907,13 @@ and what `add` shares with it: the settings, the manifests, the templates.
 | `flags.ts`         | The flags of the command, and `read_flags`, which checks them        |
 | `answers.ts`       | `ask_answers`: the questions, for what the flags did not say         |
 | `names.ts`         | The rule of a name                                                   |
-| `plan.ts`          | `plan_workspace`, `project_files`, and `command_of`                  |
+| `plan.ts`          | `plan_workspace`, `project_files`, and `run_command`                 |
 | `manifests.ts`     | The manifests, of a workspace and of a project                       |
 | `templates/`       | The templates: one folder for each kind, and one for a library       |
 | `templates.gen.ts` | The templates, as text: written by `gen.ts`                          |
 | `config.ts`        | `cho.json`: its types, `check_config`, `config_schema`               |
 | `cho.schema.json`  | The schema: written by `gen.ts`                                      |
-| `steps.ts`         | `run_steps`: `git init` and the installation; what a dry run prints  |
+| `steps.ts`         | `run_steps`: `git init`, the installation; `run_program`: a project  |
 | `gen.ts`           | Writes `templates.gen.ts` and `cho.schema.json`                      |
 | `testing.ts`       | What the tests share: a temporary folder, and a folder in memory     |
 
@@ -782,8 +924,16 @@ and what `add` shares with it: the settings, the manifests, the templates.
 | `add.ts`       | `AddCommand`: the command, `add_project`, and its error handler |
 | `flags.ts`     | The flags of the command, and `read_flags`                      |
 | `answers.ts`   | `ask_answers`, and why a name is taken                          |
-| `workspace.ts` | `find_workspace`, and `read_workspace`: its two files           |
+| `workspace.ts` | `find_workspace`, `read_config`, and `read_workspace`           |
 | `plan.ts`      | `plan_project`: the changes of a new project, on the tree       |
+
+`serve/` has the files of `cho serve`:
+
+| File         | What it holds                                                       |
+| ------------ | ------------------------------------------------------------------- |
+| `serve.ts`   | `ServeCommand`: the command, `serve_project`, and its error handler |
+| `flags.ts`   | The flags, the name, and the arguments of the project               |
+| `project.ts` | `pick_project`: which project; `check_ready`: whether it can run    |
 
 A command is a few calls, in order. `new`:
 
@@ -806,6 +956,17 @@ const answers = await ask_answers(flags, workspace, tree);
 return add_project(tree, workspace, answers, { root, cwd }, flags.dryRun);
 ```
 
+`serve`:
+
+```ts
+const cwd = process.cwd();
+const flags = read_flags(ctx.args, ctx.argv); //  the name, the arguments
+const root = find_workspace(cwd);
+const tree = new Tree(disk_host(root));
+const config = read_config(tree); //              cho.json alone
+return await serve_project(tree, config, flags, { root, cwd });
+```
+
 - **A command takes nothing from the injector.** It asks with `@chojs/prompt`,
   writes with `node:fs`, and runs programs with `node:child_process`: it imports
   them.
@@ -814,25 +975,28 @@ return add_project(tree, workspace, answers, { root, cwd }, flags.dryRun);
   and `1` for the rest. The two commands share `print_error`.
 - **The functions take what they work on as arguments**: the flags, the answers,
   the folder, the tree. So a test calls each with its own: a temporary folder or
-  a folder in memory, and for `ask_answers` the questions of a scripted terminal
-  (`@chojs/prompt/testing`), its one optional argument.
+  a folder in memory, for `ask_answers` the questions of a scripted terminal
+  (`@chojs/prompt/testing`), and for `serve_project` a runner that runs nothing:
+  each is one optional argument.
 - `gen.ts` and `npm.ts` run on Deno only: they are the build, not a part of the
   tool. `gen.ts`, `npm.ts`, `testing.ts`, `templates/` and the tests are not
   published.
 
-### 6.2 Adding a command
+### 7.2 Adding a command
 
 A command is a method with `@Action` and `@Help`, on a controller that a module
 declares. A command with files of its own gets a folder, as `new` and `add`
 have, and its controller is added to `AppModule`.
 
 A command that writes files records them on a tree, and commits it (section
-6.3): it gets `--dry-run` with one call, and its plan is tested in memory.
+7.3): it gets `--dry-run` with one call, and its plan is tested in memory. A
+command that only reads a workspace, as `serve` does, reads it through a tree
+too, and records nothing.
 
 Its tests call its functions, and `run_cli` for the command line: they compare
 the exit code and what was printed, what a user sees.
 
-### 6.3 The tree
+### 7.3 The tree
 
 A command does not write files as it goes. It records its changes on a tree, a
 layer in memory over a folder, and `commit` writes them together.
@@ -878,7 +1042,7 @@ What a tree does not do: it does not check what it writes, and it runs nothing.
 `git init` and the installation run after the commit, in the folder. One that
 fails leaves files that are right (sections 3.6 and 4.4).
 
-## 7. Two packages
+## 8. Two packages
 
 The packages of CHO are published to JSR, as TypeScript. A command of npm is
 JavaScript, in a package whose `package.json` has a `bin` entry, and JSR makes
@@ -890,7 +1054,7 @@ same name and the same version.
 | JSR      | `@chojs/cli` | The source: `main.ts` is its export   | `@chojs/command`, `@chojs/prompt` |
 | npm      | `@chojs/cli` | `cho.js`: the tool, and the framework | Nothing                           |
 
-### 7.1 Installation
+### 8.1 Installation
 
 ```sh
 deno install --global --allow-env --allow-read --allow-write --allow-run --name cho jsr:@chojs/cli   # Deno
@@ -903,16 +1067,16 @@ bun add --global @chojs/cli                                                     
 - On Deno, the tool is given what it needs. Without a permission, in a terminal,
   Deno stops and asks the user for it.
 
-  | Permission      | For                                                    |
-  | --------------- | ------------------------------------------------------ |
-  | `--allow-env`   | `@chojs/command` reads `CHO_DEBUG`, for its debug log  |
-  | `--allow-read`  | `new`: whether the folder exists. `add`: the workspace |
-  | `--allow-write` | `new`: the workspace. `add`: the project               |
-  | `--allow-run`   | `git`, and the program that installs                   |
+  | Permission      | For                                                             |
+  | --------------- | --------------------------------------------------------------- |
+  | `--allow-env`   | `@chojs/command` reads `CHO_DEBUG`, for its debug log           |
+  | `--allow-read`  | `new`: whether the folder exists. `add`, `serve`: the workspace |
+  | `--allow-write` | `new`: the workspace. `add`: the project                        |
+  | `--allow-run`   | `git`, the program that installs, and `serve`: the runtime      |
 
 - On npm and on Bun, the name is the `bin` entry of the package.
 
-### 7.2 The npm package
+### 8.2 The npm package
 
 `deno task --cwd cli npm` runs `npm.ts`, which writes the package in `cli/npm/`:
 
@@ -933,18 +1097,18 @@ bun add --global @chojs/cli                                                     
   `bin` is `{ "cho": "cho.js" }`. `engines` names the versions the tests run on:
   Node.js 24 and Bun 1.3.4. `publishConfig.access` is `public`. `repository` is
   the repository of CHO, with `cli` as its directory: npm compares it with the
-  workflow that publishes (section 8.2).
+  workflow that publishes (section 9.2).
 - **The folder is built, not kept.** It is ignored by git, it is not a part of
   the JSR package, and `deno check`, `deno lint`, `deno fmt` and the tests skip
   it. `npm.ts` empties it first.
 
-## 8. Releases
+## 9. Releases
 
 The tool is a package of the workspace, and a component of the linked versions
 of `release-please`: it gets the version of every other package, in the same
 release pull request (`release-please-config.json`).
 
-### 8.1 Before a release: the dry runs
+### 9.1 Before a release: the dry runs
 
 Both run in CI, on every pull request and every push to `main`:
 
@@ -967,7 +1131,7 @@ registry, and fails for a version that is already there. The version of the
 repository is the one on npm from a release until the next release pull request
 is merged, so that dry run would fail on every pull request in between.
 
-### 8.2 The release
+### 9.2 The release
 
 `release.yml`, when a release pull request is merged:
 
@@ -1013,7 +1177,7 @@ token, and the workflow reads none.
   the workflow that publishes.
 - The package is staged with its provenance (`--provenance`).
 
-## 9. Runtime support
+## 10. Runtime support
 
 | Runtime            | Runs the tool | How it is tested                              |
 | ------------------ | ------------- | --------------------------------------------- |
@@ -1024,16 +1188,20 @@ token, and the workflow reads none.
 
 The tests ask the questions of `new` and of `add` on a scripted terminal. They
 plan on a folder in memory, and write in a temporary folder. They run `git init`
-there, and never the installation. `tools/pty.sh` runs `cho new` in a real
-terminal, on the three: on Node.js it is the bundle that runs.
+there, and never the installation. The tests of `serve` give it a runner that
+runs nothing, and check the command; one test runs a real tool, which has no
+dependency, on Deno and on Bun. On Node.js a project is run by `tsx`, which a
+test does not install: there the real run was done by hand (section 10.1).
+`tools/pty.sh` runs `cho new` in a real terminal, on the three: on Node.js it is
+the bundle that runs.
 
 The templates are tested as the source is, on the three. The installation of a
-workspace that was created, and its own tests, are not run by CI (section 12).
-They were run by hand for this version: section 9.1.
+workspace that was created, and its own tests, are not run by CI (section 13).
+They were run by hand for this version: section 10.1.
 
 Not tested on Windows.
 
-### 9.1 A workspace that was created
+### 10.1 A workspace that was created
 
 Run by hand, with `cho` from the source and the packages of CHO 3.7.1, on macOS:
 `cho new shop`, then `cho add` for a command-line tool and for a library, which
@@ -1058,20 +1226,39 @@ Deno looks for the types of Node.js where it would install them, and Bun puts
 them elsewhere. After `deno install` in that copy, the tests pass on Deno, and
 still pass on Bun.
 
-## 10. Errors
+`cho serve`, in the same three copies, with `cho` from the source on Deno and on
+Bun, and from the npm bundle on Node.js:
+
+| What was run                                    | Deno | Node.js | Bun     |
+| ----------------------------------------------- | ---- | ------- | ------- |
+| `cho serve api`: the server answers `GET /`     | Yes  | Yes     | Yes     |
+| A change of a file of the library restarts it   | Yes  | Yes     | Yes     |
+| `--no-watch`: a change does not restart it      | Yes  | Not run | Not run |
+| Ctrl+C closes the server, and `cho` after it    | Yes  | Yes     | Yes     |
+| `cho serve admin -- hello --name ...`, exit `0` | Yes  | Yes     | Yes     |
+
+The runtime was the one of `cho.json` on Deno, and `--runtime` on the two
+others: the three copies name Deno there. A copy that npm installed, and one
+that Bun installed, were also served by Deno, with no `--runtime`.
+
+## 11. Errors
 
 A `ChoError` of `@chojs/core`, with a `code`:
 
-| Code                       | When                                                                                                   |
-| -------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `CHO_CLI_INVALID_NAME`     | A name does not follow the rule of section 3.2                                                         |
-| `CHO_CLI_INVALID_OPTION`   | A flag the command does not have, a value that is not one of the choices of its flag, or a second name |
-| `CHO_CLI_TARGET_EXISTS`    | A folder or a file to create exists: the folder of a workspace, or of a project                        |
-| `CHO_CLI_WRITE_FAILED`     | A file could not be written; the `cause` says why. What was written before it was undone               |
-| `CHO_CLI_INVALID_CONFIG`   | `cho.json` is not JSON, or is not what section 5 says                                                  |
-| `CHO_CLI_NO_WORKSPACE`     | `cho add`: no `cho.json` in the current folder, or in a folder above it                                |
-| `CHO_CLI_INVALID_MANIFEST` | `cho add`: `package.json` of the root is missing, is not JSON, or has no `name` or `workspaces` to use |
-| `CHO_CLI_PROJECT_EXISTS`   | `cho add`: the workspace has a project of that name                                                    |
+| Code                         | When                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `CHO_CLI_INVALID_NAME`       | A name does not follow the rule of section 3.2                                                         |
+| `CHO_CLI_INVALID_OPTION`     | A flag the command does not have, a value that is not one of the choices of its flag, or a second name |
+| `CHO_CLI_TARGET_EXISTS`      | A folder or a file to create exists: the folder of a workspace, or of a project                        |
+| `CHO_CLI_WRITE_FAILED`       | A file could not be written; the `cause` says why. What was written before it was undone               |
+| `CHO_CLI_INVALID_CONFIG`     | `cho.json` is not JSON, is not what section 6 says, or names an entry that is not a file               |
+| `CHO_CLI_NO_WORKSPACE`       | `cho add`: no `cho.json` in the current folder, or in a folder above it                                |
+| `CHO_CLI_INVALID_MANIFEST`   | `cho add`: `package.json` of the root is missing, is not JSON, or has no `name` or `workspaces` to use |
+| `CHO_CLI_PROJECT_EXISTS`     | `cho add`: the workspace has a project of that name                                                    |
+| `CHO_CLI_UNKNOWN_PROJECT`    | `cho serve`: no project of that name, or no name and nothing that says which project                   |
+| `CHO_CLI_NOT_AN_APPLICATION` | `cho serve`: the project is a library                                                                  |
+| `CHO_CLI_NOT_INSTALLED`      | `cho serve`: the workspace has a `package.json`, and no `node_modules`                                 |
+| `CHO_CLI_NOT_STARTED`        | `cho serve`: the program of the runtime could not be started                                           |
 
 - A command prints an error as `Error: <message>`, and the exit code is `1`.
 - A question that was cancelled (`CHO_PROMPT_CANCELLED` of `@chojs/prompt`) is
@@ -1083,7 +1270,7 @@ A `ChoError` of `@chojs/core`, with a `code`:
 - What the tool prints for a command it does not have is the message of
   `@chojs/command`.
 
-## 11. Decisions
+## 12. Decisions
 
 1. **In the repository of the framework**, at the top level, like `command/`.
    The tool is tested against the source of the framework, in the same pull
@@ -1129,8 +1316,8 @@ A `ChoError` of `@chojs/core`, with a `code`:
     come through the npm registry of JSR, and there is no `deno.json`.
 16. **No scripts in a project.** A script named `dev` would be the command of
     one runtime, and the workspace would not be the same on the three. Nine
-    scripts, three for each runtime, were weighed, and refused: a command that
-    runs a project (`cho serve`) is where this belongs.
+    scripts, three for each runtime, were weighed, and refused: `cho serve` is
+    the one command, and it picks the runtime.
 17. **A tree, of our own.** A command that changes files of the user must not
     stop half way. Recording the changes first, as the schematics of Angular and
     the generators of Nx do, makes a failure leave nothing, makes a dry run a
@@ -1148,14 +1335,30 @@ A `ChoError` of `@chojs/core`, with a `code`:
     one.
 22. **`cho add` does not change an application.** Which application uses a
     library is the user's to say: the tool prints the line to add.
+23. **`cho serve` runs the entry, not the module.** The settings of an
+    application are in its `main.ts`: its linker, its options. A command that
+    served `AppModule` itself would serve another application than the one that
+    is deployed. And `cho` cannot load a project in its own process: the npm
+    bundle runs on Node.js, which does not run decorators, and the runtime of
+    `cho` is not always the one of the workspace.
+24. **`serve` runs every kind of application.** What differs is what a kind
+    needs, in one table: the command does not name a kind. A library is the one
+    project it refuses.
+25. **The runtime is a choice of the run.** `--runtime` runs a workspace on
+    another runtime with no file to change: it is why a workspace is the same on
+    the three.
+26. **`cho serve` adds one line, on the error output.** What a project prints is
+    its own, and so is its exit code.
 
-## 12. Not in this version
+## 13. Not in this version
 
 - A project of `@chojs/message`: it needs a broker to be chosen, and to run.
 - A library that is built with a package of CHO: one with modules and providers.
 - pnpm and Yarn.
-- A command that runs a project by its name (`cho serve`), and the scripts of a
-  project with it; the tools of `@chojs/dev`.
+- A port, or any setting, that `cho serve` gives to a project: `main.ts` says
+  them. Serving several projects at once. A command that tests, or builds.
+- `--watch` for a command-line tool.
+- The tools of `@chojs/dev`.
 - Wiring a library into an application; removing or renaming a project.
 - Generating a part of a project (a controller, a service): the tree is ready
   for it.

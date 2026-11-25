@@ -29,14 +29,14 @@ import {
 import config from "../deno.json" with { type: "json" };
 import { commit, disk_host, Tree } from "../tree.ts";
 import { type Answers, ask_answers } from "./answers.ts";
-import { make_project } from "./config.ts";
 import { cli_error, print_error } from "../errors.ts";
 import { NEW_FLAGS, read_flags } from "./flags.ts";
-import { command_of, plan_workspace } from "./plan.ts";
+import { plan_workspace, serve_line } from "./plan.ts";
 import { GIT_INIT, INSTALL, print_dry_run, run_steps } from "./steps.ts";
 
 /**
- * The commands that say what to do next, each on its line.
+ * The commands that say what to do next, each on its line: the workspace,
+ * then `cho serve`, which runs the project on any runtime.
  *
  * @param answers The answers.
  * @param installed Whether the packages were installed. When they were not,
@@ -44,17 +44,10 @@ import { GIT_INIT, INSTALL, print_dry_run, run_steps } from "./steps.ts";
  * @returns The lines, indented.
  */
 export function next_steps(answers: Answers, installed: boolean): string {
-  const { name, appsDir, project, runtime, kind } = answers;
-  const lines = installed
-    ? [`cd ${name}/${appsDir}/${project}`]
-    : [`cd ${name}`, INSTALL[runtime], `cd ${appsDir}/${project}`];
-  // a server is run again when a file changes, and a command-line tool is
-  // run once, with a command
-  lines.push(command_of(
-    runtime,
-    make_project({ type: "application", kind }, `${appsDir}/${project}`),
-    kind === "web" ? "dev" : "start",
-  ));
+  const { name, project, runtime, kind } = answers;
+  const lines = installed ? [`cd ${name}`] : [`cd ${name}`, INSTALL[runtime]];
+  // `cho serve` runs from any folder of the workspace, on its runtime
+  lines.push(serve_line(project, kind));
   return lines.map((line) => `  ${line}`).join("\n");
 }
 

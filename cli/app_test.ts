@@ -17,9 +17,10 @@ import config from "./deno.json" with { type: "json" };
 const GLOBAL_HELP = `Usage: cho <command> [options] [args]
 
 Commands:
-  new   Create a new workspace, with a first project
-  add   Add a project to the workspace: an application, or a library
-  help  Show the help of cho, or of one of its commands
+  new    Create a new workspace, with a first project
+  add    Add a project to the workspace: an application, or a library
+  serve  Run an application of the workspace
+  help   Show the help of cho, or of one of its commands
 
 Options:
   --help     Show this help
@@ -85,6 +86,24 @@ Options:
   --help          Show this help
   --version       Show the version`;
 
+/** The help of the `serve` command: its text, and its flags. */
+const HELP_OF_SERVE = `Usage: cho serve [options] [args]
+
+Run an application of the workspace
+
+  cho serve <project>             runs it, on the runtime of the workspace
+  cho serve                       the project of the current folder
+  cho serve <project> -- <args>   gives it arguments
+
+A web application is started, and again when a file changes. A
+command-line tool runs, and ends. A library does not run.
+
+Options:
+  --[no-]watch       Run it again when a file changes (default: true)
+  --runtime <value>  The runtime to run it on, for this run: deno, node, bun
+  --help             Show this help
+  --version          Show the version`;
+
 /** Run a command line, and give its exit code and what it printed. */
 async function cho(...argv: string[]) {
   const { result, output } = await capture(() => run_cli(argv));
@@ -145,6 +164,19 @@ describe("cho", () => {
     assert.deepEqual(await cho("add", "--help"), {
       code: 0,
       log: [HELP_OF_ADD],
+      error: [],
+    });
+  });
+
+  it("prints the help of serve", async () => {
+    assert.deepEqual(await cho("help", "serve"), {
+      code: 0,
+      log: [HELP_OF_SERVE],
+      error: [],
+    });
+    assert.deepEqual(await cho("serve", "--help"), {
+      code: 0,
+      log: [HELP_OF_SERVE],
       error: [],
     });
   });

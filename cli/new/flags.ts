@@ -124,6 +124,32 @@ export function read_name(flag: string, value: unknown): string | undefined {
 }
 
 /**
+ * Refuse a flag a command does not have.
+ *
+ * @param args The parsed command line: `ctx.args`.
+ * @param known The names `args` can have: the flags, and their short names.
+ * @param command The command, as it is typed: `cho new`.
+ * @param hint A sentence for the message, on where such a flag could go.
+ * @throws {ChoError} `CHO_CLI_INVALID_OPTION`.
+ */
+export function check_flags(
+  args: ChoArgs,
+  known: readonly string[],
+  command: string,
+  hint = "",
+): void {
+  for (const flag of Object.keys(args)) {
+    // `_` holds the words that are not flags
+    if (flag !== "_" && !known.includes(flag)) {
+      throw cli_error(
+        "CHO_CLI_INVALID_OPTION",
+        `--${flag}: ${command} has no such flag. ${hint}See ${command} --help`,
+      );
+    }
+  }
+}
+
+/**
  * Refuse a flag a command does not have, and a second name.
  *
  * @param args The parsed command line: `ctx.args`.
@@ -136,15 +162,7 @@ export function check_args(
   known: readonly string[],
   command: string,
 ): void {
-  for (const flag of Object.keys(args)) {
-    // `_` holds the words that are not flags
-    if (flag !== "_" && !known.includes(flag)) {
-      throw cli_error(
-        "CHO_CLI_INVALID_OPTION",
-        `--${flag}: ${command} has no such flag. See ${command} --help`,
-      );
-    }
-  }
+  check_flags(args, known, command);
   if (args._.length > 1) {
     throw cli_error(
       "CHO_CLI_INVALID_OPTION",

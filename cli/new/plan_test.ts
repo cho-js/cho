@@ -8,7 +8,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { check_config, KINDS, make_project, RUNTIMES } from "./config.ts";
 import type { Answers } from "./answers.ts";
-import { command_of, plan_workspace, project_files } from "./plan.ts";
+import {
+  command_line,
+  command_of,
+  plan_workspace,
+  project_files,
+  run_command,
+  serve_line,
+} from "./plan.ts";
 import { TEMPLATES } from "./templates.gen.ts";
 
 const answers = (given: Partial<Answers> = {}): Answers => ({
@@ -177,6 +184,8 @@ describe("plan_workspace", () => {
     assert.match(readme, /A \[CHO\]\(https:\/\/chojs\.io\) workspace\./);
     assert.match(readme, /the same on Deno, on Node\.js and on Bun/);
     assert.ok(readme.includes("`cho` installs it with Deno"));
+    // `cho serve` first: one command, on any runtime
+    assert.ok(readme.includes("```sh\ncho serve api\n```"));
     const blocks = [
       "Deno:\n\n```sh\ndeno install\n" +
       "deno run --allow-net --allow-env main.ts\n" +
@@ -196,6 +205,7 @@ describe("plan_workspace", () => {
     assert.ok(tool.includes("a command-line tool, built with"));
     assert.ok(tool.includes("`@chojs/command`"));
     assert.match(tool, /^npx tsx main\.ts hello$/m);
+    assert.match(tool, /^cho serve api -- hello$/m);
   });
 
   it("names the formatters of the runtimes, and installs none", () => {
@@ -291,5 +301,82 @@ describe("command_of", () => {
       command_of("bun", { ...web, entry: "server.ts" }, "start"),
       "bun server.ts",
     );
+  });
+
+  it("has nothing to start in a library: its tests are what runs", () => {
+    assert.equal(command_of("deno", library, "start"), "deno test");
+    assert.equal(command_of("bun", library, "dev"), "bun test");
+  });
+});
+
+describe("run_command", () => {
+  it("is the program of the runtime, and its arguments as a list", () => {
+    assert.deepEqual(run_command("deno", web, { watch: true }), {
+      program: "deno",
+      args: ["run", "--allow-net", "--allow-env", "--watch", "main.ts"],
+    });
+    assert.deepEqual(run_command("node", web, { watch: true }), {
+      program: "npx",
+      args: ["tsx", "watch", "main.ts"],
+    });
+    assert.deepEqual(run_command("bun", web, { watch: true }), {
+      program: "bun",
+      args: ["--watch", "main.ts"],
+    });
+  });
+
+  it("does not watch when it is not asked to", () => {
+    assert.deepEqual(run_command("deno", web, { watch: false }).args, [
+      "run",
+      "--allow-net",
+      "--allow-env",
+      "main.ts",
+    ]);
+    assert.deepEqual(run_command("node", web, { watch: false }).args, [
+      "tsx",
+      "main.ts",
+    ]);
+    assert.deepEqual(run_command("bun", web, { watch: false }).args, [
+      "main.ts",
+    ]);
+  });
+
+  it("gives a kind that uses no network no permission for it, on Deno", () => {
+    assert.deepEqual(run_command("deno", cli, { watch: false }).args, [
+      "run",
+      "--allow-env",
+      "main.ts",
+    ]);
+  });
+
+  it("puts the arguments of the project after its entry, each as it is", () => {
+    const args = ["hello", "--name", "Ada Lovelace", "--watch"];
+    for (const runtime of RUNTIMES) {
+      const command = run_command(runtime, cli, { watch: false, args });
+      assert.deepEqual(command.args.slice(-5), ["main.ts", ...args], runtime);
+    }
+  });
+});
+
+describe("command_line", () => {
+  it("is the command as it is typed, with quotes where a word needs them", () => {
+    assert.equal(
+      command_line({ program: "bun", args: ["--watch", "main.ts"] }),
+      "bun --watch main.ts",
+    );
+    assert.equal(
+      command_line({
+        program: "npx",
+        args: ["tsx", "main.ts", "--name", "Ada Lovelace", "", "a=b", "$HOME"],
+      }),
+      'npx tsx main.ts --name "Ada Lovelace" "" a=b "$HOME"',
+    );
+  });
+});
+
+describe("serve_line", () => {
+  it("runs an application with cho serve, a tool with its first command", () => {
+    assert.equal(serve_line("api", "web"), "cho serve api");
+    assert.equal(serve_line("tool", "cli"), "cho serve tool -- hello");
   });
 });

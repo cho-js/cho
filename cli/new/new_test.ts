@@ -56,8 +56,7 @@ describe("create_workspace", () => {
       assert.deepEqual(output, {
         log: [
           "Created shop (10 files)",
-          "\n  cd shop\n  deno install\n  cd apps/api\n" +
-          "  deno run --allow-net --allow-env --watch main.ts",
+          "\n  cd shop\n  deno install\n  cho serve api",
         ],
         error: [],
       });
@@ -151,29 +150,25 @@ describe("create_workspace", () => {
 });
 
 describe("next_steps", () => {
-  it("goes to the project, and runs it", () => {
-    assert.equal(
-      next_steps(answers(), true),
-      "  cd shop/apps/api\n" +
-        "  deno run --allow-net --allow-env --watch main.ts",
-    );
+  it("goes to the workspace, and runs the project with cho serve", () => {
+    assert.equal(next_steps(answers(), true), "  cd shop\n  cho serve api");
   });
 
   it("installs first, when the packages were not installed", () => {
     assert.equal(
       next_steps(answers({ runtime: "bun" }), false),
-      "  cd shop\n  bun install\n  cd apps/api\n  bun --watch main.ts",
+      "  cd shop\n  bun install\n  cho serve api",
     );
   });
 
   it("starts a command-line tool with its first command", () => {
     assert.equal(
       next_steps(answers({ kind: "cli", project: "tool" }), true),
-      "  cd shop/apps/tool\n  deno run --allow-env main.ts hello",
+      "  cd shop\n  cho serve tool -- hello",
     );
     assert.equal(
-      next_steps(answers({ kind: "cli", runtime: "node" }), true),
-      "  cd shop/apps/api\n  npx tsx main.ts hello",
+      next_steps(answers({ kind: "cli", runtime: "node" }), false),
+      "  cd shop\n  npm install\n  cho serve api -- hello",
     );
   });
 });
@@ -250,8 +245,7 @@ describe("cho new, as a command line", () => {
         code: 0,
         log: [
           "Created tool (10 files)",
-          "\n  cd tool\n  npm install\n  cd packages/tool\n" +
-          "  npx tsx main.ts hello",
+          "\n  cd tool\n  npm install\n  cho serve tool -- hello",
         ],
         error: [],
       });

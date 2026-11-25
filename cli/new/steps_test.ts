@@ -10,7 +10,15 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { capture } from "@chojs/core/utils/test_utils";
-import { GIT_INIT, INSTALL, print_dry_run, run, run_steps } from "./steps.ts";
+import { isChoError } from "@chojs/command";
+import {
+  GIT_INIT,
+  INSTALL,
+  print_dry_run,
+  run,
+  run_program,
+  run_steps,
+} from "./steps.ts";
 import { with_folder } from "./testing.ts";
 
 describe("run", () => {
@@ -47,6 +55,46 @@ describe("run_steps", () => {
         "Running cho-no-such-program",
       ]);
       assert.equal(existsSync(join(folder, ".git")), true);
+    }));
+});
+
+describe("run_program", () => {
+  it("gives the exit code of the program", () =>
+    with_folder(async (folder) => {
+      assert.equal(await run_program("sh", ["-c", "exit 0"], folder), 0);
+      assert.equal(await run_program("sh", ["-c", "exit 3"], folder), 3);
+    }));
+
+  it("runs it in the folder, with each argument as it is", () =>
+    with_folder(async (folder) => {
+      // `$1` is one argument, with its space, and `$2` is not a flag of sh
+      const script = 'test "$1" = "a b" && test "$2" = "--watch" && ' +
+        "touch here.txt";
+      assert.equal(
+        await run_program("sh", ["-c", script, "sh", "a b", "--watch"], folder),
+        0,
+      );
+      assert.equal(existsSync(join(folder, "here.txt")), true);
+    }));
+
+  it("gives 128 and the number of the signal that ended the program", () =>
+    with_folder(async (folder) => {
+      // the shell ends itself, as Ctrl+C would end it
+      assert.equal(
+        await run_program("sh", ["-c", "kill -INT $$"], folder),
+        130,
+      );
+    }));
+
+  it("rejects for a program that is not installed: CHO_CLI_NOT_STARTED", () =>
+    with_folder(async (folder) => {
+      await assert.rejects(
+        run_program("cho-no-such-program", ["--version"], folder),
+        (error) =>
+          isChoError(error, "CHO_CLI_NOT_STARTED") &&
+          error.message.startsWith("Could not start cho-no-such-program: ") &&
+          error.message.endsWith("Is it installed?"),
+      );
     }));
 });
 
