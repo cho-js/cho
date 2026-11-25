@@ -17,8 +17,10 @@ import {
   DEFAULTS,
   KINDS,
   make_config,
+  make_project,
   RUNTIMES,
   SCHEMA_URL,
+  TYPES,
 } from "./config.ts";
 import { NAME_PATTERN } from "./names.ts";
 
@@ -28,9 +30,18 @@ const whole = () => ({
   version: 1,
   runtime: "deno",
   appsDir: "apps",
+  libsDir: "libs",
   projects: {
-    api: { kind: "web", root: "apps/api", entry: "main.ts", module: "app.ts" },
+    api: {
+      type: "application",
+      kind: "web",
+      root: "apps/api",
+      entry: "main.ts",
+      module: "app.ts",
+    },
+    // an application, with the required fields alone
     tool: { kind: "cli", root: "tools/tool" },
+    shared: { type: "library", root: "libs/shared", entry: "mod.ts" },
   },
 });
 
@@ -58,8 +69,10 @@ describe("make_config", () => {
       version: 1,
       runtime: "bun",
       appsDir: "services",
+      libsDir: "libs",
       projects: {
         shop: {
+          type: "application",
           kind: "cli",
           root: "services/shop",
           entry: "main.ts",
@@ -68,6 +81,29 @@ describe("make_config", () => {
       },
     });
     assert.equal(check_config(config), config);
+  });
+});
+
+describe("make_project", () => {
+  it("writes every field of an application", () => {
+    assert.deepEqual(
+      make_project({ type: "application", kind: "web" }, "apps/api"),
+      {
+        type: "application",
+        kind: "web",
+        root: "apps/api",
+        entry: "main.ts",
+        module: "app.ts",
+      },
+    );
+  });
+
+  it("writes a library with no kind and no module", () => {
+    assert.deepEqual(make_project({ type: "library" }, "libs/shared"), {
+      type: "library",
+      root: "libs/shared",
+      entry: "mod.ts",
+    });
   });
 });
 
@@ -81,6 +117,25 @@ describe("check_config", () => {
     );
   });
 
+  it("takes a file that cho 3.7 wrote: no type, and no libsDir", () => {
+    assert.doesNotThrow(() =>
+      check_config({
+        $schema: SCHEMA_URL,
+        version: 1,
+        runtime: "deno",
+        appsDir: "apps",
+        projects: {
+          api: {
+            kind: "web",
+            root: "apps/api",
+            entry: "main.ts",
+            module: "app.ts",
+          },
+        },
+      })
+    );
+  });
+
   it("refuses what is not an object: CHO_CLI_INVALID_CONFIG", () => {
     for (const value of [null, undefined, "text", 1, [], [whole()]]) {
       assert.equal(mistake_of(value), "cho.json: must be an object");
@@ -91,15 +146,47 @@ describe("check_config", () => {
     assert.equal(
       mistake_of({ ...whole(), runtimee: "deno" }),
       "cho.json: runtimee: unknown field. Known fields: $schema, version, " +
-        "runtime, appsDir, projects",
+        "runtime, appsDir, libsDir, projects",
     );
     const config = whole();
     Object.assign(config.projects.api, { port: 3000 });
     assert.equal(
       mistake_of(config),
-      "cho.json: projects.api.port: unknown field. Known fields: kind, " +
-        "root, entry, module",
+      "cho.json: projects.api.port: unknown field. Known fields: type, " +
+        "kind, root, entry, module",
     );
+  });
+
+  it("refuses a type that is not one of the two", () => {
+    for (const type of ["app", 1, null]) {
+      const config = whole();
+      Object.assign(config.projects.api, { type });
+      assert.equal(
+        mistake_of(config),
+        'cho.json: projects.api.type: must be "application" or "library"',
+      );
+    }
+  });
+
+  it("refuses a kind and a module on a library: it has none", () => {
+    for (const field of ["kind", "module"]) {
+      const config = whole();
+      Object.assign(config.projects.shared, { [field]: "web" });
+      assert.equal(
+        mistake_of(config),
+        `cho.json: projects.shared.${field}: unknown field. Known fields: ` +
+          "type, root, entry",
+      );
+    }
+    // its folder is required, and its paths are checked as any
+    const config = whole();
+    Object.assign(config.projects.shared, { root: "../shared" });
+    assert.match(
+      mistake_of(config),
+      /^cho\.json: projects\.shared\.root: must be a relative path .* "libs\/shared"$/,
+    );
+    Object.assign(config.projects.shared, { root: "libs/shared", entry: "/m" });
+    assert.match(mistake_of(config), /^cho\.json: projects\.shared\.entry: /);
   });
 
   it("refuses a version it does not know, and says who wrote it", () => {
@@ -126,15 +213,17 @@ describe("check_config", () => {
   });
 
   it("refuses a folder of the projects that is not a name", () => {
-    assert.equal(
-      mistake_of({ ...whole(), appsDir: "my apps" }),
-      "cho.json: appsDir: not a name of a folder. Lower case letters, " +
-        "digits and -, starting with a letter",
-    );
-    assert.equal(
-      mistake_of({ ...whole(), appsDir: 1 }),
-      "cho.json: appsDir: not a name of a folder. It must be a text",
-    );
+    for (const field of ["appsDir", "libsDir"]) {
+      assert.equal(
+        mistake_of({ ...whole(), [field]: "my apps" }),
+        `cho.json: ${field}: not a name of a folder. Lower case letters, ` +
+          "digits and -, starting with a letter",
+      );
+      assert.equal(
+        mistake_of({ ...whole(), [field]: 1 }),
+        `cho.json: ${field}: not a name of a folder. It must be a text`,
+      );
+    }
   });
 
   it("refuses a $schema that is not a text", () => {
@@ -225,10 +314,10 @@ describe("the schema of cho.json", () => {
     required: string[];
     additionalProperties: boolean;
     properties: Record<string, Record<string, unknown>>;
-    definitions: { project: Schema };
+    definitions: { application: Schema; library: Schema };
   };
   const schema = config_schema() as Schema;
-  const { project } = schema.definitions;
+  const { application, library } = schema.definitions;
 
   it("is a draft-07 schema, at the address a file names", () => {
     assert.equal(schema.$schema, "http://json-schema.org/draft-07/schema#");
@@ -242,42 +331,70 @@ describe("the schema of cho.json", () => {
       "version",
       "runtime",
       "appsDir",
+      "libsDir",
       "projects",
     ]);
-    assert.deepEqual(Object.keys(project.properties), [
+    assert.deepEqual(Object.keys(application.properties), [
+      "type",
       "kind",
       "root",
       "entry",
       "module",
     ]);
+    assert.deepEqual(Object.keys(library.properties), [
+      "type",
+      "root",
+      "entry",
+    ]);
     // a field that is not known is a mistake, as in check_config
     assert.equal(schema.additionalProperties, false);
-    assert.equal(project.additionalProperties, false);
+    assert.equal(application.additionalProperties, false);
+    assert.equal(library.additionalProperties, false);
   });
 
   it("requires what check_config requires", () => {
     assert.deepEqual(schema.required, ["version", "runtime", "projects"]);
-    assert.deepEqual(project.required, ["kind", "root"]);
+    assert.deepEqual(application.required, ["kind", "root"]);
+    // a library says its type: a project with none is an application
+    assert.deepEqual(library.required, ["type", "root"]);
+  });
+
+  it("makes a project one of the two: an application, or a library", () => {
+    assert.deepEqual(schema.properties.projects?.additionalProperties, {
+      oneOf: [
+        { $ref: "#/definitions/application" },
+        { $ref: "#/definitions/library" },
+      ],
+    });
+    assert.deepEqual(
+      [application.properties.type?.const, library.properties.type?.const],
+      [...TYPES],
+    );
   });
 
   it("takes its values from the constants of the tool", () => {
     assert.equal(schema.properties.version?.const, CONFIG_VERSION);
     assert.deepEqual(schema.properties.runtime?.enum, [...RUNTIMES]);
-    assert.deepEqual(project.properties.kind?.enum, [...KINDS]);
-    // the rule of a name: the folder of the projects, and their names
+    assert.deepEqual(application.properties.kind?.enum, [...KINDS]);
+    // the rule of a name: the folders of the projects, and their names
     assert.equal(schema.properties.appsDir?.pattern, NAME_PATTERN);
+    assert.equal(schema.properties.libsDir?.pattern, NAME_PATTERN);
     assert.deepEqual(schema.properties.projects?.propertyNames, {
       pattern: NAME_PATTERN,
     });
     assert.equal(schema.properties.appsDir?.default, DEFAULTS.appsDir);
-    assert.equal(project.properties.entry?.default, DEFAULTS.entry);
-    assert.equal(project.properties.module?.default, DEFAULTS.module);
+    assert.equal(schema.properties.libsDir?.default, DEFAULTS.libsDir);
+    assert.equal(application.properties.type?.default, DEFAULTS.type);
+    assert.equal(application.properties.entry?.default, DEFAULTS.entry);
+    assert.equal(application.properties.module?.default, DEFAULTS.module);
+    assert.equal(library.properties.entry?.default, DEFAULTS.libraryEntry);
   });
 
   it("describes every property, for an editor", () => {
     const properties = [
       ...Object.entries(schema.properties),
-      ...Object.entries(project.properties),
+      ...Object.entries(application.properties),
+      ...Object.entries(library.properties),
     ];
     for (const [name, property] of properties) {
       assert.equal(typeof property.description, "string", name);

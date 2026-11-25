@@ -18,6 +18,7 @@ const GLOBAL_HELP = `Usage: cho <command> [options] [args]
 
 Commands:
   new   Create a new workspace, with a first project
+  add   Add a project to the workspace: an application, or a library
   help  Show the help of cho, or of one of its commands
 
 Options:
@@ -48,17 +49,41 @@ Create a new workspace, with a first project
   cho new <name> --yes   takes the default of every question
 
 A flag answers its question. The folder <name> must not exist.
+The workspace is the same on Deno, on Node.js and on Bun.
 
 Options:
   -y, --yes           Take the default of every question
   --[no-]git          Run git init (default: true)
   --[no-]install      Install the packages (default: true)
+  --dry-run           Print what would be written, and write nothing
   --kind <value>      What the project is: web or cli
-  --runtime <value>   The runtime of the workspace: deno, node, bun
+  --runtime <value>   The runtime that installs the workspace: deno, node, bun
   --project <value>   The name of the project
   --apps-dir <value>  The folder of the projects
   --help              Show this help
   --version           Show the version`;
+
+/** The help of the `add` command: its text, and its flags. */
+const HELP_OF_ADD = `Usage: cho add [options] [args]
+
+Add a project to the workspace: an application, or a library
+
+  cho add                         asks for everything
+  cho add <name>                  asks for the rest
+  cho add <name> --type library   adds a library
+
+It runs in a workspace: a folder with a cho.json, or any folder under
+it. An application runs. A library is plain TypeScript, that the
+applications import. The project <name> must not exist.
+
+Options:
+  -y, --yes       Take the default of every question
+  --[no-]install  Install the packages (default: true)
+  --dry-run       Print what would be written, and write nothing
+  --type <value>  What the project is: application or library
+  --kind <value>  What an application is built with: web or cli
+  --help          Show this help
+  --version       Show the version`;
 
 /** Run a command line, and give its exit code and what it printed. */
 async function cho(...argv: string[]) {
@@ -106,6 +131,20 @@ describe("cho", () => {
     assert.deepEqual(await cho("new", "--help"), {
       code: 0,
       log: [HELP_OF_NEW],
+      error: [],
+    });
+  });
+
+  it("prints the help of add, with a flag for each question", async () => {
+    assert.deepEqual(await cho("help", "add"), {
+      code: 0,
+      log: [HELP_OF_ADD],
+      error: [],
+    });
+    // the help needs no workspace
+    assert.deepEqual(await cho("add", "--help"), {
+      code: 0,
+      log: [HELP_OF_ADD],
       error: [],
     });
   });

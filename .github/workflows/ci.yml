@@ -62,6 +62,11 @@ jobs:
           test -f "$folder/shop/cho.json"
           test -f "$folder/shop/.npmrc"
           test -f "$folder/shop/apps/api/main.ts"
+          # a library, added to it from a folder of the workspace
+          (cd "$folder/shop/apps/api" && node "$GITHUB_WORKSPACE/cli/npm/cho.js" \
+            add shared --type library --no-install)
+          test -f "$folder/shop/libs/shared/mod.ts"
+          grep -q '"shared"' "$folder/shop/cho.json"
           # packs the package and lists its files, and asks npm nothing:
           # `npm publish --dry-run` fails when the version is already on npm,
           # which it is from a release to the next

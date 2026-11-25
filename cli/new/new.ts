@@ -7,8 +7,9 @@
  * 1. `read_flags` checks what the command line said (`flags.ts`).
  * 2. `ask_answers` asks for the rest (`answers.ts`).
  * 3. `plan_workspace` lists the files of the workspace (`plan.ts`).
- * 4. `write_workspace` writes them, in a folder it creates (`write.ts`).
- * 5. `run` runs the steps that were asked for: `git init`, and the
+ * 4. The files are recorded on a tree, and `commit` writes them, in a folder
+ *    it creates (`../tree.ts`). With `--dry-run`, they are printed.
+ * 5. `run_steps` runs the steps that were asked for: `git init`, and the
  *    installation of the packages (`steps.ts`).
  *
  * Nothing is written before the last answer. See `specs.md`, section 3.
@@ -24,17 +25,15 @@ import {
   type ChoCommandContext,
   Controller,
   Help,
-  isChoError,
 } from "@chojs/command";
-import { type Answers, ask_answers } from "./answers.ts";
 import config from "../deno.json" with { type: "json" };
+import { commit, disk_host, Tree } from "../tree.ts";
+import { type Answers, ask_answers } from "./answers.ts";
+import { make_project } from "./config.ts";
+import { cli_error, print_error } from "../errors.ts";
 import { NEW_FLAGS, read_flags } from "./flags.ts";
-import { plan_workspace, task_command } from "./plan.ts";
-import { GIT_INIT, INSTALL, run } from "./steps.ts";
-import { write_workspace } from "./write.ts";
-
-/** The exit code of a command that was interrupted: 128, and the signal. */
-const CANCELLED = 130;
+import { command_of, plan_workspace } from "./plan.ts";
+import { GIT_INIT, INSTALL, print_dry_run, run_steps } from "./steps.ts";
 
 /**
  * The commands that say what to do next, each on its line.
@@ -49,19 +48,30 @@ export function next_steps(answers: Answers, installed: boolean): string {
   const lines = installed
     ? [`cd ${name}/${appsDir}/${project}`]
     : [`cd ${name}`, INSTALL[runtime], `cd ${appsDir}/${project}`];
-  // a server is run, and a command-line tool is started with a command
-  lines.push(task_command(runtime, kind, kind === "web" ? "dev" : "start"));
+  // a server is run again when a file changes, and a command-line tool is
+  // run once, with a command
+  lines.push(command_of(
+    runtime,
+    make_project({ type: "application", kind }, `${appsDir}/${project}`),
+    kind === "web" ? "dev" : "start",
+  ));
   return lines.map((line) => `  ${line}`).join("\n");
 }
 
 /**
  * Create a workspace from the answers: write it, then run its steps.
  *
+ * The files are recorded on a tree of the current folder, under the folder
+ * of the workspace: so the folder is a change like any file, a dry run shows
+ * it, and a failure removes it.
+ *
  * A step that fails leaves the workspace, which is whole: the command to run
  * by hand is printed.
  *
  * @param answers The answers.
  * @param cwd The folder to create the workspace in.
+ * @param dry_run `true` for `--dry-run`: what would be written and run is
+ *   printed, and nothing is done.
  * @returns The exit code: `0`, or `1` when a step failed.
  * @throws {ChoError} `CHO_CLI_TARGET_EXISTS` and `CHO_CLI_WRITE_FAILED`:
  *   nothing is left.
@@ -69,11 +79,20 @@ export function next_steps(answers: Answers, installed: boolean): string {
 export async function create_workspace(
   answers: Answers,
   cwd: string,
+  dry_run = false,
 ): Promise<number> {
+  const tree = new Tree(disk_host(cwd));
+  // Even an empty one: the workspace is written in a folder `cho` created.
+  if (tree.exists(answers.name)) {
+    throw cli_error(
+      "CHO_CLI_TARGET_EXISTS",
+      `The folder ${answers.name} exists already. Nothing was written.`,
+    );
+  }
   const files = plan_workspace(answers, config.version);
-  const target = join(cwd, answers.name);
-  await write_workspace(target, files);
-  console.log(`Created ${answers.name} (${files.length} files)`);
+  for (const file of files) {
+    tree.create(`${answers.name}/${file.path}`, file.text);
+  }
 
   // The installation is last: it is the long one, and Ctrl+C there leaves
   // a workspace that is whole.
@@ -85,13 +104,14 @@ export async function create_workspace(
     steps.push(INSTALL[answers.runtime]);
   }
 
-  const failed: string[] = [];
-  for (const step of steps) {
-    console.log(`Running ${step}`);
-    if (!await run(step, target)) {
-      failed.push(step);
-    }
+  if (dry_run) {
+    print_dry_run(tree.changes(), steps);
+    return 0;
   }
+  await commit(tree);
+  console.log(`Created ${answers.name} (${files.length} files)`);
+
+  const failed = await run_steps(steps, join(cwd, answers.name));
   for (const step of failed) {
     console.error(
       `Error: ${step} failed. The workspace is whole: run it in ` +
@@ -113,21 +133,7 @@ export async function create_workspace(
  * @returns `130` for a question that was cancelled, `1` for anything else.
  */
 export function report_error(error: unknown): number {
-  if (isChoError(error, "CHO_PROMPT_CANCELLED")) {
-    console.error("Cancelled.");
-    return CANCELLED;
-  }
-  if (isChoError(error, "CHO_PROMPT_NO_TERMINAL")) {
-    console.error(
-      "Error: There is no terminal to ask on. Give every answer as a flag, " +
-        "or --yes for the defaults: see cho new --help",
-    );
-    return 1;
-  }
-  console.error(
-    `Error: ${error instanceof Error ? error.message : String(error)}`,
-  );
-  return 1;
+  return print_error(error, "cho new");
 }
 
 /** The command that creates a workspace. */
@@ -146,13 +152,14 @@ export class NewCommand {
       "  cho new                asks for everything\n" +
       "  cho new <name>         creates the folder <name>, and asks for the rest\n" +
       "  cho new <name> --yes   takes the default of every question\n\n" +
-      "A flag answers its question. The folder <name> must not exist.",
+      "A flag answers its question. The folder <name> must not exist.\n" +
+      "The workspace is the same on Deno, on Node.js and on Bun.",
   )
   @Action("new", NEW_FLAGS)
   async create(ctx: ChoCommandContext): Promise<number> {
     const cwd = process.cwd();
     const flags = read_flags(ctx.args);
     const answers = await ask_answers(flags, cwd);
-    return create_workspace(answers, cwd);
+    return create_workspace(answers, cwd, flags.dryRun);
   }
 }

@@ -1,5 +1,6 @@
 /**
- * The templates, as text: every file of `templates/`, by kind and by name.
+ * The templates, as text: every file of `templates/`, by template and by
+ * name.
  *
  * Written by `gen.ts` (`deno task --cwd cli gen`): do not edit it. The
  * templates are files of the repository, checked and tested there; this
@@ -8,10 +9,10 @@
  * @module
  */
 
-import type { Kind } from "./config.ts";
+import type { TemplateName } from "./config.ts";
 
-/** The files of the template of each kind, by name. */
-export const TEMPLATES: Record<Kind, Record<string, string>> = {
+/** The files of each template, by name. */
+export const TEMPLATES: Record<TemplateName, Record<string, string>> = {
   web: {
     "app.ts": [
       "/**",
@@ -180,6 +181,41 @@ export const TEMPLATES: Record<Kind, Record<string, string>> = {
       "const code = await app.run(process.argv.slice(2));",
       "await app.close(); // releases what the application created",
       "process.exit(code);",
+      "",
+    ].join("\n"),
+  },
+  library: {
+    "mod.ts": [
+      "/**",
+      " * The library: what it exports.",
+      " *",
+      " * It is plain TypeScript, and runs nothing. Another project of the workspace",
+      " * imports it by the name of its package.",
+      " *",
+      " * @module",
+      " */",
+      "",
+      "/**",
+      " * Greet someone.",
+      " *",
+      " * @param name Who to greet.",
+      " * @returns The greeting.",
+      " */",
+      "export function greet(name: string): string {",
+      "  return `Hello, ${name}, from __name__`;",
+      "}",
+      "",
+    ].join("\n"),
+    "mod_test.ts": [
+      'import assert from "node:assert/strict";',
+      'import { describe, it } from "node:test";',
+      'import { greet } from "./mod.ts";',
+      "",
+      'describe("__name__", () => {',
+      '  it("greets by name", () => {',
+      '    assert.equal(greet("Ada"), "Hello, Ada, from __name__");',
+      "  });",
+      "});",
       "",
     ].join("\n"),
   },

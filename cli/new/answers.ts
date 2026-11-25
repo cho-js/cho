@@ -15,6 +15,9 @@
  * A flag answers its question. `--yes` takes the default of every question
  * that is left, and has one.
  *
+ * The runtime is the one that installs the workspace. No file of a project
+ * depends on it: a workspace is the same on the three.
+ *
  * @module
  */
 
@@ -22,7 +25,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type ChoPrompts, createPrompts } from "@chojs/prompt";
 import { DEFAULTS, type Kind, type Runtime } from "./config.ts";
-import { cli_error } from "./errors.ts";
+import { cli_error } from "../errors.ts";
 import type { Flags } from "./flags.ts";
 import { name_mistake } from "./names.ts";
 
@@ -32,7 +35,7 @@ export type Answers = {
   name: string;
   /** The kind of the first project. */
   kind: Kind;
-  /** The runtime of the workspace. */
+  /** The runtime the workspace is installed with. */
   runtime: Runtime;
   /** The name of the first project. */
   project: string;

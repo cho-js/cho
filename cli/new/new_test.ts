@@ -32,16 +32,18 @@ const answers = (given: Partial<Answers> = {}): Answers => ({
   ...given,
 });
 
-/** The files of a web project on Deno, named `api`, in `apps`. */
-const DENO_FILES = [
+/** The files of a workspace with a project named `api`, in `apps`. */
+const FILES = [
   ".gitignore",
+  ".npmrc",
   "README.md",
   "apps/api/app.ts",
   "apps/api/app_test.ts",
-  "apps/api/deno.json",
   "apps/api/main.ts",
+  "apps/api/package.json",
+  "apps/api/tsconfig.json",
   "cho.json",
-  "deno.json",
+  "package.json",
 ];
 
 describe("create_workspace", () => {
@@ -53,16 +55,18 @@ describe("create_workspace", () => {
       assert.equal(result, 0);
       assert.deepEqual(output, {
         log: [
-          "Created shop (8 files)",
-          "\n  cd shop\n  deno install\n  cd apps/api\n  deno task dev",
+          "Created shop (10 files)",
+          "\n  cd shop\n  deno install\n  cd apps/api\n" +
+          "  deno run --allow-net --allow-env --watch main.ts",
         ],
         error: [],
       });
-      assert.deepEqual(await files_of(join(cwd, "shop")), DENO_FILES);
+      assert.deepEqual(await files_of(join(cwd, "shop")), FILES);
 
       const config = check_config(await read_json(cwd, "shop", "cho.json"));
       assert.deepEqual(config.projects, {
         api: {
+          type: "application",
           kind: "web",
           root: "apps/api",
           entry: "main.ts",
@@ -78,7 +82,7 @@ describe("create_workspace", () => {
       );
       assert.equal(result, 0);
       assert.deepEqual(output.log.slice(0, 2), [
-        "Created shop (8 files)",
+        "Created shop (10 files)",
         "Running git init --quiet",
       ]);
       assert.equal(existsSync(join(cwd, "shop", ".git")), true);
@@ -106,31 +110,70 @@ describe("create_workspace", () => {
       );
       assert.deepEqual(await files_of(cwd), []);
     }));
+
+  it("prints what it would write and run, and does nothing, for a dry run", () =>
+    with_folder(async (cwd) => {
+      const { result, output } = await capture(() =>
+        create_workspace(answers({ git: true, install: true }), cwd, true)
+      );
+      assert.equal(result, 0);
+      assert.deepEqual(output, {
+        log: [
+          "Dry run: nothing is written, and nothing is run.",
+          "\n" + [
+            "cho.json",
+            "package.json",
+            ".npmrc",
+            ".gitignore",
+            "README.md",
+            "apps/api/package.json",
+            "apps/api/tsconfig.json",
+            "apps/api/app.ts",
+            "apps/api/app_test.ts",
+            "apps/api/main.ts",
+          ].map((path) => `  create  shop/${path}`).join("\n") + "\n",
+          "Would run git init --quiet",
+          "Would run deno install",
+        ],
+        error: [],
+      });
+      assert.equal(existsSync(join(cwd, "shop")), false);
+    }));
+
+  it("refuses a folder that exists in a dry run too", () =>
+    with_folder(async (cwd) => {
+      await mkdir(join(cwd, "shop"));
+      await assert.rejects(
+        capture(() => create_workspace(answers(), cwd, true)),
+        (error) => isChoError(error, "CHO_CLI_TARGET_EXISTS"),
+      );
+    }));
 });
 
 describe("next_steps", () => {
   it("goes to the project, and runs it", () => {
     assert.equal(
       next_steps(answers(), true),
-      "  cd shop/apps/api\n  deno task dev",
+      "  cd shop/apps/api\n" +
+        "  deno run --allow-net --allow-env --watch main.ts",
     );
   });
 
   it("installs first, when the packages were not installed", () => {
     assert.equal(
       next_steps(answers({ runtime: "bun" }), false),
-      "  cd shop\n  bun install\n  cd apps/api\n  bun run dev",
+      "  cd shop\n  bun install\n  cd apps/api\n  bun --watch main.ts",
     );
   });
 
   it("starts a command-line tool with its first command", () => {
     assert.equal(
       next_steps(answers({ kind: "cli", project: "tool" }), true),
-      "  cd shop/apps/tool\n  deno task start hello",
+      "  cd shop/apps/tool\n  deno run --allow-env main.ts hello",
     );
     assert.equal(
       next_steps(answers({ kind: "cli", runtime: "node" }), true),
-      "  cd shop/apps/api\n  npm run start -- hello",
+      "  cd shop/apps/api\n  npx tsx main.ts hello",
     );
   });
 });
@@ -208,7 +251,7 @@ describe("cho new, as a command line", () => {
         log: [
           "Created tool (10 files)",
           "\n  cd tool\n  npm install\n  cd packages/tool\n" +
-          "  npm run start -- hello",
+          "  npx tsx main.ts hello",
         ],
         error: [],
       });
@@ -230,7 +273,19 @@ describe("cho new, as a command line", () => {
         "deno",
       );
       assert.equal(run.code, 0);
-      assert.deepEqual(await files_of(join(cwd, "shop")), DENO_FILES);
+      assert.deepEqual(await files_of(join(cwd, "shop")), FILES);
+    }));
+
+  it("writes nothing with --dry-run", () =>
+    with_folder(async (cwd) => {
+      const run = await cho_in(cwd, "new", "shop", "--yes", "--dry-run");
+      assert.equal(run.code, 0);
+      assert.equal(
+        run.log[0],
+        "Dry run: nothing is written, and nothing is run.",
+      );
+      assert.ok(run.log[1]!.startsWith("\n  create  shop/cho.json\n"));
+      assert.deepEqual(await files_of(cwd), []);
     }));
 
   it("prints the mistake of a flag, writes nothing, and exits with 1", () =>

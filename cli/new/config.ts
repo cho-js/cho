@@ -1,8 +1,10 @@
 /**
  * `cho.json`: the settings of a workspace, at its root.
  *
- * - The constants say what a workspace can be: its kinds, its runtimes.
- * - {@link make_config} makes the settings of a new workspace.
+ * - The constants say what a workspace can be: the types and the kinds of its
+ *   projects, its runtimes.
+ * - {@link make_config} makes the settings of a new workspace, and
+ *   {@link make_project} those of a new project.
  * - {@link check_config} checks what was read from a file.
  * - {@link config_schema} is the JSON Schema of the file, made from the same
  *   constants: `cho.schema.json` is its text.
@@ -10,7 +12,7 @@
  * @module
  */
 
-import { cli_error } from "./errors.ts";
+import { cli_error } from "../errors.ts";
 import { name_mistake, NAME_PATTERN } from "./names.ts";
 
 /** The name of the file. */
@@ -25,28 +27,52 @@ export const CONFIG_VERSION = 1;
  */
 export const SCHEMA_URL = `https://chojs.io/schema/cho.v${CONFIG_VERSION}.json`;
 
-/** The kinds of a project. */
+/**
+ * The types of a project. An application runs: it has an entry point. A
+ * library does not: other projects import it.
+ */
+export const TYPES = ["application", "library"] as const;
+
+/** The kinds of an application. */
 export const KINDS = ["web", "cli"] as const;
 
 /** The runtimes of a workspace. */
 export const RUNTIMES = ["deno", "node", "bun"] as const;
 
+/**
+ * The templates of a project: one for each kind of application, and one for
+ * a library.
+ */
+export const TEMPLATE_NAMES = [...KINDS, "library"] as const;
+
 /** What a field that is not written means. */
 export const DEFAULTS = {
   appsDir: "apps",
+  libsDir: "libs",
+  type: "application",
   entry: "main.ts",
   module: "app.ts",
+  /** `entry`, for a library. */
+  libraryEntry: "mod.ts",
 } as const;
 
-/** A kind of project: what it is built with. */
+/** A type of project: whether it runs. */
+export type ProjectType = typeof TYPES[number];
+
+/** A kind of application: what it is built with. */
 export type Kind = typeof KINDS[number];
 
-/** A runtime: what runs a workspace, and installs its packages. */
+/** A runtime: what installs a workspace, and runs its projects. */
 export type Runtime = typeof RUNTIMES[number];
 
-/** A project of a workspace. */
-export type ChoProject = {
-  /** What the project is. */
+/** The name of a template. */
+export type TemplateName = typeof TEMPLATE_NAMES[number];
+
+/** An application of a workspace. */
+export type ChoApplication = {
+  /** The type of the project. Default: `application`. */
+  type?: "application";
+  /** What the application is built with. */
   kind: Kind;
   /** The folder of the project, from the root of the workspace. */
   root: string;
@@ -59,26 +85,70 @@ export type ChoProject = {
   module?: string;
 };
 
+/** A library of a workspace. It has no kind, and no module. */
+export type ChoLibrary = {
+  /** The type of the project. */
+  type: "library";
+  /** The folder of the project, from the root of the workspace. */
+  root: string;
+  /** The file the library exports, from its folder. Default: `mod.ts`. */
+  entry?: string;
+};
+
+/** A project of a workspace. */
+export type ChoProject = ChoApplication | ChoLibrary;
+
+/** What a new project is: its type, and the kind of an application. */
+export type ProjectChoice =
+  | { type: "application"; kind: Kind }
+  | { type: "library" };
+
 /** The settings of a workspace: what `cho.json` holds. */
 export type ChoConfig = {
   /** The address of the schema, for an editor. */
   $schema?: string;
   /** The version of the format. */
   version: typeof CONFIG_VERSION;
-  /** The runtime of the workspace. */
+  /**
+   * The runtime the workspace is installed with. A workspace is the same on
+   * the three: this one is the tool `cho` installs it with.
+   */
   runtime: Runtime;
-  /** The folder a new project is created in. Default: `apps`. */
+  /** The folder a new application is created in. Default: `apps`. */
   appsDir?: string;
+  /** The folder a new library is created in. Default: `libs`. */
+  libsDir?: string;
   /** The projects, by name. */
   projects: Record<string, ChoProject>;
 };
 
 /**
- * The settings of a new workspace, with one project. Every field is written,
- * the ones with a default too.
+ * The settings of a new project. Every field is written, the ones with a
+ * default too.
  *
- * @param workspace The runtime, the folder of the projects, and the first
- *   project: its name and its kind.
+ * @param choice The type of the project, and the kind of an application.
+ * @param root The folder of the project, from the root of the workspace.
+ * @returns The settings.
+ */
+export function make_project(choice: ProjectChoice, root: string): ChoProject {
+  if (choice.type === "library") {
+    return { type: "library", root, entry: DEFAULTS.libraryEntry };
+  }
+  return {
+    type: "application",
+    kind: choice.kind,
+    root,
+    entry: DEFAULTS.entry,
+    module: DEFAULTS.module,
+  };
+}
+
+/**
+ * The settings of a new workspace, with one application. Every field is
+ * written, the ones with a default too.
+ *
+ * @param workspace The runtime, the folder of the applications, and the
+ *   first one: its name and its kind.
  * @returns The settings.
  */
 export function make_config(workspace: {
@@ -92,13 +162,12 @@ export function make_config(workspace: {
     version: CONFIG_VERSION,
     runtime: workspace.runtime,
     appsDir: workspace.appsDir,
+    libsDir: DEFAULTS.libsDir,
     projects: {
-      [workspace.project]: {
-        kind: workspace.kind,
-        root: `${workspace.appsDir}/${workspace.project}`,
-        entry: DEFAULTS.entry,
-        module: DEFAULTS.module,
-      },
+      [workspace.project]: make_project(
+        { type: "application", kind: workspace.kind },
+        `${workspace.appsDir}/${workspace.project}`,
+      ),
     },
   };
 }
@@ -106,9 +175,17 @@ export function make_config(workspace: {
 // Checking
 // -----------------------------------------------------------------------------
 
-/** The fields of the file, and those of a project. */
-const FIELDS = ["$schema", "version", "runtime", "appsDir", "projects"];
-const PROJECT_FIELDS = ["kind", "root", "entry", "module"];
+/** The fields of the file, of an application, and of a library. */
+const FIELDS = [
+  "$schema",
+  "version",
+  "runtime",
+  "appsDir",
+  "libsDir",
+  "projects",
+];
+const APPLICATION_FIELDS = ["type", "kind", "root", "entry", "module"];
+const LIBRARY_FIELDS = ["type", "root", "entry"];
 
 /** The error of a field that is not what it must be. */
 function invalid(field: string, what: string): Error {
@@ -176,9 +253,24 @@ function check_path(field: string, value: unknown, example: string): void {
   }
 }
 
-/** Check one project. */
+/**
+ * Check one project. Its type says which fields it has: a library has no
+ * `kind` and no `module`.
+ */
 function check_project(field: string, value: unknown): void {
-  const project = check_object(field, value, PROJECT_FIELDS);
+  const { type } = check_object(field, value);
+  if (type !== undefined && !(TYPES as readonly unknown[]).includes(type)) {
+    throw invalid(`${field}.type`, `must be ${one_of(TYPES)}`);
+  }
+  if (type === "library") {
+    const library = check_object(field, value, LIBRARY_FIELDS);
+    check_path(`${field}.root`, library.root, "libs/shared");
+    if (library.entry !== undefined) {
+      check_path(`${field}.entry`, library.entry, DEFAULTS.libraryEntry);
+    }
+    return;
+  }
+  const project = check_object(field, value, APPLICATION_FIELDS);
   if (!(KINDS as readonly unknown[]).includes(project.kind)) {
     throw invalid(`${field}.kind`, `must be ${one_of(KINDS)}`);
   }
@@ -188,6 +280,19 @@ function check_project(field: string, value: unknown): void {
   }
   if (project.module !== undefined) {
     check_path(`${field}.module`, project.module, DEFAULTS.module);
+  }
+}
+
+/** Check a folder of new projects: `appsDir`, `libsDir`. */
+function check_folder(field: string, value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  const mistake = typeof value === "string"
+    ? name_mistake(value)
+    : "It must be a text";
+  if (mistake) {
+    throw invalid(field, `not a name of a folder. ${mistake}`);
   }
 }
 
@@ -219,14 +324,8 @@ export function check_config(value: unknown): ChoConfig {
   if (!(RUNTIMES as readonly unknown[]).includes(config.runtime)) {
     throw invalid("runtime", `must be ${one_of(RUNTIMES)}`);
   }
-  if (config.appsDir !== undefined) {
-    const mistake = typeof config.appsDir === "string"
-      ? name_mistake(config.appsDir)
-      : "It must be a text";
-    if (mistake) {
-      throw invalid("appsDir", `not a name of a folder. ${mistake}`);
-    }
-  }
+  check_folder("appsDir", config.appsDir);
+  check_folder("libsDir", config.libsDir);
   if (config.projects === undefined) {
     throw invalid("projects", "must be an object");
   }
@@ -276,32 +375,49 @@ export function config_schema(): Record<string, unknown> {
       },
       runtime: {
         description:
-          "The runtime of the workspace: what runs its projects, and installs their packages.",
+          "The runtime the workspace is installed with. A workspace is the same on the three.",
         enum: [...RUNTIMES],
       },
       appsDir: {
-        description: "The folder a new project is created in.",
+        description: "The folder a new application is created in.",
         type: "string",
         pattern: NAME_PATTERN,
         default: DEFAULTS.appsDir,
+      },
+      libsDir: {
+        description: "The folder a new library is created in.",
+        type: "string",
+        pattern: NAME_PATTERN,
+        default: DEFAULTS.libsDir,
       },
       projects: {
         description: "The projects of the workspace, by name.",
         type: "object",
         propertyNames: { pattern: NAME_PATTERN },
-        additionalProperties: { $ref: "#/definitions/project" },
+        // A library says its type, so a project matches one of the two.
+        additionalProperties: {
+          oneOf: [
+            { $ref: "#/definitions/application" },
+            { $ref: "#/definitions/library" },
+          ],
+        },
       },
     },
     definitions: {
-      project: {
-        description: "A project of the workspace.",
+      application: {
+        description: "An application: a project that runs.",
         type: "object",
         required: ["kind", "root"],
         additionalProperties: false,
         properties: {
+          type: {
+            description: "The type of the project: it runs.",
+            const: "application",
+            default: DEFAULTS.type,
+          },
           kind: {
             description:
-              "What the project is: a web application (@chojs/web), or a command-line tool (@chojs/command).",
+              "What the application is: a web application (@chojs/web), or a command-line tool (@chojs/command).",
             enum: [...KINDS],
           },
           root: {
@@ -319,6 +435,29 @@ export function config_schema(): Record<string, unknown> {
               "The file that exports the root module of the project, as AppModule, from its folder.",
             type: "string",
             default: DEFAULTS.module,
+          },
+        },
+      },
+      library: {
+        description:
+          "A library: a project that does not run, and that others import.",
+        type: "object",
+        required: ["type", "root"],
+        additionalProperties: false,
+        properties: {
+          type: {
+            description: "The type of the project: other projects import it.",
+            const: "library",
+          },
+          root: {
+            description:
+              "The folder of the project, from the root of the workspace.",
+            type: "string",
+          },
+          entry: {
+            description: "The file the library exports, from its folder.",
+            type: "string",
+            default: DEFAULTS.libraryEntry,
           },
         },
       },

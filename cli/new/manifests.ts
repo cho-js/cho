@@ -1,57 +1,64 @@
 /**
- * The manifests of a workspace: what says, to each runtime, what the
- * workspace is, what a project depends on, and how it is run.
+ * The manifests of a workspace: what says what the workspace is, and what a
+ * project depends on.
  *
- * | Runtime | The workspace                | A project                           |
- * | ------- | ---------------------------- | ----------------------------------- |
- * | Deno    | `deno.json`                  | `deno.json`                         |
- * | Node.js | `package.json`, and `.npmrc` | `package.json`, and `tsconfig.json` |
- * | Bun     | The same as Node.js          | The same as Node.js                 |
+ * A workspace is the same on Deno, on Node.js and on Bun: the three read
+ * `package.json`, its `workspaces`, and `.npmrc`. So a workspace that was
+ * installed with one is installed with another the day after, and nothing
+ * here depends on the runtime.
  *
- * The packages of CHO are those of JSR on the three. npm and Bun read them
- * through the npm registry of JSR, which `.npmrc` names.
+ * | File            | Where        | What it holds                             |
+ * | --------------- | ------------ | ----------------------------------------- |
+ * | `package.json`  | The root     | The name, and the folders of the projects |
+ * | `.npmrc`        | The root     | The npm registry of JSR                   |
+ * | `package.json`  | Each project | Its name, and what it depends on          |
+ * | `tsconfig.json` | Each project | The settings of TypeScript                |
+ *
+ * The packages of CHO are those of JSR. The three tools read them through
+ * the npm registry of JSR, which `.npmrc` names.
+ *
+ * A project has no scripts: no one command runs it on the three. The
+ * `README.md` of a workspace has the command of each runtime (`plan.ts`).
  *
  * @module
  */
 
-import type { Kind, Runtime } from "./config.ts";
+import type { Kind } from "./config.ts";
+import { cli_error } from "../errors.ts";
 
-/** The package of CHO a project of each kind is built with. */
+/** The manifest of a workspace, and of a project. */
+export const MANIFEST = "package.json";
+
+/** The package of CHO an application of each kind is built with. */
 export const PACKAGES: Record<Kind, string> = {
   web: "@chojs/web",
   cli: "@chojs/command",
 };
 
 /**
- * The versions of what a workspace installs, that is not of CHO.
+ * The versions of what a project installs, that is not of CHO.
  *
  * - `tsx` runs TypeScript with decorators on Node.js, which does not.
- * - The types are for the editor.
+ * - `@types/node` is for the editor, and for Deno: it checks the types of a
+ *   test, which imports `node:test`.
  */
 export const VERSIONS = {
-  "tsx": "^4.20.0",
   "@types/node": "^24.0.0",
-  "@types/bun": "^1.3.0",
+  "tsx": "^4.20.0",
 } as const;
 
 /** The version of a new project. */
 const PROJECT_VERSION = "0.1.0";
 
-/** `.npmrc`: where npm and Bun find the packages of JSR. */
+/** `.npmrc`: where the three tools find the packages of JSR. */
 export const NPMRC = "@jsr:registry=https://npm.jsr.io\n";
 
-/** What a manifest is made from. */
+/** What the manifest of a project is made from. */
 export type ManifestInput = {
   /** The name of the workspace. */
-  name: string;
+  workspace: string;
   /** The name of the project. */
-  project: string;
-  /** The kind of the project. */
-  kind: Kind;
-  /** The runtime of the workspace. */
-  runtime: Runtime;
-  /** The folder of the projects. */
-  appsDir: string;
+  name: string;
   /** The version of `cho`: the one of the packages of CHO. */
   version: string;
 };
@@ -62,6 +69,17 @@ export function json_text(value: unknown): string {
 }
 
 /**
+ * The name of the package of a project: `@shop/api`. It is the name another
+ * project imports it by.
+ *
+ * @param workspace The name of the workspace.
+ * @param name The name of the project.
+ */
+export function package_name(workspace: string, name: string): string {
+  return `@${workspace}/${name}`;
+}
+
+/**
  * The name of a package of JSR in its npm registry: `@chojs/web` is
  * `@jsr/chojs__web`.
  */
@@ -69,111 +87,83 @@ function npm_name(jsr: string): string {
   return `@jsr/${jsr.slice(1).replace("/", "__")}`;
 }
 
-/** The permissions a project needs on Deno, to run. */
-function deno_permissions(kind: Kind): string {
-  // The packages of CHO read their debug settings in the environment.
-  return kind === "web" ? "--allow-net --allow-env" : "--allow-env";
-}
-
 /**
- * The tasks of a project: what runs it, what runs it again when a file
- * changes, and what tests it.
- */
-function tasks(kind: Kind, runtime: Runtime): Record<string, string> {
-  switch (runtime) {
-    case "deno": {
-      const run = `deno run ${deno_permissions(kind)}`;
-      return {
-        dev: `${run} --watch main.ts`,
-        start: `${run} main.ts`,
-        test: "deno test --allow-env",
-      };
-    }
-    case "node":
-      return {
-        dev: "tsx watch main.ts",
-        start: "tsx main.ts",
-        test: "tsx --test",
-      };
-    case "bun":
-      return {
-        dev: "bun --watch main.ts",
-        start: "bun main.ts",
-        test: "bun test",
-      };
-  }
-}
-
-/**
- * The manifest of the workspace: `deno.json` on Deno, `package.json` on
- * Node.js and on Bun.
+ * The manifest of a workspace.
  *
- * @param input The names, and the runtime.
+ * @param name The name of the workspace.
+ * @param folders The folders of its projects: `apps`, `libs`. One that has
+ *   no project yet is not a mistake.
  * @returns The manifest.
  */
-export function workspace_manifest(input: ManifestInput): unknown {
-  if (input.runtime === "deno") {
-    return { workspace: [`./${input.appsDir}/${input.project}`] };
-  }
+export function workspace_manifest(
+  name: string,
+  folders: readonly string[],
+): unknown {
   return {
-    name: input.name,
+    name,
     private: true,
     type: "module",
-    workspaces: [`${input.appsDir}/*`],
+    workspaces: [...new Set(folders)].map((folder) => `${folder}/*`),
   };
 }
 
 /**
- * The manifest of a project: its name, the package of CHO it depends on, and
- * its tasks.
+ * The manifest of an application: its name, and the package of CHO it is
+ * built with.
  *
- * @param input The names, the kind, the runtime and the version of CHO.
+ * @param input The names, and the version of CHO.
+ * @param kind The kind of the application.
  * @returns The manifest.
  */
-export function project_manifest(input: ManifestInput): unknown {
-  const name = `@${input.name}/${input.project}`;
-  const cho = PACKAGES[input.kind];
-  const range = `^${input.version}`;
-
-  if (input.runtime === "deno") {
-    return {
-      name,
-      version: PROJECT_VERSION,
-      // Deno wants one of a package that has a name: the module of the
-      // application is what another project would import.
-      exports: "./app.ts",
-      imports: { [cho]: `jsr:${cho}@${range}` },
-      tasks: tasks(input.kind, "deno"),
-    };
-  }
+export function application_manifest(
+  input: ManifestInput,
+  kind: Kind,
+): unknown {
+  const cho = PACKAGES[kind];
   return {
-    name,
+    name: package_name(input.workspace, input.name),
     version: PROJECT_VERSION,
     private: true,
     type: "module",
-    scripts: tasks(input.kind, input.runtime),
-    dependencies: { [cho]: `npm:${npm_name(cho)}@${range}` },
-    devDependencies: input.runtime === "node"
-      ? { "@types/node": VERSIONS["@types/node"], tsx: VERSIONS.tsx }
-      : { "@types/bun": VERSIONS["@types/bun"] },
+    dependencies: { [cho]: `npm:${npm_name(cho)}@^${input.version}` },
+    devDependencies: VERSIONS,
   };
 }
 
 /**
- * `tsconfig.json` of a project, on Node.js and on Bun. It is for the editor,
- * and for a type check: nothing is compiled to a folder, and the files import
- * each other with their `.ts` extension.
+ * The manifest of a library: its name, and the file it exports. It depends
+ * on no package of CHO.
  *
- * - `types` names the types of the runtime. TypeScript loads no types that
- *   are not named.
+ * @param input The names.
+ * @param entry The file the library exports, from its folder.
+ * @returns The manifest.
+ */
+export function library_manifest(input: ManifestInput, entry: string): unknown {
+  return {
+    name: package_name(input.workspace, input.name),
+    version: PROJECT_VERSION,
+    private: true,
+    type: "module",
+    exports: `./${entry}`,
+    devDependencies: VERSIONS,
+  };
+}
+
+/**
+ * `tsconfig.json` of a project. It is for the editor, and for a type check:
+ * nothing is compiled to a folder, and the files import each other with
+ * their `.ts` extension.
+ *
+ * - `types` names the types of Node.js: the templates use `node:` modules,
+ *   which the three runtimes have. TypeScript loads no types that are not
+ *   named.
  * - The file is in the folder of the project, not at the root: Bun installs
  *   the packages of a project in its folder, and TypeScript looks for the
  *   types from where the file is.
  *
- * @param runtime The runtime of the workspace: `node` or `bun`.
  * @returns The settings.
  */
-export function tsconfig(runtime: "node" | "bun"): unknown {
+export function tsconfig(): unknown {
   return {
     compilerOptions: {
       target: "ES2022",
@@ -184,14 +174,42 @@ export function tsconfig(runtime: "node" | "bun"): unknown {
       noEmit: true,
       strict: true,
       skipLibCheck: true,
-      types: [runtime],
+      types: ["node"],
     },
   };
 }
 
-/** What runs a task of a project, from its folder, on each runtime. */
-export const RUN_TASK: Record<Runtime, string> = {
-  deno: "deno task",
-  node: "npm run",
-  bun: "bun run",
-};
+/**
+ * The manifest of a workspace, with the folder of a project among its
+ * `workspaces`.
+ *
+ * @param manifest The manifest of the workspace, as it was read.
+ * @param root The folder of the project, from the root: `libs/shared`.
+ * @returns The manifest to write, or `undefined` when a pattern of
+ *   `workspaces` has the project already: the file is not changed.
+ * @throws {ChoError} `CHO_CLI_INVALID_MANIFEST` when `workspaces` is not a
+ *   list of folders.
+ */
+export function with_member(
+  manifest: Record<string, unknown>,
+  root: string,
+): Record<string, unknown> | undefined {
+  const { workspaces } = manifest;
+  if (
+    !Array.isArray(workspaces) ||
+    workspaces.some((one) => typeof one !== "string")
+  ) {
+    throw cli_error(
+      "CHO_CLI_INVALID_MANIFEST",
+      `${MANIFEST}: workspaces: must be a list of folders, such as ` +
+        `["apps/*"]. Nothing was written.`,
+    );
+  }
+  // `libs/shared` is in `libs/*`, and in `libs/shared`
+  const folder = root.slice(0, root.lastIndexOf("/"));
+  const patterns = workspaces.map((one: string) => one.replace(/^\.\//, ""));
+  if (patterns.includes(`${folder}/*`) || patterns.includes(root)) {
+    return undefined;
+  }
+  return { ...manifest, workspaces: [...workspaces, `${folder}/*`] };
+}

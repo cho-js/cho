@@ -300,4 +300,4 @@ the `version` of a `deno.json` or a `CHANGELOG.md` by hand.
 2. Merging that pull request tags a GitHub release for each package, and
    publishes it to [JSR](https://jsr.io/@chojs).
 3. The command-line tool is also sent to npm, where it waits: a maintainer
-   approves it there, and only then it is public (`cli/specs.md`, section 7.2).
+   approves it there, and only then it is public (`cli/specs.md`, section 8.2).

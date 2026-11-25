@@ -9,7 +9,8 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { GIT_INIT, INSTALL, run } from "./steps.ts";
+import { capture } from "@chojs/core/utils/test_utils";
+import { GIT_INIT, INSTALL, print_dry_run, run, run_steps } from "./steps.ts";
 import { with_folder } from "./testing.ts";
 
 describe("run", () => {
@@ -30,6 +31,40 @@ describe("run", () => {
     with_folder(async (folder) => {
       assert.equal(await run("cho-no-such-program --version", folder), false);
     }));
+});
+
+describe("run_steps", () => {
+  it("runs each step under a line that names it, and gives the ones that failed", () =>
+    with_folder(async (folder) => {
+      const { result, output } = await capture(() =>
+        run_steps(["false", GIT_INIT, "cho-no-such-program"], folder)
+      );
+      // a step that fails does not stop the next one
+      assert.deepEqual(result, ["false", "cho-no-such-program"]);
+      assert.deepEqual(output.log, [
+        "Running false",
+        `Running ${GIT_INIT}`,
+        "Running cho-no-such-program",
+      ]);
+      assert.equal(existsSync(join(folder, ".git")), true);
+    }));
+});
+
+describe("print_dry_run", () => {
+  it("prints the files that would be written, and the steps that would run", async () => {
+    const { output } = await capture(() =>
+      print_dry_run([
+        { kind: "folder", path: "libs" },
+        { kind: "create", path: "libs/mod.ts", text: "" },
+        { kind: "update", path: "cho.json", text: "" },
+      ], ["npm install"])
+    );
+    assert.deepEqual(output.log, [
+      "Dry run: nothing is written, and nothing is run.",
+      "\n  create  libs/mod.ts\n  update  cho.json\n",
+      "Would run npm install",
+    ]);
+  });
 });
 
 describe("the commands of the steps", () => {

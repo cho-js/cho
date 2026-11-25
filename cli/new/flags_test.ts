@@ -18,6 +18,7 @@ const args = (given: Record<string, unknown> = {}): ChoArgs => ({
   y: false,
   git: true,
   install: true,
+  "dry-run": false,
   ...given,
 });
 
@@ -44,6 +45,7 @@ describe("read_flags", () => {
       git: true,
       install: true,
       yes: false,
+      dryRun: false,
     });
   });
 
@@ -58,6 +60,7 @@ describe("read_flags", () => {
       install: false,
       yes: true,
       y: true,
+      "dry-run": true,
     }));
     assert.deepEqual(flags, {
       name: "shop",
@@ -68,6 +71,7 @@ describe("read_flags", () => {
       git: false,
       install: false,
       yes: true,
+      dryRun: true,
     });
   });
 
