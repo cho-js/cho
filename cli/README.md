@@ -48,10 +48,11 @@ $ cho
 Usage: cho <command> [options] [args]
 
 Commands:
-  new    Create a new workspace, with a first project
-    add    Add a project to the workspace: an application, or a library
-  serve  Run an application of the workspace
-  help   Show the help of cho, or of one of its commands
+  new       Create a new workspace, with a first project
+  add       Add a project to the workspace: an application, or a library
+    serve     Run an application of the workspace
+  generate  Write a part of an application: a controller, a service or a module
+  help      Show the help of cho, or of one of its commands
 
 Options:
   --help     Show this help
@@ -60,16 +61,17 @@ Options:
 Run 'cho <command> --help' for help on a command.
 ```
 
-| Command line           | What it does                                     |
-| ---------------------- | ------------------------------------------------ |
-| `cho`, `cho --help`    | Prints the help of the tool: every command       |
-| `cho help`             | The same                                         |
-| `cho help <command>`   | Prints the help of one command, and its options  |
-| `cho <command> --help` | The same                                         |
-| `cho --version`        | Prints the version of the tool: `cho version 3…` |
-| `cho new [name]`       | Creates a workspace: see below                   |
-| `cho add [name]`       | Adds a project to a workspace: see below         |
-| `cho serve [project]`  | Runs an application of a workspace: see below    |
+| Command line                 | What it does                                          |
+| ---------------------------- | ----------------------------------------------------- |
+| `cho`, `cho --help`          | Prints the help of the tool: every command            |
+| `cho help`                   | The same                                              |
+| `cho help <command>`         | Prints the help of one command, and its options       |
+| `cho <command> --help`       | The same                                              |
+| `cho --version`              | Prints the version of the tool: `cho version 3…`      |
+| `cho new [name]`             | Creates a workspace: see below                        |
+| `cho add [name]`             | Adds a project to a workspace: see below              |
+| `cho serve [project]`        | Runs an application of a workspace: see below         |
+| `cho generate [part] [name]` | Writes a controller, a service or a module: see below |
 
 The exit code is `0`, and `1` for a command the tool does not have. `cho serve`
 ends with the exit code of the project it ran.
@@ -234,7 +236,7 @@ manifests do not say.
 
 Its JSON Schema is [`cho.schema.json`](./new/cho.schema.json): an editor
 completes the fields, and marks a mistake. The
-[specification](./specs.md#6-chojson) describes each field.
+[specification](./specs.md#7-chojson) describes each field.
 
 ## `cho serve`
 
@@ -275,6 +277,61 @@ cho serve tool -- hello --name Ada    # a command-line tool, with its arguments
 - It prints one line, `Running <command>`, on the error output: the output of
   the project is its own.
 
+## `cho generate`
+
+Writes a part of an application, in a file of its own: a controller, a service,
+or a module. It is run in the workspace, or in any folder under it.
+
+```console
+$ cho generate
+✔ What are you generating? · A controller
+✔ Name · users
+✔ Project · api
+✔ Folder · apps/api
+Created apps/api/users.ts, apps/api/users_test.ts
+
+Nothing uses it yet. Add it to a module, as the one of apps/api/app.ts:
+
+  import { Users } from "./users.ts";
+
+  @Module({ controllers: [Users] })
+```
+
+| Part         | Files                         | The class has                   |
+| ------------ | ----------------------------- | ------------------------------- |
+| `controller` | `<name>.ts`, `<name>_test.ts` | `@Controller`, and one endpoint |
+| `service`    | `<name>.ts`, `<name>_test.ts` | `@Injectable`, and one method   |
+| `module`     | `<name>.ts`                   | `@Module({})`                   |
+
+| On the command line | Answers                                    | Default                       |
+| ------------------- | ------------------------------------------ | ----------------------------- |
+| `<part>`            | `controller`, `service` or `module`        | None: it is asked             |
+| `<name>`            | The name of the file, and of the class     | None: it is asked             |
+| `--project <name>`  | The application the part is for            | The one of the current folder |
+| `--path <folder>`   | The folder, from the root of the workspace | The folder of the project     |
+| `--yes`, `-y`       | Takes the default of every question        |                               |
+| `--dry-run`         | Prints what it would write, and does not   |                               |
+
+```sh
+cho generate controller users                 # users.ts: the class Users
+cho generate service userStore --yes          # user-store.ts: the class UserStore
+cho generate module orders --path apps/api/orders
+```
+
+- **No type is added to a name.** `users` is the file `users.ts` and the class
+  `Users`. `userProfile`, `UserProfile` and `user-profile` are the file
+  `user-profile.ts` and the class `UserProfile`.
+- **It writes new files, and changes none.** The part is not added to a module:
+  the command says what to add, and where.
+- **A file that exists is refused**, and nothing is replaced.
+- **The folder is one of the project**: its folder, or one under it. Folders
+  that do not exist are created.
+- **The decorators come from the package of the project**: `@chojs/web` in a web
+  application, `@chojs/command` in a command-line tool. A library has none, and
+  is refused.
+- **The test of a part calls its method.** It runs with the tests of the
+  project.
+
 ## Two packages, one tool
 
 The packages of CHO are published to [JSR](https://jsr.io/@chojs), as
@@ -306,16 +363,17 @@ npx tsx cli/main.ts --help                # Node.js
 bun cli/main.ts --help                    # Bun
 ```
 
-| File                   | What it is                                        |
-| ---------------------- | ------------------------------------------------- |
-| [`main.ts`](./main.ts) | The entry point: runs the command line, and exits |
-| [`app.ts`](./app.ts)   | The root module, and `run_cli`: one command line  |
-| [`help.ts`](./help.ts) | The `help` command                                |
-| [`new/`](./new)        | The `new` command, and what the commands share    |
-| [`add/`](./add)        | The `add` command                                 |
-| [`serve/`](./serve)    | The `serve` command                               |
-| [`tree.ts`](./tree.ts) | The tree: how a command writes files              |
-| [`npm.ts`](./npm.ts)   | The build of the npm package                      |
+| File                      | What it is                                        |
+| ------------------------- | ------------------------------------------------- |
+| [`main.ts`](./main.ts)    | The entry point: runs the command line, and exits |
+| [`app.ts`](./app.ts)      | The root module, and `run_cli`: one command line  |
+| [`help.ts`](./help.ts)    | The `help` command                                |
+| [`new/`](./new)           | The `new` command, and what the commands share    |
+| [`add/`](./add)           | The `add` command                                 |
+| [`serve/`](./serve)       | The `serve` command                               |
+| [`generate/`](./generate) | The `generate` command, and its templates         |
+| [`tree.ts`](./tree.ts)    | The tree: how a command writes files              |
+| [`npm.ts`](./npm.ts)      | The build of the npm package                      |
 
 The tool is an application of CHO, written as one would be: a command is a
 method of a controller, and calls plain functions from top to bottom. `new` is
@@ -341,15 +399,17 @@ await commit(tree);
 
 The templates of `cho new` are the folders of
 [`new/templates/`](./new/templates): real projects, checked and tested with the
-repository. The tool holds them as text, in `new/templates.gen.ts`, and the
-schema of `cho.json` is made from the constants of
-[`new/config.ts`](./new/config.ts). After a change to either:
+repository. Those of `cho generate` are in
+[`generate/templates/`](./generate/templates), a folder for each part. The tool
+holds them all as text, in the two `templates.gen.ts`, and the schema of
+`cho.json` is made from the constants of [`new/config.ts`](./new/config.ts).
+After a change to any of them:
 
 ```sh
-deno task --cwd cli gen   # writes templates.gen.ts and cho.schema.json
+deno task --cwd cli gen   # writes the files that are made from others
 ```
 
-A test fails when one of the two was not written again.
+A test fails when one of them was not written again.
 
 A new command is a controller with an `@Action`, added to a module of
 [`app.ts`](./app.ts). Its tests call `run_cli`, and check the exit code and what

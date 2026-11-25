@@ -26,6 +26,25 @@ function names_of(names: readonly string[]): string {
 }
 
 /**
+ * The project a folder is in: the one whose folder it is, or is under. The
+ * deepest one, when a project is in the folder of another.
+ *
+ * @param config The settings of the workspace.
+ * @param inside The folder, from the root of the workspace, with `/`: `""`
+ *   at the root.
+ * @returns The name of the project, or `undefined` when the folder is in
+ *   none.
+ */
+export function project_at(
+  config: ChoConfig,
+  inside: string,
+): string | undefined {
+  return Object.entries(config.projects)
+    .filter(([, { root }]) => inside === root || inside.startsWith(`${root}/`))
+    .sort(([, a], [, b]) => b.root.length - a.root.length)[0]?.[0];
+}
+
+/**
  * The project to run.
  *
  * 1. The one that is named.
@@ -54,16 +73,8 @@ export function pick_project(
     .filter(([, project]) => project.type !== "library")
     .map(([name]) => name);
 
-  let picked = name;
-  if (picked === undefined) {
-    // the project the current folder is in: the deepest one, if two are
-    const here = projects
-      .filter(([, { root }]) =>
-        inside === root || inside.startsWith(`${root}/`)
-      )
-      .sort(([, a], [, b]) => b.root.length - a.root.length)[0];
-    picked = here?.[0] ?? (applications.length === 1 ? applications[0] : name);
-  }
+  const picked = name ?? project_at(config, inside) ??
+    (applications.length === 1 ? applications[0] : undefined);
   if (picked === undefined) {
     throw cli_error(
       "CHO_CLI_UNKNOWN_PROJECT",

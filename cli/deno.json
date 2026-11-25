@@ -14,6 +14,7 @@
       "./npm/",
       "./new/gen.ts",
       "./new/templates/",
+      "./generate/templates/",
       "./new/testing.ts"
     ]
   }

@@ -12,7 +12,7 @@
 
 import { ChoError, isChoError } from "@chojs/command";
 
-/** The codes of the errors of the tool. `specs.md`, section 11, has each. */
+/** The codes of the errors of the tool. `specs.md`, section 12, has each. */
 export type ChoCliErrorCode =
   | "CHO_CLI_INVALID_CONFIG"
   | "CHO_CLI_INVALID_MANIFEST"
