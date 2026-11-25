@@ -31,7 +31,7 @@ import { commit, disk_host, Tree } from "../tree.ts";
 import { type Answers, ask_answers } from "./answers.ts";
 import { cli_error, print_error } from "../errors.ts";
 import { NEW_FLAGS, read_flags } from "./flags.ts";
-import { plan_workspace, serve_line } from "./plan.ts";
+import { needs_line, plan_workspace, serve_line } from "./plan.ts";
 import { GIT_INIT, INSTALL, print_dry_run, run_steps } from "./steps.ts";
 
 /**
@@ -41,14 +41,17 @@ import { GIT_INIT, INSTALL, print_dry_run, run_steps } from "./steps.ts";
  * @param answers The answers.
  * @param installed Whether the packages were installed. When they were not,
  *   the first command installs them.
- * @returns The lines, indented.
+ * @returns The lines, indented; then, for an application that needs
+ *   something the workspace does not have, a line that says what.
  */
 export function next_steps(answers: Answers, installed: boolean): string {
   const { name, project, runtime, kind } = answers;
   const lines = installed ? [`cd ${name}`] : [`cd ${name}`, INSTALL[runtime]];
   // `cho serve` runs from any folder of the workspace, on its runtime
   lines.push(serve_line(project, kind));
-  return lines.map((line) => `  ${line}`).join("\n");
+  const steps = lines.map((line) => `  ${line}`).join("\n");
+  const needs = needs_line(project, kind);
+  return needs === undefined ? steps : `${steps}\n\n${needs}`;
 }
 
 /**

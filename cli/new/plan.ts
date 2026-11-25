@@ -28,6 +28,7 @@ import {
   type Runtime,
 } from "./config.ts";
 import {
+  ADAPTERS,
   application_manifest,
   json_text,
   library_manifest,
@@ -54,7 +55,11 @@ const GITIGNORE = "node_modules/\n.env\n";
 const KIND_NAMES: Record<Kind, string> = {
   web: "A web application",
   cli: "A command-line tool",
+  message: "A message consumer",
 };
+
+/** The address of Kafka a message application reads from by default. */
+const KAFKA = "localhost:9092";
 
 /** The names of the runtimes. */
 export const RUNTIME_NAMES: Record<Runtime, string> = {
@@ -76,8 +81,8 @@ export type Command = { program: string; args: string[] };
  * | Bun     | `bun`                                                    |
  *
  * On Deno, the permissions are `--allow-env` for a package of CHO, which
- * reads its debug settings there, and `--allow-net` for a kind that uses the
- * network.
+ * reads its debug settings there, `--allow-net` for a kind that uses the
+ * network, and `--allow-read` for one that reads files.
  *
  * @param runtime The runtime.
  * @param project The application, as `cho.json` has it.
@@ -94,9 +99,12 @@ export function run_command(
   const rest = [entry, ...(options.args ?? [])];
   switch (runtime) {
     case "deno": {
-      const permissions = KIND_TRAITS[project.kind].net
-        ? ["--allow-net", "--allow-env"]
-        : ["--allow-env"];
+      const traits = KIND_TRAITS[project.kind];
+      const permissions = [
+        ...(traits.net ? ["--allow-net"] : []),
+        "--allow-env",
+        ...(traits.read ? ["--allow-read"] : []),
+      ];
       const watch = options.watch ? ["--watch"] : [];
       return {
         program: "deno",
@@ -188,6 +196,57 @@ export function serve_line(name: string, kind: Kind): string {
 }
 
 /**
+ * What an application needs to run, that the workspace does not have: said
+ * under the command that runs it. A message application needs Kafka.
+ *
+ * @param name The name of the project.
+ * @param kind The kind of the application.
+ * @returns The line, or `undefined` for a kind that needs nothing.
+ */
+export function needs_line(name: string, kind: Kind): string | undefined {
+  return kind === "message"
+    ? `${name} reads from Kafka, at ${KAFKA}: the variable KAFKA_BROKERS ` +
+      "names another address."
+    : undefined;
+}
+
+/**
+ * The section of the `README.md` of a workspace for what its application
+ * needs to run: Kafka, for a message application.
+ *
+ * @param name The name of the project.
+ * @param kind The kind of the application.
+ * @returns The section, with an empty line after it; nothing for a kind
+ *   that needs nothing.
+ */
+function needs_section(name: string, kind: Kind): string {
+  if (kind !== "message") {
+    return "";
+  }
+  return `## Kafka
+
+\`${name}\` handles the messages of the topic \`${name}.hello\`. It reads
+them from Kafka, at \`${KAFKA}\`: the variable \`KAFKA_BROKERS\` names another
+address (\`host:port\`, with a \`,\` between two).
+
+A broker for a development machine, in Docker:
+
+\`\`\`sh
+docker run --rm --name kafka -p 9092:9092 apache/kafka:4.1.0
+\`\`\`
+
+- The application does not create its topics: create them, or let the broker
+  do it (\`auto.create.topics.enable\`).
+- A message of the topic is JSON: \`{"name":"Ada"}\` prints \`Hello, Ada!\`.
+- The tests need no broker: they give the application messages of their own.
+
+The adapter is \`${ADAPTERS.message}\`, in \`main.ts\`: its options (the
+group, the retries, the dead letters) are in its documentation.
+
+`;
+}
+
+/**
  * The files of one project: its manifest, its `tsconfig.json`, and the files
  * of its template.
  *
@@ -252,7 +311,7 @@ A [CHO](https://chojs.io) workspace. It was created by \`cho new\`, of CHO
 ${version}.
 
 - \`${project.root}/\`: ${KIND_NAMES[kind].toLowerCase()}, built with
-  \`${PACKAGES[kind]}\`.
+  \`${PACKAGES[kind]}\`${ADAPTERS[kind] ? `, on \`${ADAPTERS[kind]}\`` : ""}.
 - \`${MANIFEST}\`: the workspace, and the folders of its projects.
 - \`${CONFIG_FILE}\`: the settings of the workspace, read by \`cho\`.
 
@@ -271,7 +330,9 @@ ${serve_line(answers.project, kind)}
 \`cho serve\` runs the project on the runtime of the workspace, from any folder
 of it, and \`--runtime\` picks another one for a run.
 
-Without \`cho\`: a project has no scripts, since each runtime runs it with its
+${
+    needs_section(answers.project, kind)
+  }Without \`cho\`: a project has no scripts, since each runtime runs it with its
 own command. On each, the first command installs the packages, at the root of
 the workspace. The others run in \`${project.root}/\`: they run the project,
 run it again when a file changes, and run its tests.

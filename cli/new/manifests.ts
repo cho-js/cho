@@ -33,6 +33,15 @@ export const MANIFEST = "package.json";
 export const PACKAGES: Record<Kind, string> = {
   web: "@chojs/web",
   cli: "@chojs/command",
+  message: "@chojs/message",
+};
+
+/**
+ * The adapter an application of a kind is connected with, when it needs
+ * one: a package of CHO too. A message application reads from Kafka.
+ */
+export const ADAPTERS: Partial<Record<Kind, string>> = {
+  message: "@chojs/vendor-kafka",
 };
 
 /**
@@ -108,8 +117,8 @@ export function workspace_manifest(
 }
 
 /**
- * The manifest of an application: its name, and the package of CHO it is
- * built with.
+ * The manifest of an application: its name, and the packages of CHO it is
+ * built with: the one of its kind, and its adapter when it has one.
  *
  * @param input The names, and the version of CHO.
  * @param kind The kind of the application.
@@ -119,13 +128,16 @@ export function application_manifest(
   input: ManifestInput,
   kind: Kind,
 ): unknown {
-  const cho = PACKAGES[kind];
+  const packages = [PACKAGES[kind], ADAPTERS[kind]]
+    .filter((one) => one !== undefined);
   return {
     name: package_name(input.workspace, input.name),
     version: PROJECT_VERSION,
     private: true,
     type: "module",
-    dependencies: { [cho]: `npm:${npm_name(cho)}@^${input.version}` },
+    dependencies: Object.fromEntries(
+      packages.map((cho) => [cho, `npm:${npm_name(cho)}@^${input.version}`]),
+    ),
     devDependencies: VERSIONS,
   };
 }

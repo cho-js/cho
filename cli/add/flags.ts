@@ -26,7 +26,7 @@ export const ADD_FLAGS = {
   default: { install: true },
   describe: {
     type: `What the project is: ${TYPES.join(" or ")}`,
-    kind: `What an application is built with: ${KINDS.join(" or ")}`,
+    kind: `What an application is built with: ${KINDS.join(", ")}`,
     install: "Install the packages",
     yes: "Take the default of every question",
     "dry-run": "Print what would be written, and write nothing",

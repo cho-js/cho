@@ -58,7 +58,7 @@ Options:
   --[no-]git          Run git init (default: true)
   --[no-]install      Install the packages (default: true)
   --dry-run           Print what would be written, and write nothing
-  --kind <value>      What the project is: web or cli
+  --kind <value>      What the project is: web, cli, message
   --runtime <value>   The runtime that installs the workspace: deno, node, bun
   --project <value>   The name of the project
   --apps-dir <value>  The folder of the projects
@@ -83,7 +83,7 @@ Options:
   --[no-]install  Install the packages (default: true)
   --dry-run       Print what would be written, and write nothing
   --type <value>  What the project is: application or library
-  --kind <value>  What an application is built with: web or cli
+  --kind <value>  What an application is built with: web, cli, message
   --help          Show this help
   --version       Show the version`;
 

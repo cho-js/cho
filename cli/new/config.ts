@@ -34,7 +34,7 @@ export const SCHEMA_URL = `https://chojs.io/schema/cho.v${CONFIG_VERSION}.json`;
 export const TYPES = ["application", "library"] as const;
 
 /** The kinds of an application. */
-export const KINDS = ["web", "cli"] as const;
+export const KINDS = ["web", "cli", "message"] as const;
 
 /** The runtimes of a workspace. */
 export const RUNTIMES = ["deno", "node", "bun"] as const;
@@ -49,6 +49,8 @@ export const TEMPLATE_NAMES = [...KINDS, "library"] as const;
  * What an application of each kind needs, to be run.
  *
  * - `net`: it uses the network. On Deno, it is run with `--allow-net`.
+ * - `read`: what it is built with reads files. On Deno, it is run with
+ *   `--allow-read`: the client library of Kafka reads one when it loads.
  * - `stays`: it stays up until it is stopped, as a server does. It is run
  *   again when a file changes. A kind that does not stay runs, and ends.
  *
@@ -56,10 +58,11 @@ export const TEMPLATE_NAMES = [...KINDS, "library"] as const;
  */
 export const KIND_TRAITS: Record<
   typeof KINDS[number],
-  { net: boolean; stays: boolean }
+  { net: boolean; read: boolean; stays: boolean }
 > = {
-  web: { net: true, stays: true },
-  cli: { net: false, stays: false },
+  web: { net: true, read: false, stays: true },
+  cli: { net: false, read: false, stays: false },
+  message: { net: true, read: true, stays: true },
 };
 
 /** What a field that is not written means. */

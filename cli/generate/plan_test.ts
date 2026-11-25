@@ -13,6 +13,12 @@ import { PART_TEMPLATES } from "./templates.gen.ts";
 
 const web = make_project({ type: "application", kind: "web" }, "apps/api");
 const tool = make_project({ type: "application", kind: "cli" }, "apps/tool");
+const worker = make_project(
+  { type: "application", kind: "message" },
+  "apps/worker",
+);
+/** A project of each kind. */
+const PROJECTS = { web, cli: tool, message: worker };
 
 const generation = (given: Partial<Generation> = {}): Generation => ({
   part: "controller",
@@ -91,10 +97,37 @@ describe("part_files", () => {
     ]);
   });
 
+  it("writes a controller of a message application: a topic, and its test", () => {
+    const files = plan({ name: "orderEvents", folder: "apps/worker" }, worker);
+    assert.deepEqual(Object.keys(files), [
+      "apps/worker/order-events.ts",
+      "apps/worker/order-events_test.ts",
+    ]);
+    const text = files["apps/worker/order-events.ts"]!;
+    assert.match(
+      text,
+      /^import \{ Controller, Subscribe \} from "@chojs\/message";$/m,
+    );
+    // the name of the file is the topic of the controller
+    assert.match(text, /^@Controller\(\{ topic: "order-events" \}\)$/m);
+    assert.match(text, /^export class OrderEvents \{$/m);
+    assert.match(text, /^ {2}@Subscribe\("hello"\)$/m);
+  });
+
+  it("takes the service and the module of a message application from its package", () => {
+    for (const part of ["service", "module"] as const) {
+      const files = plan({ part, folder: "apps/worker" }, worker);
+      assert.match(
+        files["apps/worker/users.ts"]!,
+        /^import \{ \w+ \} from "@chojs\/message";$/m,
+      );
+    }
+  });
+
   for (const kind of KINDS) {
     for (const part of PARTS) {
       it(`${part} of ${kind}: the template, with its two names, and no marker left`, () => {
-        const project = kind === "web" ? web : tool;
+        const project = PROJECTS[kind];
         const files = plan({ part, name: "userProfile" }, project);
         const template = PART_TEMPLATES[kind][part];
         assert.equal(Object.keys(files).length, Object.keys(template).length);

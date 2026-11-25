@@ -48,7 +48,22 @@ export type Answers = {
 };
 
 /** The name a project has by default, for each kind. */
-export const PROJECT_NAMES: Record<Kind, string> = { web: "api", cli: "cli" };
+export const PROJECT_NAMES: Record<Kind, string> = {
+  web: "api",
+  cli: "cli",
+  message: "worker",
+};
+
+/** The kinds of an application, as the choices of a question. */
+export const KIND_CHOICES: { value: Kind; label: string; hint: string }[] = [
+  { value: "web", label: "A web application", hint: "@chojs/web" },
+  { value: "cli", label: "A command-line tool", hint: "@chojs/command" },
+  {
+    value: "message",
+    label: "A message consumer",
+    hint: "@chojs/message, on Kafka",
+  },
+];
 
 /**
  * The runtime `cho` is running on: the default of the question. A tool that
@@ -126,10 +141,7 @@ export async function ask_answers(
   if (kind === undefined) {
     kind = yes ? "web" : await ask.select({
       message: "What are you building?",
-      choices: [
-        { value: "web", label: "A web application", hint: "@chojs/web" },
-        { value: "cli", label: "A command-line tool", hint: "@chojs/command" },
-      ],
+      choices: KIND_CHOICES,
     });
   }
 

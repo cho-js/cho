@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import process from "node:process";
 import { describe, it } from "node:test";
 import { capture } from "@chojs/core/utils/test_utils";
 import { isChoError } from "@chojs/command";
@@ -18,6 +19,7 @@ import {
   run,
   run_program,
   run_steps,
+  spawn_plan,
 } from "./steps.ts";
 import { with_folder } from "./testing.ts";
 
@@ -58,6 +60,53 @@ describe("run_steps", () => {
     }));
 });
 
+describe("spawn_plan", () => {
+  const ARGS = ["tsx", "main.ts", "Ada Lovelace"];
+
+  it("starts a program as it is, with its arguments as they are", () => {
+    for (const platform of ["linux", "darwin", "win32"]) {
+      assert.deepEqual(spawn_plan("deno", ["run", "a b"], platform), {
+        program: "deno",
+        args: ["run", "a b"],
+        shell: false,
+      });
+    }
+    // npx is a program too, where it is not Windows
+    assert.deepEqual(spawn_plan("npx", ARGS, "linux"), {
+      program: "npx",
+      args: ARGS,
+      shell: false,
+    });
+  });
+
+  it("gives npm and npx to a shell on Windows, each argument as it takes one", () => {
+    assert.deepEqual(spawn_plan("npx", ARGS, "win32"), {
+      program: "npx",
+      args: ["tsx", "main.ts", '"Ada Lovelace"'],
+      shell: true,
+    });
+    assert.deepEqual(spawn_plan("npm", ["install"], "win32"), {
+      program: "npm",
+      args: ["install"],
+      shell: true,
+    });
+    // a plain word is left as it is: a flag, a path of Windows
+    assert.deepEqual(
+      spawn_plan("npx", ["--name=a", "C:\\work\\main.ts", ""], "win32").args,
+      ["--name=a", "C:\\work\\main.ts", '""'],
+    );
+    assert.deepEqual(spawn_plan("npx", ['say "hi"'], "win32").args, [
+      '"say \\"hi\\""',
+    ]);
+  });
+
+  it("copies the arguments: the list it was given is not the one it gives", () => {
+    const plan = spawn_plan("deno", ARGS);
+    assert.deepEqual(plan.args, ARGS);
+    assert.notEqual(plan.args, ARGS);
+  });
+});
+
 describe("run_program", () => {
   it("gives the exit code of the program", () =>
     with_folder(async (folder) => {
@@ -77,7 +126,10 @@ describe("run_program", () => {
       assert.equal(existsSync(join(folder, "here.txt")), true);
     }));
 
-  it("gives 128 and the number of the signal that ended the program", () =>
+  // Windows has no signals: a program that is ended there has an exit code.
+  it("gives 128 and the number of the signal that ended the program", {
+    skip: process.platform === "win32",
+  }, () =>
     with_folder(async (folder) => {
       // the shell ends itself, as Ctrl+C would end it
       assert.equal(

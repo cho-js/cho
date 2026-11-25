@@ -161,6 +161,15 @@ describe("next_steps", () => {
     );
   });
 
+  it("says what a message consumer needs, under the commands", () => {
+    assert.equal(
+      next_steps(answers({ kind: "message", project: "worker" }), true),
+      "  cd shop\n  cho serve worker\n\n" +
+        "worker reads from Kafka, at localhost:9092: the variable " +
+        "KAFKA_BROKERS names another address.",
+    );
+  });
+
   it("starts a command-line tool with its first command", () => {
     assert.equal(
       next_steps(answers({ kind: "cli", project: "tool" }), true),
@@ -285,7 +294,10 @@ describe("cho new, as a command line", () => {
   it("prints the mistake of a flag, writes nothing, and exits with 1", () =>
     with_folder(async (cwd) => {
       const wrong = [
-        [["shop", "--kind", "message"], "--kind message: not one of web, cli"],
+        [
+          ["shop", "--kind", "mobile"],
+          "--kind mobile: not one of web, cli, message",
+        ],
         [
           ["shop", "--kindd", "web"],
           "--kindd: cho new has no such flag. See cho new --help",

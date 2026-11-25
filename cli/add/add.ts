@@ -36,7 +36,7 @@ import config from "../deno.json" with { type: "json" };
 import type { ChoProject, Runtime } from "../new/config.ts";
 import { print_error } from "../errors.ts";
 import { package_name } from "../new/manifests.ts";
-import { command_of, serve_line } from "../new/plan.ts";
+import { command_of, needs_line, serve_line } from "../new/plan.ts";
 import { INSTALL, print_dry_run, run_steps } from "../new/steps.ts";
 import { commit, disk_host, Tree } from "../tree.ts";
 import { type Answers, ask_answers } from "./answers.ts";
@@ -65,7 +65,8 @@ function cd(from: string, to: string): string | undefined {
  * @param where The root of the workspace, and the current folder.
  * @param installed Whether the packages were installed. When they were not,
  *   the first command installs them, at the root of the workspace.
- * @returns The lines, indented.
+ * @returns The lines, indented; then, for an application that needs
+ *   something the workspace does not have, a line that says what.
  */
 export function next_steps(
   name: string,
@@ -84,8 +85,12 @@ export function next_steps(
   } else {
     lines.push(serve_line(name, project.kind));
   }
-  return lines.filter((line) => line !== undefined)
+  const steps = lines.filter((line) => line !== undefined)
     .map((line) => `  ${line}`).join("\n");
+  const needs = project.type === "library"
+    ? undefined
+    : needs_line(name, project.kind);
+  return needs === undefined ? steps : `${steps}\n\n${needs}`;
 }
 
 /**

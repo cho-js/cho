@@ -122,20 +122,20 @@ run, and does nothing (section 3.7).
 Every question has a flag, and is asked when its flag is not given. The
 questions are those of `@chojs/prompt`.
 
-| Answer                 | Flag                   | Question  | Default                          |
-| ---------------------- | ---------------------- | --------- | -------------------------------- |
-| Name of the workspace  | The first argument     | `text`    | None                             |
-| Kind of the project    | `--kind <kind>`        | `select`  | `web`                            |
-| Runtime                | `--runtime <runtime>`  | `select`  | The runtime `cho` is running on  |
-| Name of the project    | `--project <name>`     | `text`    | `api` for `web`, `cli` for `cli` |
-| Folder of the projects | `--apps-dir <name>`    | `text`    | `apps`                           |
-| A git repository       | `--no-git` says no     | `confirm` | Yes                              |
-| Install                | `--no-install` says no | `confirm` | Yes                              |
+| Answer                 | Flag                   | Question  | Default                           |
+| ---------------------- | ---------------------- | --------- | --------------------------------- |
+| Name of the workspace  | The first argument     | `text`    | None                              |
+| Kind of the project    | `--kind <kind>`        | `select`  | `web`                             |
+| Runtime                | `--runtime <runtime>`  | `select`  | The runtime `cho` is running on   |
+| Name of the project    | `--project <name>`     | `text`    | `api`, `cli` or `worker`, by kind |
+| Folder of the projects | `--apps-dir <name>`    | `text`    | `apps`                            |
+| A git repository       | `--no-git` says no     | `confirm` | Yes                               |
+| Install                | `--no-install` says no | `confirm` | Yes                               |
 
-| Choice of   | Values                | What it decides                                       |
-| ----------- | --------------------- | ----------------------------------------------------- |
-| `--kind`    | `web`, `cli`          | The template, and the package of CHO it depends on    |
-| `--runtime` | `deno`, `node`, `bun` | The program that installs, and the commands it prints |
+| Choice of   | Values                  | What it decides                                       |
+| ----------- | ----------------------- | ----------------------------------------------------- |
+| `--kind`    | `web`, `cli`, `message` | The template, and the package of CHO it depends on    |
+| `--runtime` | `deno`, `node`, `bun`   | The program that installs, and the commands it prints |
 
 The runtime changes no file but `cho.json`, which records it, and a sentence of
 the `README.md`: the workspace is the same on the three.
@@ -237,7 +237,9 @@ manifests are those of npm, and there is no `deno.json`.
   the npm registry of JSR: `.npmrc` names it, as `npx jsr add` would write it.
 - **`<version>` is the version of `cho`**: a workspace made by `cho` 3.6.0
   depends on `^3.6.0`.
-- **`web` depends on `@chojs/web`, and `cli` on `@chojs/command`.**
+- **`web` depends on `@chojs/web`, and `cli` on `@chojs/command`.** `message`
+  depends on `@chojs/message`, and on `@chojs/vendor-kafka`: the adapter of its
+  broker (section 3.5).
 - **`tsx` and `@types/node` are in every project.** Node.js does not run the
   decorators of TypeScript: `tsx` runs the project there, and its tests. Deno
   checks the types of a test, which imports `node:test`, and needs the types for
@@ -265,7 +267,9 @@ workspace has the commands of each, for who runs a project without `cho`:
 
 - On Deno, a command has the permissions the project needs: `--allow-env` for a
   package of CHO, which reads its debug settings there, and `--allow-net` for a
-  web application. A library needs none: `deno test`.
+  web application. A message consumer has `--allow-net`, and `--allow-read`: the
+  client library of Kafka reads a file when it loads. A library needs none:
+  `deno test`.
 - A command-line tool is run with its first command: `bun main.ts hello`.
 - `run_command(runtime, project, options)` is the one function that knows how an
   application is run. `cho serve` runs what it gives, and `command_of` is the
@@ -283,12 +287,30 @@ A template is the source of a project: `templates/<name>/`.
 | --------- | ---------------------------------- | --------------------------------------------- |
 | `web`     | `app.ts`, `main.ts`, `app_test.ts` | `AppModule`, with a controller: one route     |
 | `cli`     | `app.ts`, `main.ts`, `app_test.ts` | `AppModule`, with a controller: one command   |
+| `message` | `app.ts`, `main.ts`, `app_test.ts` | `AppModule`, with a controller: one topic     |
 | `library` | `mod.ts`, `mod_test.ts`            | One function, and its test. No package of CHO |
 
-In an application, `main.ts` runs: it serves the web application (`serve`), or
-runs the command line of the process and exits. A test file tests what the
-project declares, with `node:test`: the same file runs with `deno test`,
-`tsx --test` and `bun test`.
+In an application, `main.ts` runs: it serves the web application (`serve`), runs
+the command line of the process and exits, or connects the message consumer to
+its broker. A test file tests what the project declares, with `node:test`: the
+same file runs with `deno test`, `tsx --test` and `bun test`.
+
+**A message consumer reads from Kafka**, with `@chojs/vendor-kafka`:
+
+- **The brokers are those of `KAFKA_BROKERS`** (`host:port`, with a `,` between
+  two), or `localhost:9092`.
+- **The consumer group is the name of the project**, and so is the topic of its
+  controller: the project `worker` handles `worker.hello`, and prints
+  `Hello, <name>!` for a message such as `{"name":"Ada"}`.
+- **`main.ts` closes the application on `SIGINT` and on `SIGTERM`**: the
+  messages in hand are finished, and the group is left.
+- **A start that fails says where it tried**, before the error of the client
+  library: most often, no broker answers there.
+- **The test needs no broker.** It gives the application a message
+  (`app.handle`), with no linker.
+- **What it needs is said**: after the commands that `cho new` and `cho add`
+  print, and in a section of the `README.md` of a new workspace, with a command
+  that runs a broker in Docker. The application does not create its topics.
 
 - **A template is real TypeScript, in the repository.** Its files are checked,
   linted and tested with the source of the framework, on each runtime, like any
@@ -351,7 +373,9 @@ Running deno install
 
 The output of a step is shown under its line. When the packages were not
 installed, the command that installs them comes before `cho serve`. A
-command-line tool is run with its first command: `cho serve cli -- hello`.
+command-line tool is run with its first command: `cho serve cli -- hello`. A
+message consumer has one line more, under the commands: it reads from Kafka, and
+where.
 
 With `--dry-run`, the files and the steps are printed, and nothing is done:
 
@@ -569,7 +593,8 @@ terminal of `cho`. It is the one command that runs a project on the three
 runtimes.
 
 - **An application is run, whatever its kind.** A web application is started,
-  and stays up. A command-line tool runs, and ends.
+  and stays up, and so is a message consumer, which reads from its broker. A
+  command-line tool runs, and ends.
 - **A library does not run**: `CHO_CLI_NOT_AN_APPLICATION`.
 - **`cho` serves nothing itself.** The `main.ts` of a web application creates it
   and calls `serve` of `@chojs/web/serve`, with its own linker and options: what
@@ -627,18 +652,21 @@ In the folder of the project:
 - **`<entry>` is the one of `cho.json`**: `main.ts` by default. The arguments of
   the project follow it.
 - **What a kind needs is one row of a table** (`KIND_TRAITS`): whether it uses
-  the network, and whether it stays up.
+  the network, whether what it is built with reads files, and whether it stays
+  up.
 
-  | Kind  | Uses the network | Stays up |
-  | ----- | ---------------- | -------- |
-  | `web` | Yes              | Yes      |
-  | `cli` | No               | No       |
+  | Kind      | Uses the network | Reads files | Stays up |
+  | --------- | ---------------- | ----------- | -------- |
+  | `web`     | Yes              | No          | Yes      |
+  | `cli`     | No               | No          | No       |
+  | `message` | Yes              | Yes         | Yes      |
 
-  A kind that comes later, as a `message` application, is a row more: `serve`
-  reads nothing else of a kind.
-- **On Deno, a kind that uses the network gets `--allow-net`**, and every kind
-  gets `--allow-env`. A project that needs more is asked for it by Deno, in the
-  terminal.
+  A kind that comes later is a row more: `serve` reads nothing else of a kind.
+- **On Deno, a kind that uses the network gets `--allow-net`**, one that reads
+  files gets `--allow-read`, and every kind gets `--allow-env`. So a message
+  consumer is run with
+  `deno run --allow-net --allow-env --allow-read --watch <entry>`. A project
+  that needs more is asked for it by Deno, in the terminal.
 - **An application that stays up is watched**: it is run again when a file
   changes. `--no-watch` runs it once.
 - **One that runs and ends is never watched.** A watcher would keep it open
@@ -672,6 +700,11 @@ checked, and it is served.
   end `cho` alone (`SIGTERM`) is passed to the project.
 - **The exit code is the one of the project.** For a project that a signal
   ended, it is 128 and the number of the signal.
+- **No shell reads the command.** The runtime is started with its arguments as
+  they are: one with a space stays one. The exception is `npx` on Windows, which
+  is a script (`npx.cmd`) that only a shell runs: there an argument that is not
+  a plain word is written in quotes, and a `npx` that is not installed is an
+  error of the shell, with its exit code, and not `CHO_CLI_NOT_STARTED`.
 
 | What happened                                        | Exit code              |
 | ---------------------------------------------------- | ---------------------- |
@@ -785,11 +818,13 @@ to it**: `cho generate controller users` writes the class `Users`, in
 | `module`     | `<name>.ts`                   | `@Module({})`, and nothing else            |
 
 - **The decorators come from the package of the kind of the project**:
-  `@chojs/web` in a web application, `@chojs/command` in a command-line tool.
+  `@chojs/web` in a web application, `@chojs/command` in a command-line tool,
+  `@chojs/message` in a message consumer.
 - **The method of a controller is an endpoint.** In a web application, the
   controller has the route of the name, and the method `@Get("")`: `GET /users`.
   In a command-line tool, the method has `@Action("<name>")`: the command
-  `users`.
+  `users`. In a message consumer, the controller has the topic of the name, and
+  the method `@Subscribe("hello")`: the topic `users.hello`.
 - **The test calls the method**: `new Users().hello()`. A part is a class, and
   its test needs no module and no injector. It runs with `node:test`, as the
   tests of a project do, on the three runtimes.
@@ -881,13 +916,13 @@ kind it is, and which file holds its module.
 
 A project, `projects.<name>`:
 
-| Field    | An application           | A library           | What it is                                         |
-| -------- | ------------------------ | ------------------- | -------------------------------------------------- |
-| `type`   | Optional: `application`  | Required: `library` | Whether the project runs                           |
-| `kind`   | Required: `web` or `cli` | Refused             | What an application is built with                  |
-| `root`   | Required                 | Required            | The folder of the project, from the root           |
-| `entry`  | Optional: `main.ts`      | Optional: `mod.ts`  | The file that runs it, or the file it exports      |
-| `module` | Optional: `app.ts`       | Refused             | The file that exports `AppModule`, from its folder |
+| Field    | An application                      | A library           | What it is                                         |
+| -------- | ----------------------------------- | ------------------- | -------------------------------------------------- |
+| `type`   | Optional: `application`             | Required: `library` | Whether the project runs                           |
+| `kind`   | Required: `web`, `cli` or `message` | Refused             | What an application is built with                  |
+| `root`   | Required                            | Required            | The folder of the project, from the root           |
+| `entry`  | Optional: `main.ts`                 | Optional: `mod.ts`  | The file that runs it, or the file it exports      |
+| `module` | Optional: `app.ts`                  | Refused             | The file that exports `AppModule`, from its folder |
 
 - **`runtime` is the runtime of the workspace**: `cho new` and `cho add` install
   with it, and `cho serve` runs with it. No file of a project depends on it
@@ -975,7 +1010,7 @@ mistake.
       "additionalProperties": false,
       "properties": {
         "type": { "const": "application", "default": "application" },
-        "kind": { "enum": ["web", "cli"] },
+        "kind": { "enum": ["web", "cli", "message"] },
         "root": { "type": "string" },
         "entry": { "type": "string", "default": "main.ts" },
         "module": { "type": "string", "default": "app.ts" }
@@ -1359,11 +1394,20 @@ test does not install: there the real run was done by hand (section 11.1).
 `tools/pty.sh` runs `cho new` in a real terminal, on the three: on Node.js it is
 the bundle that runs.
 
-The templates are tested as the source is, on the three. The installation of a
-workspace that was created, and its own tests, are not run by CI (section 14).
-They were run by hand for this version: section 11.1.
+The templates are tested as the source is, on the three. The test of a message
+consumer gives it messages, with no broker: its `main.ts` is not run against a
+broker by a test of the tool. The adapter has tests of its own, against a real
+one (`vendor/kafka`). The installation of a workspace that was created, and its
+own tests, are not run by CI (section 14). They were run by hand for this
+version: section 11.1.
 
-Not tested on Windows.
+**Linux, macOS and Windows.** The tests above run on Linux. One job of the CI
+(`os`) runs the tests of the tool on macOS and on Windows too, on the three
+runtimes, and `tools/npm-cli.sh` there: the bundle writes a workspace, adds a
+library to it and generates a controller. `tools/pty.sh` runs on Linux and on
+macOS: Windows has no `script(1)`, so the questions are asked there on the
+scripted terminal of the tests only. On Windows, a project is not run on Node.js
+by a test (`npx tsx`, as on the other systems).
 
 ### 11.1 A workspace that was created
 
@@ -1539,10 +1583,21 @@ A `ChoError` of `@chojs/core`, with a `code`:
     project show the other test, through the application.
 30. **A part is generated in an application.** A library is plain TypeScript
     (decision 21), and has no decorator to give a class.
+31. **A message consumer reads from Kafka.** Its adapter is one package, the
+    same on the three runtimes, so the workspace stays the same on the three
+    (decision 15). The adapter of NATS takes the connection of a transport,
+    which is another package on Deno than on Node.js and on Bun. Another broker
+    is a change of `main.ts`, and of the `package.json` of the project.
+32. **The broker is not in `cho.json`.** `cho` reads the kind of a project, and
+    nothing of what the project is connected with: that is its own code.
+33. **A new kind keeps the version of the format.** `cho.json` is still version
+    1: a file that was valid is valid. An older `cho` refuses a project of a
+    kind it does not know, and says which kinds it takes.
 
 ## 14. Not in this version
 
-- A project of `@chojs/message`: it needs a broker to be chosen, and to run.
+- A message consumer on another broker than Kafka: `main.ts` is where another
+  adapter is given, by hand. A question for the broker.
 - A library that is built with a package of CHO: one with modules and providers.
 - pnpm and Yarn.
 - A port, or any setting, that `cho serve` gives to a project: `main.ts` says

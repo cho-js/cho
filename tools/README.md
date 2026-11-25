@@ -2,17 +2,19 @@
 
 What the repository uses to test CHO outside of a test runner: against real
 brokers, in a real terminal, in the runtime of Cloudflare Workers, and against a
-conformance suite. Nothing here is a package, and nothing here is published.
+conformance suite, and as the npm package a user installs. Nothing here is a
+package, and nothing here is published.
 
 | Tool                       | What it does                                                     | Needs           | Run by         |
 | -------------------------- | ---------------------------------------------------------------- | --------------- | -------------- |
 | [`brokers.sh`](#brokerssh) | Starts the NATS and Kafka brokers the adapter tests run against  | Docker          | the CI, or you |
 | [`pty.sh`](#ptysh)         | Asks the questions of `cho new` in a real terminal               | `script(1)`     | the CI, or you |
+| [`npm-cli.sh`](#npm-clish) | Builds the npm package of `cho`, and uses it as a user would     | Deno, Node.js   | the CI, or you |
 | [`workerd/`](./workerd)    | Runs the tests in workerd, the runtime of Cloudflare Workers     | Docker, or Node | the CI, or you |
 | [`autobahn/`](./autobahn)  | Runs the Autobahn conformance suite against the WebSocket server | Docker          | you            |
 
-Each folder has a README of its own. `brokers.sh` and `pty.sh` are one file
-each: they are described here.
+Each folder has a README of its own. `brokers.sh`, `pty.sh` and `npm-cli.sh` are
+one file each: they are described here.
 
 ## `brokers.sh`
 
@@ -95,3 +97,30 @@ fixed time, so a slow start does not fail the run. The script works with the
 ### In the CI
 
 The Deno, Node.js and Bun jobs each run it for their runtime, after the tests.
+They run on Linux. The `os` job runs it for the three runtimes on macOS, whose
+`script` is another program. Windows has no `script`: it is not run there.
+
+## `npm-cli.sh`
+
+The tests of `cho` run its source. A user of npm gets something else: one file,
+`cli/npm/cho.js`, that Node.js runs with no TypeScript runner. `npm-cli.sh`
+builds that file, and uses it as that user would, in a temporary folder:
+
+```sh
+tools/npm-cli.sh
+```
+
+- `cho --help`;
+- `cho new`, with every answer as a flag, then `cho add` (a library, and a
+  message consumer) and `cho generate` in the workspace it wrote. Nothing is
+  installed. It checks the files that were written, and that they have the line
+  endings of the tool, whatever the system;
+- `npm pack --dry-run`, which lists the files of the package and asks npm
+  nothing.
+
+It needs Deno, which builds the file, and Node.js, which runs it.
+
+### In the CI
+
+The Node.js job runs it on Linux, and the `os` job on macOS and on Windows,
+where it runs in the shell of Git.

@@ -27,7 +27,7 @@ export const NEW_FLAGS = {
   alias: { y: "yes" },
   default: { git: true, install: true },
   describe: {
-    kind: `What the project is: ${KINDS.join(" or ")}`,
+    kind: `What the project is: ${KINDS.join(", ")}`,
     runtime: `The runtime that installs the workspace: ${RUNTIMES.join(", ")}`,
     project: "The name of the project",
     "apps-dir": "The folder of the projects",

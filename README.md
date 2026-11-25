@@ -162,8 +162,8 @@ cd shop
 cho serve      # runs the application, and again when a file changes
 ```
 
-`cho new` writes a web application or a command-line tool, with its tests, and
-it runs as it is. The workspace is the same on Deno, on Node.js and on Bun: the
+`cho new` writes a web application, a command-line tool or a message consumer,
+with its tests, and it runs as it is. The workspace is the same on Deno, on Node.js and on Bun: the
 runtime you choose is the one `cho` installs and runs with, and another one can
 take over later.
 
