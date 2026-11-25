@@ -11,6 +11,7 @@
 import { ChoCommand, Module, provider } from "@chojs/command";
 import { AddCommand } from "./add/add.ts";
 import config from "./deno.json" with { type: "json" };
+import { GenerateCommand } from "./generate/generate.ts";
 import { HelpCommands, RUN } from "./help.ts";
 import { NewCommand } from "./new/new.ts";
 import { ServeCommand } from "./serve/serve.ts";
@@ -18,7 +19,13 @@ import { ServeCommand } from "./serve/serve.ts";
 /** The root module of the tool. */
 @Module({
   providers: [provider({ provide: RUN, factory: () => run_cli })],
-  controllers: [NewCommand, AddCommand, ServeCommand, HelpCommands],
+  controllers: [
+    NewCommand,
+    AddCommand,
+    ServeCommand,
+    GenerateCommand,
+    HelpCommands,
+  ],
 })
 export class AppModule {}
 

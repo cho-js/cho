@@ -14,10 +14,11 @@ $ cho
 Usage: cho <command> [options] [args]
 
 Commands:
-  new    Create a new workspace, with a first project
-    add    Add a project to the workspace: an application, or a library
-  serve  Run an application of the workspace
-  help   Show the help of cho, or of one of its commands
+  new       Create a new workspace, with a first project
+  add       Add a project to the workspace: an application, or a library
+    serve     Run an application of the workspace
+  generate  Write a part of an application: a controller, a service or a module
+  help      Show the help of cho, or of one of its commands
 
 Options:
   --help     Show this help
@@ -30,9 +31,9 @@ Run 'cho <command> --help' for help on a command.
   Bun. Nothing in it is written for one of them.
 - **Two packages.** Deno installs the tool from JSR, as the other packages of
   CHO. npm and Bun install it from npm, where it is one JavaScript file with no
-  dependency (section 8).
+  dependency (section 9).
 - **The version of the framework.** The tool has the version of the other
-  packages, and is released with them (section 9). What it creates depends on
+  packages, and is released with them (section 10). What it creates depends on
   the packages of that version.
 
 - **One workspace, three runtimes.** What the tool creates is the same on the
@@ -40,32 +41,35 @@ Run 'cho <command> --help' for help on a command.
   the day after (section 3.4). `cho serve` runs a project of it on any of them
   (section 5).
 
-Three words are used all along:
+Four words are used all along:
 
 - A **workspace** is what `cho new` creates: a folder that is a workspace of
   npm, which Deno and Bun read too, with `cho.json` at its root.
 - A **project** is a member of the workspace. It is an **application**, which
   runs, or a **library**, which is plain TypeScript that the applications
   import.
+- A **part** is a class of an application, in a file of its own: a controller, a
+  service or a module. `cho generate` writes one (section 6).
 - The **tree** is how a command writes: it records its changes in memory, and
-  they are written together, or not at all (section 7.3).
+  they are written together, or not at all (section 8.3).
 
 ## 2. The command line
 
 It is a multiple-actions application: the first word names the command.
 
-| Command line           | Does                                             | Exit code |
-| ---------------------- | ------------------------------------------------ | --------- |
-| `cho`                  | Prints the help of the tool: every command       | `0`       |
-| `cho --help`           | The same                                         | `0`       |
-| `cho help`             | The same                                         | `0`       |
-| `cho help <command>`   | Prints the help of the command, with its options | `0`       |
-| `cho <command> --help` | The same                                         | `0`       |
-| `cho --version`        | Prints `cho version <version>`                   | `0`       |
-| `cho new [name]`       | Creates a workspace (section 3)                  | 3.7       |
-| `cho add [name]`       | Adds a project to a workspace (section 4)        | 4.5       |
-| `cho serve [project]`  | Runs an application of a workspace (section 5)   | 5.4       |
-| `cho <unknown>`        | Prints an error, on the error output             | `1`       |
+| Command line                 | Does                                             | Exit code |
+| ---------------------------- | ------------------------------------------------ | --------- |
+| `cho`                        | Prints the help of the tool: every command       | `0`       |
+| `cho --help`                 | The same                                         | `0`       |
+| `cho help`                   | The same                                         | `0`       |
+| `cho help <command>`         | Prints the help of the command, with its options | `0`       |
+| `cho <command> --help`       | The same                                         | `0`       |
+| `cho --version`              | Prints `cho version <version>`                   | `0`       |
+| `cho new [name]`             | Creates a workspace (section 3)                  | 3.7       |
+| `cho add [name]`             | Adds a project to a workspace (section 4)        | 4.5       |
+| `cho serve [project]`        | Runs an application of a workspace (section 5)   | 5.4       |
+| `cho generate [part] [name]` | Writes a part of an application (section 6)      | 6.4       |
+| `cho <unknown>`              | Prints an error, on the error output             | `1`       |
 
 - The help and the version go to the standard output, an error to the error
   output.
@@ -312,7 +316,7 @@ In this order:
 2. **The answers** (section 3.1). Nothing is written before the last one.
 3. **The plan**: the list of the files, each with its text. It is made from the
    answers alone, and reads nothing.
-4. **The tree** (section 7.3). Its root is the current folder, and every file is
+4. **The tree** (section 8.3). Its root is the current folder, and every file is
    recorded under the folder of the workspace: `shop/cho.json`. So the folder
    itself is a change, like any file.
 5. **The commit.** The folder is created with a call that fails when it exists,
@@ -403,8 +407,8 @@ A failure leaves the workspace as it was: what was written is undone.
 - **It is found from the current folder**: the folder, or the nearest one above
   it, that has a `cho.json`. So the command runs from the root of a workspace,
   or from any folder under it. No folder has one: `CHO_CLI_NO_WORKSPACE`.
-- **`cho.json` is read, and checked** (section 6.2). A file that is not JSON, or
-  not what section 6 says: `CHO_CLI_INVALID_CONFIG`.
+- **`cho.json` is read, and checked** (section 7.2). A file that is not JSON, or
+  not what section 7 says: `CHO_CLI_INVALID_CONFIG`.
 - **`package.json` of the root is read.** Its `name` is the name of the
   workspace: the package of a project is named `@<name>/<project>`. A file that
   is missing, that is not an object of JSON, or whose `name` is not a name
@@ -444,7 +448,7 @@ with no terminal is an error.
 
 ### 4.3 What is written
 
-An application goes in `appsDir`, and a library in `libsDir` (section 6.1).
+An application goes in `appsDir`, and a library in `libsDir` (section 7.1).
 
 | Type          | Files, in `<folder>/<name>/`                                          |
 | ------------- | --------------------------------------------------------------------- |
@@ -488,7 +492,7 @@ In this order:
 1. **The flags** are read, and checked.
 2. **The workspace** is found, read and checked (section 4.1).
 3. **The answers** (section 4.2). Nothing is written before the last one.
-4. **The plan**, recorded on the tree of the workspace (section 7.3): the files
+4. **The plan**, recorded on the tree of the workspace (section 8.3): the files
    of the project, then `cho.json`, then `package.json`.
 5. **The commit.** The files of the project are written first, and the two files
    of the root last. When a change fails, the ones before it are undone: the
@@ -686,7 +690,154 @@ with `cho serve` and without it:
 | `bun --watch`                     | `0`                        |
 | `bun`                             | `130`: the signal ended it |
 
-## 6. `cho.json`
+## 6. `cho generate`
+
+```console
+$ cho generate
+✔ What are you generating? · A controller
+✔ Name · users
+✔ Project · api
+✔ Folder · apps/api
+Created apps/api/users.ts, apps/api/users_test.ts
+
+Nothing uses it yet. Add it to a module, as the one of apps/api/app.ts:
+
+  import { Users } from "./users.ts";
+
+  @Module({ controllers: [Users] })
+
+Its test runs with the tests of the project, in apps/api:
+
+  deno test --allow-env
+```
+
+It writes a part of an application, in a file of its own: a controller, a
+service, or a module.
+
+**It writes new files, and changes none.** A part is not added to a module: the
+command says what to add, and where. Changing a file of the user is another step
+(section 14).
+
+### 6.1 The answers
+
+Every question has an answer on the command line, as in the other commands
+(section 3.1): what was typed is checked first, `--yes` takes the defaults, and
+a question with no terminal is an error.
+
+| Answer  | On the command line | Question | Default                       |
+| ------- | ------------------- | -------- | ----------------------------- |
+| Part    | The first word      | `select` | None                          |
+| Name    | The second word     | `text`   | None                          |
+| Project | `--project <name>`  | `select` | The one of the current folder |
+| Folder  | `--path <folder>`   | `text`   | The folder of the project     |
+
+- **The part** is `controller`, `service` or `module`.
+- **The part and the name have no default**: `--yes` does not answer them.
+- **The project is an application.** A library has no package of CHO, so no
+  decorator to import: `CHO_CLI_NOT_AN_APPLICATION`. A name that is not a
+  project: `CHO_CLI_UNKNOWN_PROJECT`.
+- **The project is not asked when the workspace has one application.** With
+  several, the one the current folder is in is proposed. `--yes` takes it, and
+  from a folder that is in none it is `CHO_CLI_UNKNOWN_PROJECT`, which says to
+  give `--project`.
+- **The folder is from the root of the workspace**, with `/`. The one of the
+  project is proposed, and another one can be typed, whole: `apps/api/users`.
+  Folders that do not exist are created.
+- **The folder is in the project**: its folder, or one under it. The file
+  imports the package of CHO of the project, which another project may not have.
+  Another folder: `CHO_CLI_INVALID_OPTION`.
+- **A file that exists is refused**: `CHO_CLI_TARGET_EXISTS`. In the question of
+  the folder, it is a mistake shown under it, and another folder can be typed.
+- **`--dry-run`**: the questions are asked, the files are printed, and nothing
+  is written.
+
+### 6.2 The names
+
+The name of a part is the name of its file, and of its class. **No type is added
+to it**: `cho generate controller users` writes the class `Users`, in
+`users.ts`, and not `UsersController` in `users.controller.ts`.
+
+| Typed as       | The file          | The class     |
+| -------------- | ----------------- | ------------- |
+| `users`        | `users.ts`        | `Users`       |
+| `userProfile`  | `user-profile.ts` | `UserProfile` |
+| `UserProfile`  | `user-profile.ts` | `UserProfile` |
+| `user-profile` | `user-profile.ts` | `UserProfile` |
+| `HTTPClient`   | `http-client.ts`  | `HTTPClient`  |
+
+- **A name** is letters and digits, starting with a letter, in `camelCase`,
+  `PascalCase` or `kebab-case`: 64 characters at most. Anything else is
+  `CHO_CLI_INVALID_NAME`.
+- **The words of a name** are cut at each `-`, and before each capital letter
+  that starts a word. The file is the words in lower case, with `-` between
+  them. The class is the words, each with a capital first letter.
+- **The test of a part** is beside it: `users_test.ts`.
+- **Two parts of one name, in one folder, are one file.** The second is refused,
+  and nothing is replaced: a controller and a service of a feature get two
+  names, or two folders.
+
+### 6.3 What is written
+
+| Part         | Files                         | The class has                              |
+| ------------ | ----------------------------- | ------------------------------------------ |
+| `controller` | `<name>.ts`, `<name>_test.ts` | `@Controller`, and one method: an endpoint |
+| `service`    | `<name>.ts`, `<name>_test.ts` | `@Injectable`, and one method              |
+| `module`     | `<name>.ts`                   | `@Module({})`, and nothing else            |
+
+- **The decorators come from the package of the kind of the project**:
+  `@chojs/web` in a web application, `@chojs/command` in a command-line tool.
+- **The method of a controller is an endpoint.** In a web application, the
+  controller has the route of the name, and the method `@Get("")`: `GET /users`.
+  In a command-line tool, the method has `@Action("<name>")`: the command
+  `users`.
+- **The test calls the method**: `new Users().hello()`. A part is a class, and
+  its test needs no module and no injector. It runs with `node:test`, as the
+  tests of a project do, on the three runtimes.
+- **A module has no test**: it declares, and does nothing.
+
+A part is written from its template: `generate/templates/<kind>/<part>/`. As the
+templates of a project (section 3.5), these are real TypeScript of the
+repository, checked and tested with it, and held in the tool as text
+(`generate/templates.gen.ts`, written by `deno task --cwd cli gen`).
+
+| Marker     | Becomes               | Where                              |
+| ---------- | --------------------- | ---------------------------------- |
+| `__name__` | The name of the file  | The text, and the name of the file |
+| `__Name__` | The name of the class | The text                           |
+
+`__Name__` is a name a class can have, and `__name__.ts` a name a file can have:
+a template is valid as it is.
+
+### 6.4 What it prints, and the exit code
+
+One line names the files, then the explanation:
+
+| Part         | What to add to a module | And                                                                |
+| ------------ | ----------------------- | ------------------------------------------------------------------ |
+| `controller` | `controllers: [Users]`  | The command of the tests of the project                            |
+| `service`    | `providers: [Users]`    | `dependencies: [Users]`, on what uses it; the command of the tests |
+| `module`     | `imports: [Users]`      |                                                                    |
+
+- **The module that is named is the one of the project**: `module`, in
+  `cho.json`. The `import` that is printed is the one that file would write:
+  `./users/users.ts` for a part in the folder `users`.
+- **The command of the tests** is the one of the runtime of the workspace.
+
+| What happened                                           | Written   | Exit code |
+| ------------------------------------------------------- | --------- | --------- |
+| The part was written                                    | Its files | `0`       |
+| `--dry-run`                                             | Nothing   | `0`       |
+| A part, a name, a project or a folder that is not valid | Nothing   | `1`       |
+| A file of the part exists                               | Nothing   | `1`       |
+| There is no workspace, or `cho.json` is not right       | Nothing   | `1`       |
+| A question is to ask, and there is no terminal          | Nothing   | `1`       |
+| A question was cancelled                                | Nothing   | `130`     |
+| A file could not be written                             | Nothing   | `1`       |
+
+The files are recorded on the tree of the workspace, and committed (section
+8.3): the two files of a part are written together, or not at all.
+
+## 7. `cho.json`
 
 The settings of a workspace, at its root. `cho new` writes it, `cho add` reads
 it and adds a project to it, and `cho serve` reads it to run one. It holds what
@@ -717,7 +868,7 @@ kind it is, and which file holds its module.
 }
 ```
 
-### 6.1 The fields
+### 7.1 The fields
 
 | Field      | Required | Default | What it is                                 |
 | ---------- | -------- | ------- | ------------------------------------------ |
@@ -761,7 +912,7 @@ A project, `projects.<name>`:
 - **The name of the workspace is not here.** It is `name`, in the `package.json`
   of the root: it is written once.
 
-### 6.2 Reading it
+### 7.2 Reading it
 
 `check_config` takes what was parsed from the file, and gives the settings,
 typed, or throws `CHO_CLI_INVALID_CONFIG`. The message names the field:
@@ -777,7 +928,7 @@ typed, or throws `CHO_CLI_INVALID_CONFIG`. The message names the field:
 no released command read the file before, and every field that was added is
 optional.
 
-### 6.3 The schema
+### 7.3 The schema
 
 `cho.schema.json`, a JSON Schema (draft-07, the one editors read best). An
 editor that opens `cho.json` completes its fields, describes them, and marks a
@@ -844,7 +995,7 @@ mistake.
 }
 ```
 
-In the file, every property has a `description` too: the text of section 6.1.
+In the file, every property has a `description` too: the text of section 7.1.
 
 - **One definition.** The types, the kinds, the runtimes and the rule of a name
   are constants of the tool. `check_config` reads them, and the schema is made
@@ -862,7 +1013,7 @@ In the file, every property has a `description` too: the text of section 6.1.
   version 2 gets an address of its own, and a file of version 1 keeps the schema
   it was written for.
 
-## 7. The application
+## 8. The application
 
 The tool is an application of `@chojs/command`, written as one is: a root
 module, and a controller for each command. Nothing in it is clever: a command is
@@ -873,13 +1024,14 @@ a method that calls plain functions, from top to bottom.
 | `main.ts`     | The entry point: runs the command line of the process, exits  |
 | `app.ts`      | `AppModule`, the root module, and `run_cli`                   |
 | `help.ts`     | `HelpCommands`, the controller of `help`, and the `RUN` token |
-| `new/`        | The `new` command, and what the commands share (section 7.1)  |
-| `add/`        | The `add` command (section 7.1)                               |
-| `serve/`      | The `serve` command (section 7.1)                             |
-| `tree.ts`     | The tree: how a command writes (section 7.3)                  |
+| `new/`        | The `new` command, and what the commands share (section 8.1)  |
+| `add/`        | The `add` command (section 8.1)                               |
+| `serve/`      | The `serve` command (section 8.1)                             |
+| `generate/`   | The `generate` command (section 8.1)                          |
+| `tree.ts`     | The tree: how a command writes (section 8.3)                  |
 | `errors.ts`   | The codes of the errors, and `print_error`                    |
 | `app_test.ts` | The tests of the command line: the help, the version          |
-| `npm.ts`      | The build of the npm package (section 8.2)                    |
+| `npm.ts`      | The build of the npm package (section 9.2)                    |
 
 - **`run_cli(argv)`** runs one command line: it creates the application, runs
   it, releases what it created (`close()`), and resolves to the exit code. It
@@ -892,11 +1044,11 @@ a method that calls plain functions, from top to bottom.
   asks for it, to run `--help`: it does not import the application.
 - The classes are declared with decorator syntax (`@Module`, `@Controller`,
   `@Action`), as an application is. Deno and Bun run it as it is, the tests on
-  Node.js run it through `tsx`, and the npm package is compiled (section 8.2).
+  Node.js run it through `tsx`, and the npm package is compiled (section 9.2).
 - **The tool uses the public API of the framework**, and no function of its
   inside: it is an application like the ones it creates.
 
-### 7.1 The folders of the commands
+### 8.1 The folders of the commands
 
 A command has a folder, and a file does one thing. `new/` has the `new` command,
 and what `add` shares with it: the settings, the manifests, the templates.
@@ -914,7 +1066,7 @@ and what `add` shares with it: the settings, the manifests, the templates.
 | `config.ts`        | `cho.json`: its types, `check_config`, `config_schema`               |
 | `cho.schema.json`  | The schema: written by `gen.ts`                                      |
 | `steps.ts`         | `run_steps`: `git init`, the installation; `run_program`: a project  |
-| `gen.ts`           | Writes `templates.gen.ts` and `cho.schema.json`                      |
+| `gen.ts`           | Writes the two `templates.gen.ts`, and `cho.schema.json`             |
 | `testing.ts`       | What the tests share: a temporary folder, and a folder in memory     |
 
 `add/` has the files of `cho add` alone:
@@ -934,6 +1086,18 @@ and what `add` shares with it: the settings, the manifests, the templates.
 | `serve.ts`   | `ServeCommand`: the command, `serve_project`, and its error handler |
 | `flags.ts`   | The flags, the name, and the arguments of the project               |
 | `project.ts` | `pick_project`: which project; `check_ready`: whether it can run    |
+
+`generate/` has the files of `cho generate`:
+
+| File               | What it holds                                                      |
+| ------------------ | ------------------------------------------------------------------ |
+| `generate.ts`      | `GenerateCommand`: the command, `generate_part`, its error handler |
+| `flags.ts`         | The part, the name, and the flags                                  |
+| `answers.ts`       | `ask_answers`: the questions, the project, the folder              |
+| `parts.ts`         | The parts, and the names of one: its file, its class               |
+| `plan.ts`          | `part_files`: the files of a part; `explanation`: what to add      |
+| `templates/`       | The templates: a folder for each kind, and in it one for each part |
+| `templates.gen.ts` | The templates, as text: written by `new/gen.ts`                    |
 
 A command is a few calls, in order. `new`:
 
@@ -979,24 +1143,24 @@ return await serve_project(tree, config, flags, { root, cwd });
   (`@chojs/prompt/testing`), and for `serve_project` a runner that runs nothing:
   each is one optional argument.
 - `gen.ts` and `npm.ts` run on Deno only: they are the build, not a part of the
-  tool. `gen.ts`, `npm.ts`, `testing.ts`, `templates/` and the tests are not
-  published.
+  tool. `gen.ts`, `npm.ts`, `testing.ts`, the two `templates/` and the tests are
+  not published.
 
-### 7.2 Adding a command
+### 8.2 Adding a command
 
 A command is a method with `@Action` and `@Help`, on a controller that a module
 declares. A command with files of its own gets a folder, as `new` and `add`
 have, and its controller is added to `AppModule`.
 
 A command that writes files records them on a tree, and commits it (section
-7.3): it gets `--dry-run` with one call, and its plan is tested in memory. A
+8.3): it gets `--dry-run` with one call, and its plan is tested in memory. A
 command that only reads a workspace, as `serve` does, reads it through a tree
 too, and records nothing.
 
 Its tests call its functions, and `run_cli` for the command line: they compare
 the exit code and what was printed, what a user sees.
 
-### 7.3 The tree
+### 8.3 The tree
 
 A command does not write files as it goes. It records its changes on a tree, a
 layer in memory over a folder, and `commit` writes them together.
@@ -1042,7 +1206,7 @@ What a tree does not do: it does not check what it writes, and it runs nothing.
 `git init` and the installation run after the commit, in the folder. One that
 fails leaves files that are right (sections 3.6 and 4.4).
 
-## 8. Two packages
+## 9. Two packages
 
 The packages of CHO are published to JSR, as TypeScript. A command of npm is
 JavaScript, in a package whose `package.json` has a `bin` entry, and JSR makes
@@ -1054,7 +1218,7 @@ same name and the same version.
 | JSR      | `@chojs/cli` | The source: `main.ts` is its export   | `@chojs/command`, `@chojs/prompt` |
 | npm      | `@chojs/cli` | `cho.js`: the tool, and the framework | Nothing                           |
 
-### 8.1 Installation
+### 9.1 Installation
 
 ```sh
 deno install --global --allow-env --allow-read --allow-write --allow-run --name cho jsr:@chojs/cli   # Deno
@@ -1067,16 +1231,16 @@ bun add --global @chojs/cli                                                     
 - On Deno, the tool is given what it needs. Without a permission, in a terminal,
   Deno stops and asks the user for it.
 
-  | Permission      | For                                                             |
-  | --------------- | --------------------------------------------------------------- |
-  | `--allow-env`   | `@chojs/command` reads `CHO_DEBUG`, for its debug log           |
-  | `--allow-read`  | `new`: whether the folder exists. `add`, `serve`: the workspace |
-  | `--allow-write` | `new`: the workspace. `add`: the project                        |
-  | `--allow-run`   | `git`, the program that installs, and `serve`: the runtime      |
+  | Permission      | For                                                            |
+  | --------------- | -------------------------------------------------------------- |
+  | `--allow-env`   | `@chojs/command` reads `CHO_DEBUG`, for its debug log          |
+  | `--allow-read`  | `new`: whether the folder exists. The others: the workspace    |
+  | `--allow-write` | `new`: the workspace. `add`: the project. `generate`: the part |
+  | `--allow-run`   | `git`, the program that installs, and `serve`: the runtime     |
 
 - On npm and on Bun, the name is the `bin` entry of the package.
 
-### 8.2 The npm package
+### 9.2 The npm package
 
 `deno task --cwd cli npm` runs `npm.ts`, which writes the package in `cli/npm/`:
 
@@ -1097,18 +1261,18 @@ bun add --global @chojs/cli                                                     
   `bin` is `{ "cho": "cho.js" }`. `engines` names the versions the tests run on:
   Node.js 24 and Bun 1.3.4. `publishConfig.access` is `public`. `repository` is
   the repository of CHO, with `cli` as its directory: npm compares it with the
-  workflow that publishes (section 9.2).
+  workflow that publishes (section 10.2).
 - **The folder is built, not kept.** It is ignored by git, it is not a part of
   the JSR package, and `deno check`, `deno lint`, `deno fmt` and the tests skip
   it. `npm.ts` empties it first.
 
-## 9. Releases
+## 10. Releases
 
 The tool is a package of the workspace, and a component of the linked versions
 of `release-please`: it gets the version of every other package, in the same
 release pull request (`release-please-config.json`).
 
-### 9.1 Before a release: the dry runs
+### 10.1 Before a release: the dry runs
 
 Both run in CI, on every pull request and every push to `main`:
 
@@ -1131,7 +1295,7 @@ registry, and fails for a version that is already there. The version of the
 repository is the one on npm from a release until the next release pull request
 is merged, so that dry run would fail on every pull request in between.
 
-### 9.2 The release
+### 10.2 The release
 
 `release.yml`, when a release pull request is merged:
 
@@ -1177,7 +1341,7 @@ token, and the workflow reads none.
   the workflow that publishes.
 - The package is staged with its provenance (`--provenance`).
 
-## 10. Runtime support
+## 11. Runtime support
 
 | Runtime            | Runs the tool | How it is tested                              |
 | ------------------ | ------------- | --------------------------------------------- |
@@ -1191,17 +1355,17 @@ plan on a folder in memory, and write in a temporary folder. They run `git init`
 there, and never the installation. The tests of `serve` give it a runner that
 runs nothing, and check the command; one test runs a real tool, which has no
 dependency, on Deno and on Bun. On Node.js a project is run by `tsx`, which a
-test does not install: there the real run was done by hand (section 10.1).
+test does not install: there the real run was done by hand (section 11.1).
 `tools/pty.sh` runs `cho new` in a real terminal, on the three: on Node.js it is
 the bundle that runs.
 
 The templates are tested as the source is, on the three. The installation of a
-workspace that was created, and its own tests, are not run by CI (section 13).
-They were run by hand for this version: section 10.1.
+workspace that was created, and its own tests, are not run by CI (section 14).
+They were run by hand for this version: section 11.1.
 
 Not tested on Windows.
 
-### 10.1 A workspace that was created
+### 11.1 A workspace that was created
 
 Run by hand, with `cho` from the source and the packages of CHO 3.7.1, on macOS:
 `cho new shop`, then `cho add` for a command-line tool and for a library, which
@@ -1241,24 +1405,33 @@ The runtime was the one of `cho.json` on Deno, and `--runtime` on the two
 others: the three copies name Deno there. A copy that npm installed, and one
 that Bun installed, were also served by Deno, with no `--runtime`.
 
-## 11. Errors
+`cho generate`, in the same three copies: a controller, a service in a folder of
+its own, and a module in the web application, and a controller in the tool.
+
+| What was run                                                                                                                                     | Deno | Node.js | Bun  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ------- | ---- |
+| The tests of the two projects, with those of the new parts                                                                                       | Pass | Pass    | Pass |
+| The type check of the web application                                                                                                            | Yes  | Not run | Yes  |
+| The parts, added to the module by hand as the command says, and the service to the controller: `GET /users` answers with the text of the service | Yes  | Yes     | Yes  |
+
+## 12. Errors
 
 A `ChoError` of `@chojs/core`, with a `code`:
 
-| Code                         | When                                                                                                   |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `CHO_CLI_INVALID_NAME`       | A name does not follow the rule of section 3.2                                                         |
-| `CHO_CLI_INVALID_OPTION`     | A flag the command does not have, a value that is not one of the choices of its flag, or a second name |
-| `CHO_CLI_TARGET_EXISTS`      | A folder or a file to create exists: the folder of a workspace, or of a project                        |
-| `CHO_CLI_WRITE_FAILED`       | A file could not be written; the `cause` says why. What was written before it was undone               |
-| `CHO_CLI_INVALID_CONFIG`     | `cho.json` is not JSON, is not what section 6 says, or names an entry that is not a file               |
-| `CHO_CLI_NO_WORKSPACE`       | `cho add`: no `cho.json` in the current folder, or in a folder above it                                |
-| `CHO_CLI_INVALID_MANIFEST`   | `cho add`: `package.json` of the root is missing, is not JSON, or has no `name` or `workspaces` to use |
-| `CHO_CLI_PROJECT_EXISTS`     | `cho add`: the workspace has a project of that name                                                    |
-| `CHO_CLI_UNKNOWN_PROJECT`    | `cho serve`: no project of that name, or no name and nothing that says which project                   |
-| `CHO_CLI_NOT_AN_APPLICATION` | `cho serve`: the project is a library                                                                  |
-| `CHO_CLI_NOT_INSTALLED`      | `cho serve`: the workspace has a `package.json`, and no `node_modules`                                 |
-| `CHO_CLI_NOT_STARTED`        | `cho serve`: the program of the runtime could not be started                                           |
+| Code                         | When                                                                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CHO_CLI_INVALID_NAME`       | A name does not follow its rule: section 3.2, and section 6.2 for the name of a part                                                              |
+| `CHO_CLI_INVALID_OPTION`     | A flag the command does not have, a value that is not one of the choices of its flag, a word too many, or a folder that is not one of the project |
+| `CHO_CLI_TARGET_EXISTS`      | A folder or a file to create exists: the folder of a workspace or of a project, the file of a part                                                |
+| `CHO_CLI_WRITE_FAILED`       | A file could not be written; the `cause` says why. What was written before it was undone                                                          |
+| `CHO_CLI_INVALID_CONFIG`     | `cho.json` is not JSON, is not what section 7 says, or names an entry that is not a file                                                          |
+| `CHO_CLI_NO_WORKSPACE`       | `cho add`: no `cho.json` in the current folder, or in a folder above it                                                                           |
+| `CHO_CLI_INVALID_MANIFEST`   | `cho add`: `package.json` of the root is missing, is not JSON, or has no `name` or `workspaces` to use                                            |
+| `CHO_CLI_PROJECT_EXISTS`     | `cho add`: the workspace has a project of that name                                                                                               |
+| `CHO_CLI_UNKNOWN_PROJECT`    | `cho serve`, `cho generate`: no project of that name, or no name and nothing that says which project                                              |
+| `CHO_CLI_NOT_AN_APPLICATION` | `cho serve`, `cho generate`: the project is a library                                                                                             |
+| `CHO_CLI_NOT_INSTALLED`      | `cho serve`: the workspace has a `package.json`, and no `node_modules`                                                                            |
+| `CHO_CLI_NOT_STARTED`        | `cho serve`: the program of the runtime could not be started                                                                                      |
 
 - A command prints an error as `Error: <message>`, and the exit code is `1`.
 - A question that was cancelled (`CHO_PROMPT_CANCELLED` of `@chojs/prompt`) is
@@ -1270,7 +1443,7 @@ A `ChoError` of `@chojs/core`, with a `code`:
 - What the tool prints for a command it does not have is the message of
   `@chojs/command`.
 
-## 12. Decisions
+## 13. Decisions
 
 1. **In the repository of the framework**, at the top level, like `command/`.
    The tool is tested against the source of the framework, in the same pull
@@ -1349,8 +1522,25 @@ A `ChoError` of `@chojs/core`, with a `code`:
     the three.
 26. **`cho serve` adds one line, on the error output.** What a project prints is
     its own, and so is its exit code.
+27. **`cho generate` writes, and does not edit.** Adding a part to a module is
+    an edit of a file of the user, in a language: it needs to know where the
+    list of a module is, in a file it did not write. The first step creates
+    files alone, and says what to add. The tools that edit (the schematics of
+    Angular, of NestJS) parse the file with the compiler of TypeScript to find
+    the place, and insert text there. That compiler is a program for each system
+    now, and cannot be a part of a tool that is one file: an edit here will be a
+    small scanner of our own, that gives up when it is not sure.
+28. **No type in the name of a part.** `users.ts`, with the class `Users`: the
+    folder and the decorator say what a class is, and a name that says it again
+    is longer, and no clearer. The price: two parts of one name need two
+    folders.
+29. **The test of a part calls its method.** A part is a class, and no module
+    has it yet: a test through an application would need one. The templates of a
+    project show the other test, through the application.
+30. **A part is generated in an application.** A library is plain TypeScript
+    (decision 21), and has no decorator to give a class.
 
-## 13. Not in this version
+## 14. Not in this version
 
 - A project of `@chojs/message`: it needs a broker to be chosen, and to run.
 - A library that is built with a package of CHO: one with modules and providers.
@@ -1360,8 +1550,12 @@ A `ChoError` of `@chojs/core`, with a `code`:
 - `--watch` for a command-line tool.
 - The tools of `@chojs/dev`.
 - Wiring a library into an application; removing or renaming a project.
-- Generating a part of a project (a controller, a service): the tree is ready
-  for it.
+- Adding a part that was generated to a module: the edit of a file of the user.
+  Other parts: a middleware, an error handler, a gateway. A template of the
+  user.
+- A folder that is proposed as a text to edit, in the question of
+  `cho generate`: a question of `@chojs/prompt` proposes a default, and an
+  answer that is typed takes its place whole.
 - A workspace of Deno made by `cho` 3.7, which has no `package.json`: `cho add`
   refuses it, and nothing converts it.
 - Tasks at the root of a workspace, that run every project.

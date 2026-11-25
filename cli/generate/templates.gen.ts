@@ -1,0 +1,182 @@
+/**
+ * The templates of `cho generate`, as text: every file of `templates/`, by
+ * kind of application, by part and by name.
+ *
+ * Written by `../new/gen.ts` (`deno task --cwd cli gen`): do not edit it.
+ * The templates are files of the repository, checked and tested there; this
+ * module is how they are in the tool, on every runtime and in its bundle.
+ *
+ * @module
+ */
+
+import type { Kind } from "../new/config.ts";
+import type { Part } from "./parts.ts";
+
+/** The files of each part, for each kind of application, by name. */
+export const PART_TEMPLATES: Record<
+  Kind,
+  Record<Part, Record<string, string>>
+> = {
+  web: {
+    controller: {
+      "__name__.ts": [
+        'import { Controller, Get } from "@chojs/web";',
+        "",
+        "/** The routes of `/__name__`. */",
+        '@Controller({ route: "__name__" })',
+        "export class __Name__ {",
+        "  /** `GET /__name__`: who answers. */",
+        '  @Get("")',
+        "  hello() {",
+        '    return { message: "Hello from __name__" };',
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+      "__name___test.ts": [
+        'import assert from "node:assert/strict";',
+        'import { describe, it } from "node:test";',
+        'import { __Name__ } from "./__name__.ts";',
+        "",
+        'describe("__Name__", () => {',
+        '  it("says hello", () => {',
+        "    // a method of a controller is a method: a test calls it",
+        "    assert.deepEqual(new __Name__().hello(), {",
+        '      message: "Hello from __name__",',
+        "    });",
+        "  });",
+        "});",
+        "",
+      ].join("\n"),
+    },
+    service: {
+      "__name__.ts": [
+        'import { Injectable } from "@chojs/web";',
+        "",
+        "/** A service: the injector creates it for the classes that depend on it. */",
+        "@Injectable()",
+        "export class __Name__ {",
+        "  /** Who answers. */",
+        "  hello(): string {",
+        '    return "Hello from __name__";',
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+      "__name___test.ts": [
+        'import assert from "node:assert/strict";',
+        'import { describe, it } from "node:test";',
+        'import { __Name__ } from "./__name__.ts";',
+        "",
+        'describe("__Name__", () => {',
+        '  it("says hello", () => {',
+        "    // a service is a class: a test creates it, with no injector",
+        '    assert.equal(new __Name__().hello(), "Hello from __name__");',
+        "  });",
+        "});",
+        "",
+      ].join("\n"),
+    },
+    module: {
+      "__name__.ts": [
+        'import { Module } from "@chojs/web";',
+        "",
+        "/**",
+        " * A module: what it declares, and what it takes from other modules.",
+        " *",
+        " * - `controllers`: the controllers of the module.",
+        " * - `providers`: its services.",
+        " * - `imports`: the modules it uses.",
+        " */",
+        "@Module({})",
+        "export class __Name__ {}",
+        "",
+      ].join("\n"),
+    },
+  },
+  cli: {
+    controller: {
+      "__name__.ts": [
+        'import { Action, Controller, Help } from "@chojs/command";',
+        "",
+        "/** The commands of `__name__`. */",
+        "@Controller()",
+        "export class __Name__ {",
+        "  /** `__name__`: says hello. */",
+        '  @Help("Say hello from __name__")',
+        '  @Action("__name__")',
+        "  hello() {",
+        '    console.log("Hello from __name__");',
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+      "__name___test.ts": [
+        'import assert from "node:assert/strict";',
+        'import { describe, it } from "node:test";',
+        'import { __Name__ } from "./__name__.ts";',
+        "",
+        'describe("__Name__", () => {',
+        '  it("says hello", () => {',
+        "    // a method of a controller is a method: a test calls it, and reads what",
+        "    // it printed",
+        "    const lines: string[] = [];",
+        "    const log = console.log;",
+        '    console.log = (...values: unknown[]) => void lines.push(values.join(" "));',
+        "    try {",
+        "      new __Name__().hello();",
+        "    } finally {",
+        "      console.log = log;",
+        "    }",
+        '    assert.deepEqual(lines, ["Hello from __name__"]);',
+        "  });",
+        "});",
+        "",
+      ].join("\n"),
+    },
+    service: {
+      "__name__.ts": [
+        'import { Injectable } from "@chojs/command";',
+        "",
+        "/** A service: the injector creates it for the classes that depend on it. */",
+        "@Injectable()",
+        "export class __Name__ {",
+        "  /** Who answers. */",
+        "  hello(): string {",
+        '    return "Hello from __name__";',
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+      "__name___test.ts": [
+        'import assert from "node:assert/strict";',
+        'import { describe, it } from "node:test";',
+        'import { __Name__ } from "./__name__.ts";',
+        "",
+        'describe("__Name__", () => {',
+        '  it("says hello", () => {',
+        "    // a service is a class: a test creates it, with no injector",
+        '    assert.equal(new __Name__().hello(), "Hello from __name__");',
+        "  });",
+        "});",
+        "",
+      ].join("\n"),
+    },
+    module: {
+      "__name__.ts": [
+        'import { Module } from "@chojs/command";',
+        "",
+        "/**",
+        " * A module: what it declares, and what it takes from other modules.",
+        " *",
+        " * - `controllers`: the controllers of the module.",
+        " * - `providers`: its services.",
+        " * - `imports`: the modules it uses.",
+        " */",
+        "@Module({})",
+        "export class __Name__ {}",
+        "",
+      ].join("\n"),
+    },
+  },
+};

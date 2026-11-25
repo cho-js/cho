@@ -259,8 +259,10 @@ function check_object(
 /**
  * Whether a text is a path that stays in the workspace: relative, with `/`,
  * and no `.` or `..` in it.
+ *
+ * @param path The text.
  */
-function is_inside(path: string): boolean {
+export function is_inside(path: string): boolean {
   return path !== "" && !path.includes("\\") && !/^[a-zA-Z]:/.test(path) &&
     path.split("/").every((part) =>
       part !== "" && part !== "." && part !== ".."
