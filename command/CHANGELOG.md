@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.8.0](https://github.com/cho-js/cho/compare/command-v3.7.1...command-v3.8.0) (2026-11-25)
+
+
+### Features
+
+* align public api with env functions ([#41](https://github.com/cho-js/cho/issues/41)) ([d1fc89a](https://github.com/cho-js/cho/commit/d1fc89a3f29fd04112d3ff29b193c00ddf692c94))
+
 ## [3.7.1](https://github.com/cho-js/cho/compare/command-v3.7.0...command-v3.7.1) (2026-11-23)
 
 
