@@ -24,6 +24,7 @@ const flags = (given: Partial<Flags> = {}): Flags => ({
   git: true,
   install: true,
   yes: false,
+  dryRun: false,
   ...given,
 });
 

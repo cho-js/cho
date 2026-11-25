@@ -7,9 +7,16 @@ import { type ChoCliErrorCode, cli_error } from "./errors.ts";
 /** Every code of the tool: the compiler wants all of them, and no other. */
 const CODES: Record<ChoCliErrorCode, true> = {
   CHO_CLI_INVALID_CONFIG: true,
+  CHO_CLI_INVALID_MANIFEST: true,
   CHO_CLI_INVALID_NAME: true,
   CHO_CLI_INVALID_OPTION: true,
+  CHO_CLI_NO_WORKSPACE: true,
+  CHO_CLI_NOT_AN_APPLICATION: true,
+  CHO_CLI_NOT_INSTALLED: true,
+  CHO_CLI_NOT_STARTED: true,
+  CHO_CLI_PROJECT_EXISTS: true,
   CHO_CLI_TARGET_EXISTS: true,
+  CHO_CLI_UNKNOWN_PROJECT: true,
   CHO_CLI_WRITE_FAILED: true,
 };
 
@@ -28,7 +35,7 @@ describe("the errors of the tool", () => {
       Object.keys(CODES),
       "CHO_CLI_",
       import.meta.url,
-      "../specs.md",
+      "specs.md",
     );
     assert.deepEqual(problems ?? [], []);
   });

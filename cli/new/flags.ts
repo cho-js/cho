@@ -11,7 +11,7 @@
 
 import type { ChoArgs } from "@chojs/command";
 import { type Kind, KINDS, type Runtime, RUNTIMES } from "./config.ts";
-import { cli_error } from "./errors.ts";
+import { cli_error } from "../errors.ts";
 import { name_mistake } from "./names.ts";
 
 /**
@@ -22,18 +22,19 @@ import { name_mistake } from "./names.ts";
  */
 export const NEW_FLAGS = {
   string: ["kind", "runtime", "project", "apps-dir"],
-  boolean: ["yes", "git", "install"],
+  boolean: ["yes", "git", "install", "dry-run"],
   negatable: ["git", "install"],
   alias: { y: "yes" },
   default: { git: true, install: true },
   describe: {
     kind: `What the project is: ${KINDS.join(" or ")}`,
-    runtime: `The runtime of the workspace: ${RUNTIMES.join(", ")}`,
+    runtime: `The runtime that installs the workspace: ${RUNTIMES.join(", ")}`,
     project: "The name of the project",
     "apps-dir": "The folder of the projects",
     git: "Run git init",
     install: "Install the packages",
     yes: "Take the default of every question",
+    "dry-run": "Print what would be written, and write nothing",
   },
 } as const;
 
@@ -47,6 +48,7 @@ const KNOWN = [
   "y",
   "git",
   "install",
+  "dry-run",
 ];
 
 /** What a command line said. A field that is `undefined` was not said. */
@@ -67,14 +69,20 @@ export type Flags = {
   install: boolean;
   /** `--yes`: the questions that have a default are not asked. */
   yes: boolean;
+  /** `--dry-run`: nothing is written, and nothing is run. */
+  dryRun: boolean;
 };
 
 /**
  * Check a flag whose value is one of a list.
  *
+ * @param flag The flag, for the message: `--kind`.
+ * @param value What the command line gave it.
+ * @param choices The values it can have.
  * @returns The value, or `undefined` when the flag was not given.
+ * @throws {ChoError} `CHO_CLI_INVALID_OPTION` for another value.
  */
-function read_choice<T extends string>(
+export function read_choice<T extends string>(
   flag: string,
   value: unknown,
   choices: readonly T[],
@@ -95,9 +103,12 @@ function read_choice<T extends string>(
 /**
  * Check a flag whose value is a name.
  *
+ * @param flag The flag, for the message: `--project`.
+ * @param value What the command line gave it.
  * @returns The name, or `undefined` when the flag was not given.
+ * @throws {ChoError} `CHO_CLI_INVALID_NAME` for a name that is not valid.
  */
-function read_name(flag: string, value: unknown): string | undefined {
+export function read_name(flag: string, value: unknown): string | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -113,6 +124,56 @@ function read_name(flag: string, value: unknown): string | undefined {
 }
 
 /**
+ * Refuse a flag a command does not have.
+ *
+ * @param args The parsed command line: `ctx.args`.
+ * @param known The names `args` can have: the flags, and their short names.
+ * @param command The command, as it is typed: `cho new`.
+ * @param hint A sentence for the message, on where such a flag could go.
+ * @throws {ChoError} `CHO_CLI_INVALID_OPTION`.
+ */
+export function check_flags(
+  args: ChoArgs,
+  known: readonly string[],
+  command: string,
+  hint = "",
+): void {
+  for (const flag of Object.keys(args)) {
+    // `_` holds the words that are not flags
+    if (flag !== "_" && !known.includes(flag)) {
+      throw cli_error(
+        "CHO_CLI_INVALID_OPTION",
+        `--${flag}: ${command} has no such flag. ${hint}See ${command} --help`,
+      );
+    }
+  }
+}
+
+/**
+ * Refuse a flag a command does not have, and a second name.
+ *
+ * @param args The parsed command line: `ctx.args`.
+ * @param known The names `args` can have: the flags, and their short names.
+ * @param command The command, as it is typed: `cho new`.
+ * @throws {ChoError} `CHO_CLI_INVALID_OPTION`.
+ */
+export function check_args(
+  args: ChoArgs,
+  known: readonly string[],
+  command: string,
+): void {
+  check_flags(args, known, command);
+  if (args._.length > 1) {
+    throw cli_error(
+      "CHO_CLI_INVALID_OPTION",
+      `${command} takes one name, and got ${args._.length}: ${
+        args._.join(" ")
+      }`,
+    );
+  }
+}
+
+/**
  * Read the flags of `cho new`, and check them.
  *
  * @param args The parsed command line: `ctx.args`.
@@ -122,21 +183,7 @@ function read_name(flag: string, value: unknown): string | undefined {
  *   second name; `CHO_CLI_INVALID_NAME` for a name that is not valid.
  */
 export function read_flags(args: ChoArgs): Flags {
-  for (const flag of Object.keys(args)) {
-    // `_` holds the words that are not flags
-    if (flag !== "_" && !KNOWN.includes(flag)) {
-      throw cli_error(
-        "CHO_CLI_INVALID_OPTION",
-        `--${flag}: cho new has no such flag. See cho new --help`,
-      );
-    }
-  }
-  if (args._.length > 1) {
-    throw cli_error(
-      "CHO_CLI_INVALID_OPTION",
-      `cho new takes one name, and got ${args._.length}: ${args._.join(" ")}`,
-    );
-  }
+  check_args(args, KNOWN, "cho new");
   return {
     name: read_name("The name of the workspace", args._[0]),
     kind: read_choice("--kind", args.kind, KINDS),
@@ -146,5 +193,6 @@ export function read_flags(args: ChoArgs): Flags {
     git: args.git !== false,
     install: args.install !== false,
     yes: args.yes === true,
+    dryRun: args["dry-run"] === true,
   };
 }

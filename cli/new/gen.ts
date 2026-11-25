@@ -3,7 +3,7 @@
  *
  * | File               | Made from                                    |
  * | ------------------ | -------------------------------------------- |
- * | `templates.gen.ts` | `templates/`: every file of every kind       |
+ * | `templates.gen.ts` | `templates/`: every file of every template   |
  * | `cho.schema.json`  | `config_schema()`: the schema of `cho.json`  |
  *
  * ```sh
@@ -17,13 +17,13 @@
  * @module
  */
 
-import { config_schema, KINDS } from "./config.ts";
+import { config_schema, TEMPLATE_NAMES } from "./config.ts";
 
 const HERE = new URL("./", import.meta.url);
 
-/** The files of the template of a kind, by name, in the order of the names. */
-async function read_template(kind: string): Promise<[string, string][]> {
-  const folder = new URL(`templates/${kind}/`, HERE);
+/** The files of a template, by name, in the order of the names. */
+async function read_template(template: string): Promise<[string, string][]> {
+  const folder = new URL(`templates/${template}/`, HERE);
   const names: string[] = [];
   for await (const entry of Deno.readDir(folder)) {
     if (entry.isFile) {
@@ -47,7 +47,8 @@ function as_lines(text: string): string {
 }
 
 let templates = `/**
- * The templates, as text: every file of \`templates/\`, by kind and by name.
+ * The templates, as text: every file of \`templates/\`, by template and by
+ * name.
  *
  * Written by \`gen.ts\` (\`deno task --cwd cli gen\`): do not edit it. The
  * templates are files of the repository, checked and tested there; this
@@ -56,14 +57,14 @@ let templates = `/**
  * @module
  */
 
-import type { Kind } from "./config.ts";
+import type { TemplateName } from "./config.ts";
 
-/** The files of the template of each kind, by name. */
-export const TEMPLATES: Record<Kind, Record<string, string>> = {
+/** The files of each template, by name. */
+export const TEMPLATES: Record<TemplateName, Record<string, string>> = {
 `;
-for (const kind of KINDS) {
-  templates += `  ${kind}: {\n`;
-  for (const [name, text] of await read_template(kind)) {
+for (const template of TEMPLATE_NAMES) {
+  templates += `  ${template}: {\n`;
+  for (const [name, text] of await read_template(template)) {
     templates += `    ${JSON.stringify(name)}: ${as_lines(text)},\n`;
   }
   templates += `  },\n`;
