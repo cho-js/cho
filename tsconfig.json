@@ -10,8 +10,10 @@
       "@chojs/web/serve": ["./web/serve.ts"],
       "@chojs/message": ["./message/mod.ts"],
       "@chojs/message/linker": ["./message/linker.ts"],
+      "@chojs/message/graph": ["./message/graph.ts"],
       "@chojs/vendor-kafka": ["./vendor/kafka/mod.ts"],
       "@chojs/vendor-nats": ["./vendor/nats/mod.ts"],
+      "@chojs/asyncapi": ["./extras/asyncapi/mod.ts"],
       "@chojs/dev": ["./extras/dev/mod.ts"],
       "@chojs/prompt": ["./extras/prompt/mod.ts"],
       "@chojs/prompt/testing": ["./extras/prompt/testing.ts"]

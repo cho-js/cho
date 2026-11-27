@@ -8,8 +8,12 @@ import { assert_known_options } from "@chojs/core/di";
 import { openapi_error } from "./errors.ts";
 import type { ChoValidator, ChoWeb, ChoWebDocSecurity } from "@chojs/web";
 import type { ControllerRef, FeatureRef, MethodRef } from "@chojs/web/graph";
-import { debuglog, describe } from "@chojs/core/utils";
-import { Schemas, type ToJsonSchema } from "./schema.ts";
+import {
+  debuglog,
+  describe,
+  Schemas,
+  type ToJsonSchema,
+} from "@chojs/core/utils";
 import type {
   JsonSchema,
   OpenApiDocument,
@@ -383,7 +387,7 @@ export function openApiDocument(
 ): OpenApiDocument {
   assert_document_options("openApiDocument()", options);
   const log = debuglog("cho:openapi");
-  const schemas = new Schemas(options.toJsonSchema, log);
+  const schemas = new Schemas("draft-2020-12", options.toJsonSchema, log);
   const schemes = options.securitySchemes ?? {};
   /** Throw for a requirement that names a scheme the document has not. */
   const assert_schemes = (

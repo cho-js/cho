@@ -31,7 +31,12 @@ import {
   FeatureRef,
   MethodRef,
 } from "./graph.ts";
-import { handler_args, type Subscription, subscription } from "./keys.ts";
+import {
+  doc_of,
+  handler_args,
+  type Subscription,
+  subscription,
+} from "./keys.ts";
 import { to_contract_reply } from "./reply.ts";
 import { join_topic, normalize_topic } from "./topic.ts";
 import type {
@@ -256,8 +261,9 @@ function create_middleware_factory(
  *   or a class with a `handle` method, created by the injector in the scope
  *   of the root module.
  * @returns The message graph.
- * @throws {ChoError} When a topic is invalid, or when a middleware or an error
- *   handler is invalid or cannot be created.
+ * @throws {ChoError} When a topic is invalid, when a middleware or an error
+ *   handler is invalid or cannot be created, or when a `@Doc` gives a schema
+ *   to the reply of a handler whose contract has one.
  */
 export async function build_message_graph(
   injector: Injector,
@@ -295,6 +301,13 @@ export async function build_message_graph(
         methods: methods.map(([m, declared]) => {
           const where = `method ${m.name} of controller ${name}`;
           const topic = normalize_topic(declared.topic, where);
+          // One reply has one schema: the contract says it.
+          if (declared.contract?.reply && doc_of(m.meta)?.reply?.schema) {
+            throw message_error(
+              "CHO_MESSAGE_INVALID_OPTION",
+              `@Doc() on ${where}: the schema of its reply is the one of its contract. Remove "schema" from the "reply" option`,
+            );
+          }
           return {
             m,
             contract: declared.contract,
@@ -320,6 +333,7 @@ export async function build_message_graph(
       feature_topic(),
       await create_middlewares(meta.middlewares),
       await error_handler(meta.errorHandler),
+      doc_of(meta.options),
     );
 
     for (const { ctrl, topic: controller_topic, methods } of controllers) {
@@ -329,6 +343,7 @@ export async function build_message_graph(
         await create_middlewares(ctrl.middlewares),
         await error_handler(ctrl.errorHandler),
         instance,
+        doc_of(ctrl.options),
       );
 
       for (const { m, topic: method_topic, contract } of methods) {
@@ -357,6 +372,7 @@ export async function build_message_graph(
             args,
             validation !== undefined,
             contract,
+            doc_of(m.meta),
           ),
         );
       }

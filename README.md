@@ -46,6 +46,9 @@ and efficient way to define the structure of an application.
   contract gives the two sides of a message their types.
 - **OpenAPI.** The [document of an application](./extras/openapi/README.md), and
   its page, are made from its code.
+- **AsyncAPI.** The same for messages: the
+  [document of the consumers](./extras/asyncapi/README.md) of an application,
+  and a page that needs nothing but a browser.
 - **Testable with no server.** An application is a function that takes a
   `Request`, and a test replaces any provider with a fake.
 - **A command-line tool.** [`cho`](./cli/README.md) creates a workspace, adds
@@ -235,6 +238,7 @@ description.
 | [`@chojs/vendor-kafka`](./vendor/kafka/README.md)     | [![JSR](https://jsr.io/badges/@chojs/vendor-kafka)](https://jsr.io/@chojs/vendor-kafka)     | Running `@chojs/message` on Apache Kafka (tested on Deno and Bun too) | [specs](./vendor/kafka/specs.md)   |
 | [`@chojs/vendor-nats`](./vendor/nats/README.md)       | [![JSR](https://jsr.io/badges/@chojs/vendor-nats)](https://jsr.io/@chojs/vendor-nats)       | Running `@chojs/message` on [NATS](https://nats.io), with replies     | [specs](./vendor/nats/specs.md)    |
 | [`@chojs/openapi`](./extras/openapi/README.md)        | [![JSR](https://jsr.io/badges/@chojs/openapi)](https://jsr.io/@chojs/openapi)               | The OpenAPI document of a `@chojs/web` application, and its page      | [specs](./extras/openapi/specs.md) |
+| [`@chojs/asyncapi`](./extras/asyncapi/README.md)      | [![JSR](https://jsr.io/badges/@chojs/asyncapi)](https://jsr.io/@chojs/asyncapi)             | The AsyncAPI document of a `@chojs/message` application, and its page | [specs](./extras/asyncapi/specs.md) |
 | [`@chojs/dev`](./extras/dev/README.md)                | [![JSR](https://jsr.io/badges/@chojs/dev)](https://jsr.io/@chojs/dev)                       | Development tools: the endpoints of an application, and its graph     | [specs](./extras/dev/specs.md)     |
 | [`@chojs/prompt`](./extras/prompt/README.md)          | [![JSR](https://jsr.io/badges/@chojs/prompt)](https://jsr.io/@chojs/prompt)                 | Questions in a terminal: a text, a yes or no, a choice of a list      | [specs](./extras/prompt/specs.md)  |
 | [`@chojs/cli`](./cli/README.md)                       | [![JSR](https://jsr.io/badges/@chojs/cli)](https://jsr.io/@chojs/cli)                       | `cho`, the command-line tool of the framework                         | [specs](./cli/specs.md)            |

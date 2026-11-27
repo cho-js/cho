@@ -180,6 +180,40 @@ export type ChoMessageArgsDecorator<P extends unknown[]> = {
   ): void;
 };
 
+/** What a handler replies, as documented with `@Doc`. */
+export type ChoMessageDocReply = {
+  /** What the reply means. */
+  readonly description?: string;
+  /**
+   * The schema of the reply: a validator. It only documents: it is not run.
+   * A handler of a contract takes it from the contract.
+   */
+  readonly schema?: ChoValidator;
+};
+
+/**
+ * The options of `@Doc`: what the code cannot tell about a handler, a
+ * controller or a feature module, for the documentation of the application.
+ */
+export type ChoMessageDoc = {
+  /** One line about what the handler does with the message. On a handler only. */
+  readonly summary?: string;
+  /** A longer text. On a handler only. */
+  readonly description?: string;
+  /** What the handler replies. On a handler only. */
+  readonly reply?: ChoMessageDocReply;
+  /**
+   * The id of the operation. On a handler only. Default, for what generates
+   * the documentation: the controller and the method,
+   * `OrdersController.created`.
+   */
+  readonly operationId?: string;
+  /** The tags of the handlers under it. */
+  readonly tags?: readonly string[];
+  /** Whether it is left out of the documentation. */
+  readonly hidden?: boolean;
+};
+
 /** What failed the validation of a message: given to `onInvalid`. */
 export type ChoMessageInvalid = {
   /** The source of the argument that is not valid. */

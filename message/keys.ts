@@ -10,7 +10,7 @@
  */
 
 import type { Contract } from "./contract.ts";
-import type { ChoMessageArg } from "./types.ts";
+import type { ChoMessageArg, ChoMessageDoc } from "./types.ts";
 
 /** The topic of a handler method, written by `@Subscribe`. */
 export const SUBSCRIBE: unique symbol = Symbol.for("chojs.message.subscribe");
@@ -60,4 +60,17 @@ export type HandlerArgs = {
  */
 export function handler_args(record: object): HandlerArgs | undefined {
   return (record as { readonly [ARGS]?: HandlerArgs })[ARGS];
+}
+
+/** The documentation of a class or of a method, written by `@Doc`. */
+export const DOC: unique symbol = Symbol.for("chojs.message.doc");
+
+/**
+ * The documentation a record declares, if any.
+ *
+ * @param record The metadata of a method, or the options of a class.
+ * @returns What `@Doc` wrote, or `undefined`.
+ */
+export function doc_of(record: object): ChoMessageDoc | undefined {
+  return (record as { readonly [DOC]?: ChoMessageDoc })[DOC];
 }

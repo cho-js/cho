@@ -33,6 +33,7 @@ a route.
   - [Validation](#validation)
   - [Contracts](#contracts)
   - [Sending messages](#sending-messages)
+  - [Documenting the handlers](#documenting-the-handlers)
   - [Telling who asked](#telling-who-asked)
   - [Middlewares](#middlewares)
   - [Error handling](#error-handling)
@@ -494,6 +495,45 @@ A request rejects when it has no good answer:
 | No answer came in time                             | `CHO_MESSAGE_REQUEST_TIMEOUT`        |
 | The reply is not JSON, or its validator refused it | `CHO_MESSAGE_UNEXPECTED_REPLY`       |
 | The broker has no replies (Kafka)                  | `CHO_MESSAGE_NO_REPLIES`             |
+
+### Documenting the handlers
+
+`@Doc` says what the code cannot tell about a handler, a controller or a feature
+module. [`@chojs/asyncapi`](../extras/asyncapi/README.md) makes the AsyncAPI
+document of the application from it, and from what the handlers declare: their
+topics, their arguments and their contracts.
+
+```ts
+@Doc({ tags: ["orders"] })
+@Controller({ topic: "orders" })
+class OrdersController {
+  @Doc({
+    summary: "The price of an order",
+    reply: { description: "The price, in cents", schema: Price },
+  })
+  @Subscribe("price")
+  @Args(Value(OrderId))
+  price(order: OrderId) {
+    return this.prices.of(order.id);
+  }
+}
+```
+
+| Option        | On                                 | Holds                                                   |
+| ------------- | ---------------------------------- | ------------------------------------------------------- |
+| `summary`     | a handler                          | one line about what the handler does with the message   |
+| `description` | a handler                          | a longer text                                           |
+| `reply`       | a handler                          | what it replies: a `description`, and a `schema`        |
+| `operationId` | a handler                          | the id of the operation; default: the class, the method |
+| `tags`        | a handler, a controller, a feature | the tags of the handlers under it, added up             |
+| `hidden`      | a handler, a controller, a feature | whether it is left out of the documentation             |
+
+- It changes nothing in how a message is handled: the `schema` of a reply is not
+  run.
+- A handler of a contract takes the schema of its reply from the contract. A
+  `reply.schema` next to it is a mistake, and the application is not created.
+- What is declared is on the graph of the application: `doc` of each feature,
+  controller and handler of `app.graph`.
 
 ### Telling who asked
 

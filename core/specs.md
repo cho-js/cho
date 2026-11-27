@@ -843,6 +843,21 @@ Runtime helpers that work on every runtime:
 - `is_validator(value)`, `run_validator(validator, value)`, `to_issues(issues)`
   and `error_issues(error)`: what a CHO module does with a validator (section
   5.4).
+- `Schemas`: the JSON Schemas of the validators of one document. It is what the
+  packages that document an application share, `@chojs/openapi` and
+  `@chojs/asyncapi`. `new Schemas(target, toJsonSchema, log)` takes the dialect
+  of the document (`"draft-2020-12"` or `"draft-07"`, type `SchemaTarget`), the
+  function of the application for a validator that gives no schema (type
+  `ToJsonSchema`), and a debug logger. `of(validator, io, where)` gives the
+  schema of a validator, for what it takes (`"input"`) or for what it gives
+  (`"output"`, type `SchemaIo`): from the validator when it implements
+  [Standard JSON Schema](https://standardschema.dev/json-schema), then from the
+  function, and `undefined` when neither has one, which is logged. A validator
+  is converted once for each direction, and each use gets a copy. A schema
+  cannot be written in a document with its definitions (`$defs`, `definitions`):
+  they are moved to `components`, which the document writes as its
+  `components.schemas`, and the references are rewritten. `JsonSchema` is the
+  type of a schema, a plain object.
 
 ### 3.4 `@chojs/core/utils/test_utils`
 
@@ -859,6 +874,9 @@ decorator syntax itself):
 - `with_env()` runs a function with environment variables set;
 - `loose()` bypasses parameter types;
 - `standard_schema()` makes a Standard Schema by hand, with no library;
+- `parse_validator()`, `json_schema_validator()` and `json_schema_only()` make
+  the validators a document is tested with: one with no schema, and two that say
+  their own JSON Schema;
 - `check_codes()` compares the error codes of a package with the table of its
   document and with its tests (section 4.4).
 
