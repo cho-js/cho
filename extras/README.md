@@ -59,8 +59,8 @@ One yes: it belongs here. Two noes: it does not.
 3. **It asks nothing of an application that does not use it.** No change in
    `@chojs/web`, `@chojs/command` or `@chojs/message` is made only for an extra
    to work, apart from exposing what it has to read, and from what an
-   application declares for it: `@Doc` of `@chojs/web` is where an application
-   says what its code cannot tell.
+   application declares for it: `@Doc` of `@chojs/web`, and of `@chojs/message`,
+   is where an application says what its code cannot tell.
 4. **It says which runtimes it runs on.** All of those of the package it reads,
    or of the package that is built on it, unless it documents why not.
 5. **Small dependencies are written, not installed.** An external dependency
@@ -81,11 +81,12 @@ One yes: it belongs here. Two noes: it does not.
 
 ## Packages
 
-| Package                                 | What it gives                                                    |
-| --------------------------------------- | ---------------------------------------------------------------- |
-| [`@chojs/openapi`](./openapi/README.md) | The OpenAPI document of a `@chojs/web` application, and its page |
-| [`@chojs/dev`](./dev/README.md)         | The list of its endpoints, and its graph, drawn on a page        |
-| [`@chojs/prompt`](./prompt/README.md)   | Questions in a terminal: a text, a yes or no, a choice of a list |
+| Package                                   | What it gives                                                         |
+| ----------------------------------------- | --------------------------------------------------------------------- |
+| [`@chojs/openapi`](./openapi/README.md)   | The OpenAPI document of a `@chojs/web` application, and its page      |
+| [`@chojs/asyncapi`](./asyncapi/README.md) | The AsyncAPI document of a `@chojs/message` application, and its page |
+| [`@chojs/dev`](./dev/README.md)           | The list of its endpoints, and its graph, drawn on a page             |
+| [`@chojs/prompt`](./prompt/README.md)     | Questions in a terminal: a text, a yes or no, a choice of a list      |
 
 ## When this folder grows
 

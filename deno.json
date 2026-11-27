@@ -16,6 +16,7 @@
     "./vendor/kafka",
     "./vendor/nats",
     "./extras/openapi",
+    "./extras/asyncapi",
     "./extras/dev",
     "./extras/prompt",
     "./cli"

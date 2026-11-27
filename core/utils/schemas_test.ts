@@ -1,40 +1,60 @@
 /**
- * Tests for `schema.ts`: a validator gives its schema, or the application
+ * Tests for `schemas.ts`: a validator gives its schema, or the application
  * does, or there is none; and a schema is made one that can be written
  * anywhere in a document.
  */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { debuglog } from "@chojs/core/utils";
-import { capture, loose, with_env } from "@chojs/core/utils/test_utils";
-import { Schemas, type ToJsonSchema } from "./schema.ts";
-import { plain, schema_only, standard } from "./testing.ts";
+import { debuglog } from "./debuglog.ts";
+import { Schemas, type ToJsonSchema } from "./schemas.ts";
+import {
+  capture,
+  json_schema_only,
+  json_schema_validator,
+  loose,
+  parse_validator,
+  with_env,
+} from "./test_utils.ts";
 
 /** The schemas of a document, with a logger that is off. */
 function schemas(to_json_schema?: ToJsonSchema) {
-  return new Schemas(to_json_schema, debuglog("cho:openapi"));
+  return new Schemas("draft-2020-12", to_json_schema, debuglog("cho:test"));
 }
 
 describe("Schemas.of, where a schema comes from", () => {
   it("asks a validator that implements Standard JSON Schema, for the direction", () => {
     const calls: string[] = [];
-    const validator = standard({ type: "string" }, { type: "number" }, calls);
+    const validator = json_schema_validator({ type: "string" }, {
+      type: "number",
+    }, calls);
     const all = schemas();
     assert.deepEqual(all.of(validator, "input", "x"), { type: "string" });
     assert.deepEqual(all.of(validator, "output", "x"), { type: "number" });
     assert.deepEqual(calls, ["input draft-2020-12", "output draft-2020-12"]);
   });
 
+  it("asks for the dialect of the document", () => {
+    const calls: string[] = [];
+    const validator = json_schema_validator(
+      { type: "string" },
+      undefined,
+      calls,
+    );
+    const all = new Schemas("draft-07", undefined, debuglog("cho:test"));
+    assert.deepEqual(all.of(validator, "input", "x"), { type: "string" });
+    assert.deepEqual(calls, ["input draft-07"]);
+  });
+
   it("asks a Standard Schema that has no parse method", () => {
-    const validator = schema_only({ type: "string" });
+    const validator = json_schema_only({ type: "string" });
     const all = schemas();
     assert.deepEqual(all.of(validator, "input", "x"), { type: "string" });
     assert.deepEqual(all.of(validator, "output", "x"), { type: "string" });
   });
 
   it("asks the application for a validator that gives none", () => {
-    const validator = plain();
+    const validator = parse_validator();
     const seen: unknown[] = [];
     const all = schemas((given, io) => {
       seen.push([given === validator, io]);
@@ -47,18 +67,24 @@ describe("Schemas.of, where a schema comes from", () => {
 
   it("asks the validator first, then the application", () => {
     const all = schemas(() => ({ type: "number" }));
-    assert.deepEqual(all.of(standard({ type: "string" }), "input", "x"), {
-      type: "string",
-    });
+    assert.deepEqual(
+      all.of(json_schema_validator({ type: "string" }), "input", "x"),
+      {
+        type: "string",
+      },
+    );
   });
 
   it("gives nothing for a validator nobody knows", () => {
-    assert.equal(schemas().of(plain(), "input", "x"), undefined);
-    assert.equal(schemas(() => undefined).of(plain(), "input", "x"), undefined);
+    assert.equal(schemas().of(parse_validator(), "input", "x"), undefined);
+    assert.equal(
+      schemas(() => undefined).of(parse_validator(), "input", "x"),
+      undefined,
+    );
     // what is not a schema is not one
     for (const not_a_schema of ["string", null, 7, []]) {
       assert.equal(
-        schemas(() => loose(not_a_schema)).of(plain(), "input", "x"),
+        schemas(() => loose(not_a_schema)).of(parse_validator(), "input", "x"),
         undefined,
       );
     }
@@ -93,7 +119,9 @@ describe("Schemas.of, where a schema comes from", () => {
 
   it("converts a validator once for each direction", () => {
     const calls: string[] = [];
-    const validator = standard({ type: "string" }, { type: "string" }, calls);
+    const validator = json_schema_validator({ type: "string" }, {
+      type: "string",
+    }, calls);
     const all = schemas();
     all.of(validator, "input", "a");
     all.of(validator, "input", "b");
@@ -103,7 +131,7 @@ describe("Schemas.of, where a schema comes from", () => {
     // also one that has no schema
     let asked = 0;
     const none = schemas(() => void asked++);
-    const unknown = plain();
+    const unknown = parse_validator();
     none.of(unknown, "input", "a");
     none.of(unknown, "input", "b");
     assert.equal(asked, 1);
@@ -111,7 +139,7 @@ describe("Schemas.of, where a schema comes from", () => {
 
   it("gives each use a copy, and leaves the schema of the application as it is", () => {
     const given = { $schema: "x", type: "object", properties: { a: {} } };
-    const validator = standard(given);
+    const validator = json_schema_validator(given);
     const all = schemas();
     const first = all.of(validator, "input", "x")!;
     const second = all.of(validator, "input", "x")!;
@@ -124,11 +152,11 @@ describe("Schemas.of, where a schema comes from", () => {
 
   it("logs a validator with no schema, and a conversion that failed", async () => {
     const { output } = await capture(() => {
-      with_env({ CHO_DEBUG: undefined, CHO_DEBUGLOG: "cho:openapi" }, () => {
-        const all = new Schemas(() => {
+      with_env({ CHO_DEBUG: undefined, CHO_DEBUGLOG: "cho:test" }, () => {
+        const all = new Schemas("draft-2020-12", () => {
           throw new Error("boom");
-        }, debuglog("cho:openapi"));
-        all.of(plain(), "input", "Users.get, query page");
+        }, debuglog("cho:test"));
+        all.of(parse_validator(), "input", "Users.get, query page");
       });
       return Promise.resolve();
     });
@@ -147,7 +175,7 @@ describe("Schemas.of, where a schema comes from", () => {
 describe("Schemas.of, a schema for a document", () => {
   it("removes $schema", () => {
     const schema = schemas().of(
-      standard({
+      json_schema_validator({
         $schema: "https://json-schema.org/draft/2020-12/schema",
         type: "string",
       }),
@@ -160,7 +188,7 @@ describe("Schemas.of, a schema for a document", () => {
   it("moves the definitions to the components, and rewrites the references", () => {
     const all = schemas();
     const schema = all.of(
-      standard({
+      json_schema_validator({
         type: "object",
         properties: {
           owner: { $ref: "#/$defs/User" },
@@ -199,7 +227,7 @@ describe("Schemas.of, a schema for a document", () => {
   it("reads the definitions of an older draft too", () => {
     const all = schemas();
     const schema = all.of(
-      standard({
+      json_schema_validator({
         $ref: "#/definitions/User",
         definitions: { User: { type: "object" } },
       }),
@@ -213,7 +241,7 @@ describe("Schemas.of, a schema for a document", () => {
   it("keeps one component for one schema, and two for two with one name", () => {
     const all = schemas();
     const with_user = (user: Record<string, unknown>) =>
-      standard({ $ref: "#/$defs/User", $defs: { User: user } });
+      json_schema_validator({ $ref: "#/$defs/User", $defs: { User: user } });
     const same = { type: "object", properties: { id: { type: "string" } } };
 
     assert.deepEqual(all.of(with_user(same), "input", "a"), {
@@ -235,7 +263,7 @@ describe("Schemas.of, a schema for a document", () => {
   it("gives a component a name OpenAPI accepts", () => {
     const all = schemas();
     const schema = all.of(
-      standard({
+      json_schema_validator({
         $ref: "#/$defs/a~1b%20c",
         $defs: { "a/b c": { type: "string" } },
       }),
@@ -249,7 +277,7 @@ describe("Schemas.of, a schema for a document", () => {
   it("makes a component of a schema that refers to itself", () => {
     const all = schemas();
     const schema = all.of(
-      standard({
+      json_schema_validator({
         type: "object",
         properties: { children: { type: "array", items: { $ref: "#" } } },
       }),
@@ -272,7 +300,7 @@ describe("Schemas.of, a schema for a document", () => {
 
   it("leaves other references as they are", () => {
     const schema = schemas().of(
-      standard({ $ref: "https://example.com/user.json" }),
+      json_schema_validator({ $ref: "https://example.com/user.json" }),
       "input",
       "x",
     );
@@ -284,7 +312,10 @@ describe("Schemas.resolve", () => {
   it("follows a reference to a component", () => {
     const all = schemas();
     const schema = all.of(
-      standard({ $ref: "#/$defs/Page", $defs: { Page: { type: "object" } } }),
+      json_schema_validator({
+        $ref: "#/$defs/Page",
+        $defs: { Page: { type: "object" } },
+      }),
       "input",
       "x",
     )!;

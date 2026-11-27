@@ -6,6 +6,8 @@
  *   key (`keys.ts`), which the graph builder reads (see `build-graph.ts`).
  * - `@Args` declares the arguments of a handler. It writes them under the
  *   private `ARGS` key.
+ * - `@Doc` declares what the documentation of the application says about a
+ *   handler, a controller or a feature module, under the private `DOC` key.
  * - `@Module` and `@Controller` are the core's decorators, with the `topic`
  *   option of `@chojs/message`. They accept no other option.
  * - `@Middlewares` and `@Catch` declare the middlewares and the error handler
@@ -34,7 +36,7 @@ import {
   set_middlewares,
   type WithDependencies,
 } from "@chojs/core/di";
-import { describe } from "@chojs/core/utils";
+import { describe, is_validator } from "@chojs/core/utils";
 import { Value } from "./args.ts";
 import {
   type ChoMessageContractDecorator,
@@ -43,6 +45,8 @@ import {
 } from "./contract.ts";
 import {
   ARGS,
+  DOC,
+  doc_of,
   handler_args,
   type HandlerArgs,
   SUBSCRIBE,
@@ -54,6 +58,7 @@ import type {
   ChoMessageArg,
   ChoMessageArgsDecorator,
   ChoMessageArgValues,
+  ChoMessageDoc,
   ChoMessageErrorHandler,
   ChoMessageMiddleware,
 } from "./types.ts";
@@ -449,4 +454,124 @@ export function Args<const A extends readonly ChoMessageArg[]>(
     });
   };
   return decorate as ChoMessageArgsDecorator<ChoMessageArgValues<A>>;
+}
+
+/** The options of `@Doc` that are for a handler only. */
+const HANDLER_DOC = ["summary", "description", "reply", "operationId"] as const;
+
+/**
+ * Check the options of `@Doc` that have a shape of their own.
+ *
+ * @throws {ChoError} When `operationId` or `reply` is not what it should be.
+ */
+function assert_doc(options: ChoMessageDoc): void {
+  const { operationId, reply } = options;
+  if (
+    operationId !== undefined &&
+    (typeof operationId !== "string" || operationId === "")
+  ) {
+    throw message_error(
+      "CHO_MESSAGE_INVALID_OPTION",
+      `@Doc(): operationId must be a non-empty string, got ${
+        describe(operationId)
+      }`,
+    );
+  }
+  if (reply === undefined) {
+    return;
+  }
+  if (typeof reply !== "object" || reply === null || Array.isArray(reply)) {
+    throw message_error(
+      "CHO_MESSAGE_INVALID_OPTION",
+      `@Doc(): reply must be an object, such as { description: "The price", schema: Price }, got ${
+        describe(reply)
+      }`,
+    );
+  }
+  assert_known_options("@Doc(): reply", reply, ["description", "schema"]);
+  if (reply.schema !== undefined && !is_validator(reply.schema)) {
+    throw message_error(
+      "CHO_MESSAGE_INVALID_OPTION",
+      `@Doc(): the schema of reply must be a validator (a Standard Schema, or an object with a parse method), got ${
+        describe(reply.schema)
+      }`,
+    );
+  }
+}
+
+/**
+ * Describe a handler, a controller or a feature module for the documentation
+ * of the application, such as an AsyncAPI document. It says what the code
+ * cannot tell, and changes nothing in how a message is handled.
+ *
+ * What is declared is exposed on the graph of the application (`app.graph`),
+ * as the `doc` of the feature, of the controller and of the handler.
+ *
+ * @param options The description: `summary`, `description`, `reply` and
+ *   `operationId` on a handler; `tags` and `hidden` on a handler, a
+ *   controller or a feature module.
+ * @returns A class or method decorator.
+ * @throws {ChoError} When an option is unknown or invalid, when a handler
+ *   option is given on a class, or when the class or the method already has
+ *   `@Doc`.
+ * @throws {ChoError} When applied to anything other than a class or a
+ *   public, non-static, string-named method.
+ *
+ * @example
+ * ```ts
+ * @Doc({ tags: ["orders"] })
+ * @Controller({ topic: "orders" })
+ * class OrdersController {
+ *   @Doc({
+ *     summary: "The price of an order",
+ *     reply: { description: "The price, in cents", schema: Price },
+ *   })
+ *   @Subscribe("price")
+ *   @Args(Value(OrderId))
+ *   price(order: OrderId) {
+ *     return this.prices.of(order.id);
+ *   }
+ * }
+ * ```
+ */
+export function Doc(options: ChoMessageDoc): ChoClassOrMethodDecorator {
+  assert_known_options("@Doc()", options, [
+    "description",
+    "hidden",
+    "operationId",
+    "reply",
+    "summary",
+    "tags",
+  ]);
+  assert_doc(options);
+  return (target, context, descriptor) => {
+    const meta = decorated_target("@Doc()", target, context, descriptor);
+    let what: string;
+    if (
+      context === undefined ||
+      (typeof context === "object" && context.kind === "class")
+    ) {
+      what = `class ${describe(target)}`;
+      for (const key of HANDLER_DOC) {
+        if (key in options) {
+          throw message_error(
+            "CHO_MESSAGE_INVALID_OPTION",
+            `@Doc(): option ${
+              JSON.stringify(key)
+            } is for a handler, not for a class (${what})`,
+          );
+        }
+      }
+    } else {
+      const { name } = decorated_method("@Doc()", target, context, descriptor);
+      what = `method ${String(name)}`;
+    }
+    if (doc_of(read_metadata_object(meta) ?? {})) {
+      throw message_error(
+        "CHO_MESSAGE_DUPLICATE_DECORATOR",
+        `Cannot add @Doc() to ${what}: it already has one.`,
+      );
+    }
+    add_to_metadata_object(meta, { [DOC]: Object.freeze({ ...options }) });
+  };
 }

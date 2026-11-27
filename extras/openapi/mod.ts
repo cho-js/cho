@@ -40,7 +40,7 @@ export {
   type DocsUi,
   UI_VERSIONS,
 } from "./page.ts";
-export type { SchemaIo, ToJsonSchema } from "./schema.ts";
+export type { SchemaIo, ToJsonSchema } from "@chojs/core/utils";
 export type * from "./types.ts";
 
 /** The codes of the errors of this package. */

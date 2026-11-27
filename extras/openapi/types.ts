@@ -6,8 +6,11 @@
  * @module
  */
 
-/** A JSON Schema, as a plain object. */
-export type JsonSchema = { [keyword: string]: unknown };
+import type { JsonSchema } from "@chojs/core/utils";
+
+// A JSON Schema, as a plain object: the type of the core, which turns the
+// validators of an application into schemas.
+export type { JsonSchema };
 
 /** The Info Object: what the API is. */
 export type OpenApiInfo = {

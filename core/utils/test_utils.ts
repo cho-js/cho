@@ -13,6 +13,9 @@
  * - {@link tc39} calls it the TC39 way: `(method, context)`.
  *
  * {@link standard_schema} makes a Standard Schema by hand, with no library.
+ * {@link parse_validator}, {@link json_schema_validator} and
+ * {@link json_schema_only} make the validators a document is tested with:
+ * one with no schema, and two that say their own JSON Schema.
  * {@link with_env} sets environment variables for the duration of a test.
  * {@link check_codes} checks the error codes of a package against its
  * documentation and its tests.
@@ -22,7 +25,8 @@
 
 import { read_method_metadata } from "../di/metadata.ts";
 import type { Ctr } from "../di/types.ts";
-import type { StandardSchemaV1 } from "../validator.ts";
+import type { ChoValidator, StandardSchemaV1 } from "../validator.ts";
+import type { JsonSchema } from "./schemas.ts";
 
 /** Bypass the parameter types, to pass the values JS callers can. */
 // deno-lint-ignore no-explicit-any
@@ -311,4 +315,71 @@ export function standard_schema<Output, Input = unknown>(
     | Promise<StandardSchemaV1.Result<Output>>,
 ): StandardSchemaV1<Input, Output> {
   return { "~standard": { version: 1, vendor: "test", validate } };
+}
+
+/**
+ * A validator with no schema: an object with a `parse` method, which gives
+ * every value as it is.
+ *
+ * @returns The validator.
+ */
+export function parse_validator(): ChoValidator {
+  return { parse: (value) => value };
+}
+
+/**
+ * A validator that implements Standard JSON Schema, as a Zod schema does: it
+ * has a `parse` method, and it says its own JSON Schema.
+ *
+ * @param input The schema of what it takes.
+ * @param output The schema of what it gives. Default: the same.
+ * @param calls Each conversion is recorded there, as its direction and the
+ *   dialect that was asked for: `"input draft-07"`.
+ * @returns The validator.
+ */
+export function json_schema_validator(
+  input: JsonSchema,
+  output: JsonSchema = input,
+  calls: string[] = [],
+): ChoValidator {
+  const convert =
+    (io: "input" | "output", schema: JsonSchema) =>
+    (options: { target: string }) => {
+      calls.push(`${io} ${options.target}`);
+      return schema;
+    };
+  return loose({
+    parse: (value: unknown) => value,
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      jsonSchema: {
+        input: convert("input", input),
+        output: convert("output", output),
+      },
+    },
+  });
+}
+
+/**
+ * A Standard Schema with no `parse` method, as a schema of Valibot or
+ * ArkType: it validates, and it says its own JSON Schema.
+ *
+ * @param schema The schema of what it takes, and of what it gives.
+ * @param valid Whether a value is valid. Default: every value is.
+ * @returns The validator.
+ */
+export function json_schema_only(
+  schema: JsonSchema,
+  valid: (value: unknown) => boolean = () => true,
+): ChoValidator {
+  return {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate: (value: unknown) =>
+        valid(value) ? { value } : { issues: [{ message: "not valid" }] },
+      jsonSchema: { input: () => schema, output: () => schema },
+    },
+  } as ChoValidator;
 }

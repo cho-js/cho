@@ -4,7 +4,8 @@
  *
  * `compile_routes` (`routes.ts`) turns it into the flat list of routes a
  * linker subscribes to. The tree itself is kept on `ChoMessage.graph`, for
- * introspection (listing the topics, generating documentation).
+ * introspection (listing the topics, generating documentation): each node
+ * has the `doc` that `@Doc` declared.
  *
  * `build_message_graph` (`build-graph.ts`) builds it from an injector:
  *
@@ -19,6 +20,7 @@
 import type { Contract } from "./contract.ts";
 import type {
   ChoMessageArg,
+  ChoMessageDoc,
   ChoMessageErrorHandlerFn,
   ChoMessageHandler,
   ChoMessageMiddlewareFn,
@@ -26,10 +28,14 @@ import type {
 
 export type { ChoMessageContext } from "./context.ts";
 export type { Contract } from "./contract.ts";
+// For what reads a graph, or is given contracts: whether a value is one.
+export { is_contract } from "./contract.ts";
 export type {
   ChoMessageArg,
   ChoMessageArgInfo,
   ChoMessageArgSource,
+  ChoMessageDoc,
+  ChoMessageDocReply,
   ChoMessageErrorHandlerFn,
   ChoMessageHandler,
   ChoMessageMiddlewareFn,
@@ -51,6 +57,8 @@ export abstract class NodeRef {
   readonly middlewares: ChoMessageMiddlewareFn[];
   /** The error handler of the node, or `null` when it has none. */
   readonly errorHandler: ErrorHandlerRef;
+  /** What `@Doc` declares about the node; an empty object when there is none. */
+  readonly doc: ChoMessageDoc;
 
   /**
    * Create a node.
@@ -58,15 +66,18 @@ export abstract class NodeRef {
    * @param topic The topic of the node, relative to its parent.
    * @param middlewares The middlewares of the node.
    * @param errorHandler The error handler of the node, or `null`.
+   * @param doc What `@Doc` declares about the node. Default: nothing.
    */
   constructor(
     topic: string,
     middlewares: ChoMessageMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
+    doc: ChoMessageDoc = {},
   ) {
     this.topic = topic;
     this.middlewares = middlewares;
     this.errorHandler = errorHandler;
+    this.doc = doc;
   }
 }
 
@@ -110,6 +121,7 @@ export class MethodRef extends NodeRef {
    * @param validated Whether the validation middleware covers the handler.
    *   Default: `false`.
    * @param contract The contract of the handler. Default: none.
+   * @param doc What `@Doc` declares about the handler. Default: nothing.
    */
   constructor(
     name: string,
@@ -120,8 +132,9 @@ export class MethodRef extends NodeRef {
     args: readonly ChoMessageArg[] = [],
     validated = false,
     contract?: Contract<unknown, unknown>,
+    doc: ChoMessageDoc = {},
   ) {
-    super(topic, middlewares, errorHandler);
+    super(topic, middlewares, errorHandler, doc);
     this.name = name;
     this.handler = handler;
     this.args = args;
@@ -144,14 +157,16 @@ export class ControllerRef extends NodeRef {
    * @param middlewares The middlewares of the controller.
    * @param errorHandler The error handler of the controller, or `null`.
    * @param instance The controller instance.
+   * @param doc What `@Doc` declares about the controller. Default: nothing.
    */
   constructor(
     topic: string,
     middlewares: ChoMessageMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
     instance: object,
+    doc: ChoMessageDoc = {},
   ) {
-    super(topic, middlewares, errorHandler);
+    super(topic, middlewares, errorHandler, doc);
     this.instance = instance;
     this.methods = [];
   }
@@ -168,13 +183,16 @@ export class FeatureRef extends NodeRef {
    * @param topic The topic of the feature, relative to the global prefix.
    * @param middlewares The middlewares of the feature module.
    * @param errorHandler The error handler of the feature module, or `null`.
+   * @param doc What `@Doc` declares about the feature module. Default:
+   *   nothing.
    */
   constructor(
     topic: string,
     middlewares: ChoMessageMiddlewareFn[],
     errorHandler: ErrorHandlerRef,
+    doc: ChoMessageDoc = {},
   ) {
-    super(topic, middlewares, errorHandler);
+    super(topic, middlewares, errorHandler, doc);
     this.controllers = [];
   }
 }

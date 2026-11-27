@@ -6,12 +6,24 @@
  * schema comes from the validator itself, when it implements Standard JSON
  * Schema, or from the `toJsonSchema` function of the application.
  *
+ * It is what the packages that document an application share:
+ * `@chojs/openapi` and `@chojs/asyncapi`. Each asks for the dialect of its
+ * document.
+ *
  * @module
  */
 
-import type { ChoValidator, StandardJSONSchemaV1 } from "@chojs/web";
-import type { Debuglog } from "@chojs/core/utils";
-import type { JsonSchema } from "./types.ts";
+import type { ChoValidator, StandardJSONSchemaV1 } from "../validator.ts";
+import type { Debuglog } from "./debuglog.ts";
+
+/** A JSON Schema, as a plain object. */
+export type JsonSchema = { [keyword: string]: unknown };
+
+/**
+ * The dialect of JSON Schema a validator is asked for: the one of the
+ * document. OpenAPI 3.1 has draft 2020-12, and AsyncAPI 3 has draft-07.
+ */
+export type SchemaTarget = "draft-07" | "draft-2020-12";
 
 /** The direction of a schema: what a validator takes, or what it gives. */
 export type SchemaIo = "input" | "output";
@@ -19,10 +31,10 @@ export type SchemaIo = "input" | "output";
 /**
  * Turns a validator into a JSON Schema: the `toJsonSchema` option.
  *
- * @param validator The validator, as it was given to `Param`, `Query`,
- *   `Header`, `Body`, `Form` or `@Doc`.
- * @param io `"input"` for what a client sends, `"output"` for what a handler
- *   gives.
+ * @param validator The validator, as the application declared it: for an
+ *   argument of a handler, in a contract, or in `@Doc`.
+ * @param io `"input"` for what goes into the validator, `"output"` for what
+ *   it gives.
  * @returns The JSON Schema, or `undefined` when the function does not know
  *   the validator.
  *
@@ -84,6 +96,7 @@ export class Schemas {
   /** The schemas the document refers to: its `components.schemas`. */
   readonly components: Record<string, JsonSchema> = {};
 
+  readonly #target: SchemaTarget;
   readonly #to_json_schema: ToJsonSchema | undefined;
   readonly #log: Debuglog;
   /** The converted schemas: `null` for a validator that has none. */
@@ -95,10 +108,16 @@ export class Schemas {
   readonly #given = new Map<string, string>();
 
   /**
+   * @param target The dialect a validator is asked for.
    * @param to_json_schema The `toJsonSchema` option of the document.
-   * @param log The `cho:openapi` debug logger.
+   * @param log The debug logger of the package that makes the document.
    */
-  constructor(to_json_schema: ToJsonSchema | undefined, log: Debuglog) {
+  constructor(
+    target: SchemaTarget,
+    to_json_schema: ToJsonSchema | undefined,
+    log: Debuglog,
+  ) {
+    this.#target = target;
     this.#to_json_schema = to_json_schema;
     this.#log = log;
   }
@@ -107,8 +126,8 @@ export class Schemas {
    * The schema of a validator.
    *
    * @param validator The validator.
-   * @param io The direction: `"input"` for an argument, `"output"` for a
-   *   response.
+   * @param io The direction: `"input"` for what goes into the validator,
+   *   `"output"` for what it gives.
    * @param where What the schema is for, for the log.
    * @returns A copy of the schema, or `undefined` when the validator has
    *   none.
@@ -157,7 +176,7 @@ export class Schemas {
     if (typeof convert === "function") {
       attempts.push([
         "the validator",
-        () => convert.call(standard, { target: "draft-2020-12" }),
+        () => convert.call(standard, { target: this.#target }),
       ]);
     }
     const to_json_schema = this.#to_json_schema;

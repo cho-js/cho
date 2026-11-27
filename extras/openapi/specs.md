@@ -559,8 +559,8 @@ The page needs a browser that can reach the CDN, or the `assets` option.
 - **Subresource integrity** of the files of the CDN. The versions are exact.
 - **The files of a client in the package**, for an application with no access to
   a CDN: it hosts them, and gives `assets`.
-- **`@chojs/message`**: an AsyncAPI document of the topics would be another
-  extra.
+- **`@chojs/message`**: the AsyncAPI document of the topics is another extra,
+  `@chojs/asyncapi` (`extras/asyncapi/specs.md`).
 
 ## 12. What this changes in the other packages
 
@@ -573,9 +573,16 @@ The page needs a browser that can reach the CDN, or the `assets` option.
   that is created. It is the only way the two routes are added.
 - **Every adapter gains `mount()`**: the built-in router, `@chojs/vendor-hono`
   and `@chojs/vendor-fastify`. It is a required member of `Linked`.
-- **`@chojs/core`: nothing.** The package declares no module, so an application
-  has none of it to configure (`core/specs.md`, section 2.4): it gives `openApi`
-  its options.
+- **`@chojs/core`: no module.** The package declares none, so an application has
+  none of it to configure (`core/specs.md`, section 2.4): it gives `openApi` its
+  options.
+- **`@chojs/core/utils`: the schemas of a document.** The code that turns a
+  validator into a JSON Schema, and moves its definitions to the components
+  (section 2.5), was written here. It is now `Schemas` of `@chojs/core/utils`
+  (`core/specs.md`, section 3.3), since `@chojs/asyncapi` needs it too: what two
+  extras need is in the package they read (`extras/README.md`, rule 2). The
+  package asks it for draft 2020-12, and exports its types, `ToJsonSchema`,
+  `SchemaIo` and `JsonSchema`, as before.
 - **The workspace**: `./extras/openapi` joins the `workspace` of the root
   `deno.json`, the release configuration with the linked versions, and the
   tables of the root `README.md` and of `extras/README.md`. The package has to

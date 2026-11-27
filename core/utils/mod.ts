@@ -1,6 +1,7 @@
 /**
  * Runtime utilities shared by the CHO packages: environment variables, debug
- * logging, runtime detection and readable names for error messages.
+ * logging, runtime detection, readable names for error messages, and the
+ * JSON Schemas of validators.
  *
  * @module
  */
@@ -31,6 +32,13 @@ export {
   to_issues,
   type Validated,
 } from "../validator.ts";
+export {
+  type JsonSchema,
+  type SchemaIo,
+  Schemas,
+  type SchemaTarget,
+  type ToJsonSchema,
+} from "./schemas.ts";
 export { debuglog } from "./debuglog.ts";
 export { is_class, is_class_implement } from "./is.ts";
 export type { Debuglog } from "./debuglog.ts";

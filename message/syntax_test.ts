@@ -23,6 +23,7 @@ import {
   type ChoValidator,
   contract,
   Controller,
+  Doc,
   Header,
   Injectable,
   Key,
@@ -403,9 +404,11 @@ const Echo = contract<string, string>({ topic: "shop.echo" });
 describe("@Subscribe(contract), with decorator syntax", () => {
   const created: NewOrder[] = [];
 
+  @Doc({ tags: ["orders"] })
   @Middlewares(validate())
   @Controller({ topic: "orders" })
   class Orders {
+    @Doc({ summary: "The price of an order", reply: { description: "Cents" } })
     @Subscribe(GetPrice)
     price(order: NewOrder, ctx: ChoMessageContext): Price {
       if (order.id === 404) {
@@ -436,6 +439,17 @@ describe("@Subscribe(contract), with decorator syntax", () => {
 
   @Module({ topic: "shop", controllers: [Orders, Tools] })
   class Shop {}
+
+  it("keeps what @Doc declares, on a class and on a method", async () => {
+    const app = await ChoMessage.create(Shop);
+    const [orders] = app.graph.features[0]!.controllers;
+    assert.deepEqual(orders!.doc, { tags: ["orders"] });
+    assert.deepEqual(orders!.methods[0]!.doc, {
+      summary: "The price of an order",
+      reply: { description: "Cents" },
+    });
+    await app.close();
+  });
 
   it("handles the topic of each contract, and answers a client with typed replies", async () => {
     const app = await ChoMessage.create(Shop, { prefix: "staging" });
